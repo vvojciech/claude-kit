@@ -90,17 +90,24 @@ function htmlBlocks(token: Tokens.HTML, depth: number): Block[] {
   return [code, ...flowBlocks(pre[3] ?? '', token.raw, depth)]
 }
 
-function isBareAlert(token: Token | undefined): boolean {
-  if (token?.type !== 'paragraph') return false
-  const [lead, ...rest] = (token as Tokens.Paragraph).tokens
-  if (lead?.type !== 'text') return false
-  const alert = ALERT.exec((lead as Tokens.Text).text)
-  return alert !== null && (lead as Tokens.Text).text.length === alert[0].length && rest.length === 0
+function alertMarker(token: Token | undefined): string | undefined {
+  if (token?.type !== 'paragraph') return undefined
+  const lead = (token as Tokens.Paragraph).tokens[0]
+  if (lead?.type !== 'text') return undefined
+  return ALERT.exec((lead as Tokens.Text).text)?.[0]
+}
+
+function withoutAlert(tokens: Token[], depth: number): Block[] {
+  const [first, ...others] = tokens
+  const marker = alertMarker(first)
+  if (first === undefined || marker === undefined) return blocksOfTokens(tokens, depth)
+  const body = first.raw.slice(marker.length)
+  const lead = body.trim() === '' ? [] : [{ kind: 'paragraph', source: body, depth } as Block]
+  return [...lead, ...blocksOfTokens(others, depth)]
 }
 
 function quoteBlocks(token: Tokens.Blockquote, depth: number): Block[] {
-  const inside = isBareAlert(token.tokens[0]) ? token.tokens.slice(1) : token.tokens
-  return [{ kind: 'quote', source: token.raw, depth }, ...blocksOfTokens(inside, depth + 1)]
+  return [{ kind: 'quote', source: token.raw, depth }, ...withoutAlert(token.tokens, depth + 1)]
 }
 
 function blocksOfToken(token: Token, depth: number): Block[] {
@@ -139,36 +146,56 @@ function lexed(text: string): Block[] {
   return front ? [front.block, ...blocks] : blocks
 }
 
-const cache = new Map<string, Block[]>()
+export class SizedCache<T> {
+  private readonly entries = new Map<string, T>()
+  private total = 0
 
-let cachedChars = 0
+  constructor(private readonly limit: number) {}
 
-function remember(text: string, blocks: Block[]): Block[] {
-  cache.set(text, blocks)
-  cachedChars += text.length
-  while (cachedChars > CACHE_CHARS && cache.size > 1) {
-    const [oldest] = cache.keys()
-    if (oldest === undefined) break
-    cache.delete(oldest)
-    cachedChars -= oldest.length
+  get(key: string): T | undefined {
+    const found = this.entries.get(key)
+    if (found === undefined) return undefined
+    this.entries.delete(key)
+    this.entries.set(key, found)
+    return found
   }
-  return blocks
+
+  set(key: string, value: T): T {
+    this.entries.set(key, value)
+    this.total += key.length
+    this.evict()
+    return value
+  }
+
+  chars(): number {
+    return this.total
+  }
+
+  keys(): string[] {
+    return [...this.entries.keys()]
+  }
+
+  private evict(): void {
+    for (const oldest of this.entries.keys()) {
+      if (this.total <= this.limit || this.entries.size <= 1) return
+      this.entries.delete(oldest)
+      this.total -= oldest.length
+    }
+  }
 }
+
+const cache = new SizedCache<Block[]>(CACHE_CHARS)
 
 export function blocksOf(text: string): Block[] {
   const cached = cache.get(text)
-  if (cached) {
-    cache.delete(text)
-    cache.set(text, cached)
-    return cached
-  }
+  if (cached) return cached
   try {
-    return remember(text, lexed(text))
+    return cache.set(text, lexed(text))
   } catch {
-    return remember(text, [])
+    return cache.set(text, [])
   }
 }
 
 export function cacheChars(): number {
-  return cachedChars
+  return cache.chars()
 }

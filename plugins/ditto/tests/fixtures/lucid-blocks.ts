@@ -128,7 +128,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "[!TIP]\nRun:",
+      "source": "Run:",
       "depth": 1
     },
     {
@@ -746,6 +746,30 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     {
       "kind": "rule",
       "source": "***",
+      "depth": 0
+    }
+  ],
+  "footnote": [
+    {
+      "kind": "paragraph",
+      "source": "Claim.[^1]",
+      "depth": 0
+    },
+    {
+      "kind": "paragraph",
+      "source": "[^1]: note",
+      "depth": 0
+    }
+  ],
+  "footnoteCode": [
+    {
+      "kind": "paragraph",
+      "source": "[^a]: x\n    indented",
+      "depth": 0
+    },
+    {
+      "kind": "table",
+      "source": "| a |\n|---|\n| 1 |",
       "depth": 0
     }
   ]

@@ -24,4 +24,6 @@ export const CORPUS: Record<string, string> = {
   multiMessageTail: '    bundle add foo',
   setextFinished: 'Title\n---',
   ruleFinished: 'Text\n\n***',
+  footnote: 'Claim.[^1]\n\n[^1]: note',
+  footnoteCode: '[^a]: x\n    indented\n\n| a |\n|---|\n| 1 |',
 }

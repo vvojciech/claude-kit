@@ -1,0 +1,191 @@
+import type { Token } from './vendor/marked.js'
+
+import { settledText, settledTokens } from './holdback'
+import { lexBlocks } from './lexer'
+import { codePiece, footnoteLabels, pieceOf, withFootnoteBodies } from './markdown'
+import type { Block, OutlineEntry, Piece } from './markdown'
+
+export type ParseOptions = { streaming?: boolean }
+
+type Parse = {
+  text: string
+  bodyStart: number
+  stable: Piece[]
+  stableEnd: number
+  hasDefinitions: boolean
+  open: Map<number, Piece>
+  blocks: Block[]
+  outline: OutlineEntry[]
+}
+
+type Front = { piece: Piece; bodyStart: number }
+
+const CACHED_CHARS = 4_000_000
+
+const RECENT = 4
+
+const OPEN_BLOCKS = 2
+
+const FRONT_MATTER_LINES = 200
+
+const FRONT_MATTER_KEY = /^[a-z_][a-z\d_-]*:(?:[ \t]+(.*))?$/
+
+const FRONT_MATTER_LINE = /^(?:[ \t]|- |#|$)/
+
+const FRONT_MATTER_FENCE = /^---[ \t]*$/
+
+const SENTENCE = /\s.*[.!?]$/
+
+const DEFINITION = /^ {0,3}\[[^\]\n]+\]:/m
+
+const cache = new Map<string, Parse>()
+
+let cachedChars = 0
+
+let recent: Parse[] = []
+
+export function parseBlocks(text: string, options: ParseOptions = {}): Block[] {
+  return parsed(text, options.streaming === true).blocks
+}
+
+export function blocksOf(text: string, options: ParseOptions = {}): OutlineEntry[] {
+  return parsed(text, options.streaming === true).outline
+}
+
+export function parseAfresh(text: string, options: ParseOptions = {}): { blocks: Block[]; outline: OutlineEntry[] } {
+  const { blocks, outline } = parseMessage(normalised(text), options.streaming === true, () => undefined)
+  return { blocks, outline }
+}
+
+function normalised(text: string): string {
+  return text.includes('\r') ? text.replace(/\r\n?/g, '\n') : text
+}
+
+function parsed(text: string, streaming: boolean): Parse {
+  const key = `${streaming ? 's' : 'f'}${text}`
+  const hit = cache.get(key)
+  if (hit) {
+    cache.delete(key)
+    cache.set(key, hit)
+    return hit
+  }
+  const parse = parseMessage(normalised(text), streaming, baseFor)
+  remember(key, parse)
+  return parse
+}
+
+function remember(key: string, parse: Parse): void {
+  cache.set(key, parse)
+  cachedChars += key.length
+  while (cachedChars > CACHED_CHARS && cache.size > 1) {
+    const [oldest] = cache.keys()
+    if (oldest === undefined) break
+    cache.delete(oldest)
+    cachedChars -= oldest.length
+  }
+  recent = [parse, ...recent.filter(other => other !== parse)].slice(0, RECENT)
+}
+
+function baseFor(text: string, bodyStart: number): Parse | undefined {
+  let best: Parse | undefined
+  for (const candidate of recent) {
+    if (candidate.bodyStart !== bodyStart || candidate.text.length > text.length || !text.startsWith(candidate.text)) continue
+    if (!best || candidate.stableEnd > best.stableEnd) best = candidate
+  }
+  return best
+}
+
+function parseMessage(text: string, streaming: boolean, findBase: (text: string, bodyStart: number) => Parse | undefined): Parse {
+  const front = frontMatterOf(text)
+  const bodyStart = front?.bodyStart ?? 0
+  const body = bodyStart === 0 ? text : text.slice(bodyStart)
+  const base = findBase(text, bodyStart)
+  const resumeAt = base && !base.hasDefinitions ? base.stableEnd : 0
+  const hasDefinitions = DEFINITION.test(resumeAt === 0 ? body : body.slice(resumeAt))
+  const from = hasDefinitions ? 0 : resumeAt
+  const tokens = lexBlocks(body.slice(from))
+  const split = hasDefinitions ? { settled: [], rest: tokens, length: 0 } : splitSettled(tokens, body.length - from)
+  const pieces = new Pieces(hasDefinitions ? undefined : base?.open, hasDefinitions ? footnoteLabels(body) : undefined)
+  const stable = [...(from === 0 ? [] : (base?.stable ?? [])), ...pieces.of(split.settled, from)]
+  const stableEnd = from + split.length
+  const tail = streaming ? shownPieces(body, stableEnd, pieces) : pieces.of(split.rest, stableEnd)
+  const all = [...(front ? [front.piece] : []), ...stable, ...tail]
+  return { text, bodyStart, stable, stableEnd, hasDefinitions, open: pieces.made, blocks: all.flatMap(piece => piece.blocks), outline: all.flatMap(piece => piece.outline) }
+}
+
+class Pieces {
+  readonly made = new Map<number, Piece>()
+
+  constructor(
+    private readonly known: Map<number, Piece> | undefined,
+    private readonly footnotes: ReadonlySet<string> | undefined,
+  ) {}
+
+  of(tokens: Token[], start: number): Piece[] {
+    let offset = start
+    return withFootnoteBodies(tokens).map(token => {
+      const prior = this.known?.get(offset)
+      const piece = prior?.source === token.raw ? prior : pieceOf(token, this.footnotes)
+      this.made.set(offset, piece)
+      offset += token.raw.length
+      return piece
+    })
+  }
+}
+
+function splitSettled(tokens: Token[], length: number): { settled: Token[]; rest: Token[]; length: number } {
+  const lengths = tokens.map(token => token.raw.length)
+  if (lengths.reduce((sum, raw) => sum + raw, 0) !== length) return { settled: [], rest: tokens, length: 0 }
+  const cut = openBlocksStart(tokens)
+  return { settled: tokens.slice(0, cut), rest: tokens.slice(cut), length: lengths.slice(0, cut).reduce((sum, raw) => sum + raw, 0) }
+}
+
+function openBlocksStart(tokens: Token[]): number {
+  let open = 0
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    if (tokens[i]?.type === 'space') continue
+    open++
+    if (open === OPEN_BLOCKS) return i
+  }
+  return 0
+}
+
+function shownPieces(body: string, stableEnd: number, pieces: Pieces): Piece[] {
+  const shown = settledText(body).slice(stableEnd)
+  return shown === '' ? [] : pieces.of(settledTokens(shown), stableEnd).map(trimmedTo(shown))
+}
+
+function trimmedTo(shown: string): (piece: Piece, index: number, pieces: Piece[]) => Piece {
+  return (piece, index, pieces) => {
+    const before = pieces.slice(0, index).reduce((sum, other) => sum + other.source.length, 0)
+    const source = shown.slice(before, before + piece.source.length)
+    if (source === piece.source) return piece
+    return { ...piece, source, outline: piece.outline.map(entry => (entry.depth === 0 ? { ...entry, source } : entry)) }
+  }
+}
+
+function frontMatterOf(text: string): Front | undefined {
+  if (!text.startsWith('---\n')) return undefined
+  const lines: string[] = []
+  let start = 4
+  while (lines.length < FRONT_MATTER_LINES) {
+    const end = text.indexOf('\n', start)
+    const line = text.slice(start, end === -1 ? undefined : end)
+    if (FRONT_MATTER_FENCE.test(line)) return frontOf(text, lines, end === -1 ? text.length : end + 1)
+    if (end === -1) return undefined
+    lines.push(line)
+    start = end + 1
+  }
+  return undefined
+}
+
+function frontOf(text: string, lines: string[], bodyStart: number): Front | undefined {
+  if (!FRONT_MATTER_KEY.test(lines[0] ?? '') || !lines.every(isFrontMatterLine)) return undefined
+  return { piece: codePiece(text.slice(0, bodyStart), 'yaml', lines.join('\n')), bodyStart }
+}
+
+function isFrontMatterLine(line: string): boolean {
+  const key = FRONT_MATTER_KEY.exec(line)
+  if (key) return !SENTENCE.test(key[1] ?? '')
+  return FRONT_MATTER_LINE.test(line)
+}

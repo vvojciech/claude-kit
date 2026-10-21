@@ -1,53 +1,50 @@
 import type { EngineInterface } from 'claude-code'
 
-export type Tone = { muted: string; text: string; accent: string }
+export type Tone = { muted: string; text: string; accent: string; pointed: string }
 
-export const dark: Tone = { muted: '#a39e94', text: '#d8d5cc', accent: '#e08a68' }
+export type Ground = 'dark' | 'light'
 
-export const light: Tone = { muted: '#625e56', text: '#2e2c27', accent: '#ad4f2c' }
+export const dark: Tone = { muted: '#a39e94', text: '#d8d5cc', accent: '#d4734f', pointed: '#d4734f' }
 
-type Ground = 'dark' | 'light'
+export const light: Tone = { muted: '#625e56', text: '#2e2c27', accent: '#c96442', pointed: '#1c1b18' }
 
 const LIGHT_NAME = /(?:^|[-_ ])light(?:$|[-_ ])/i
+
+const DARK_NAME = /(?:^|[-_ ])dark(?:$|[-_ ])/i
 
 const LIGHT_BACKGROUND_INDEX = new Set([7, 15])
 
 export function groundOfTerminal(colorFgBg: string | undefined): Ground | undefined {
-  const background = Number(colorFgBg?.split(';').at(-1))
-  if (colorFgBg === undefined || Number.isNaN(background)) return undefined
+  if (colorFgBg === undefined || colorFgBg.trim() === '') return undefined
+  const background = Number(colorFgBg.split(';').at(-1))
+  if (Number.isNaN(background)) return undefined
   return LIGHT_BACKGROUND_INDEX.has(background) ? 'light' : 'dark'
 }
 
-export function groundOf(theme: unknown, terminal: Ground | undefined): Ground {
-  if (typeof theme !== 'string' || theme === 'auto') return terminal ?? 'dark'
+export function groundOf(theme: unknown, terminal?: Ground): Ground {
+  if (typeof theme !== 'string') return terminal ?? 'dark'
   if (LIGHT_NAME.test(theme)) return 'light'
-  return 'dark'
+  if (DARK_NAME.test(theme)) return 'dark'
+  return terminal ?? 'dark'
 }
 
 export function toneFor(theme: unknown, terminal?: Ground): Tone {
   return groundOf(theme, terminal) === 'light' ? light : dark
 }
 
-
-function isTone(value: unknown): value is Tone {
-  const tone = value as Partial<Tone> | undefined
-  return typeof tone?.muted === 'string' && typeof tone.text === 'string' && typeof tone.accent === 'string'
-}
-
-async function ownTone($: EngineInterface): Promise<Tone> {
+async function themeName($: EngineInterface): Promise<unknown> {
   const rows = await $.config.list().catch(() => [])
-  const terminal = groundOfTerminal(await $.env.get('COLORFGBG').catch(() => undefined))
-  return toneFor(rows.find(row => row.key === 'theme')?.value, terminal)
+  return rows.find(row => row.key === 'theme')?.value
 }
 
-async function readTone($: EngineInterface): Promise<Tone> {
-  return ownTone($)
+async function terminalGround($: EngineInterface): Promise<Ground | undefined> {
+  return groundOfTerminal(await $.env.get('COLORFGBG').catch(() => undefined))
 }
 
 let current: Promise<Tone> | undefined
 
 export function themeTone($: EngineInterface): Promise<Tone> {
-  current ??= readTone($)
+  current ??= Promise.all([themeName($), terminalGround($)]).then(([theme, terminal]) => toneFor(theme, terminal))
   return current
 }
 

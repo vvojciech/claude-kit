@@ -11,6 +11,8 @@ const INLINE_LIMIT = 20_000
 
 const TABLE_WITH_CODE = /^[^\n]*\|[^\n]*\n[ \t]*\|?[ \t]*:?-[^\n]*\n[\s\S]*?`/
 
+const FOOTNOTE_DEFINITION_LINE = /^ {0,3}\[\^[^\]\s]+\]:/
+
 class BoundedTokenizer extends Tokenizer {
   budget = 0
 
@@ -22,6 +24,11 @@ class BoundedTokenizer extends Tokenizer {
   override del(src: string, maskedSrc: string, prevChar?: string): Tokens.Del | undefined {
     if (this.budget <= 0) return undefined
     return this.spend(src, super.del(src, maskedSrc, prevChar))
+  }
+
+  override def(src: string): Tokens.Def | undefined {
+    if (FOOTNOTE_DEFINITION_LINE.test(src)) return undefined
+    return super.def(src)
   }
 
   override table(src: string): Tokens.Table | undefined {

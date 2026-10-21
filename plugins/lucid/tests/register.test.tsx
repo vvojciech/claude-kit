@@ -1,0 +1,391 @@
+import { describe, expect, test } from 'claude-code/testing'
+import type { AgentInfo, Elements, On } from 'claude-code'
+import type { Engine } from 'claude-code/testing'
+import { dark } from '../hooks/palette'
+
+const STOCK = 'stock row'
+
+const settled = { isRunning: false, isErrored: false, isInterrupted: false, output: { stdout: '' } }
+
+const listing = { tool: 'Bash', input: { command: 'ls hooks' }, ...settled }
+
+const reading = { tool: 'Read', input: { file_path: '/repo/a.ts' }, ...settled }
+
+function stock({ Text }: Pick<Elements['terminal'], 'Text'>) {
+  return <Text>{STOCK}</Text>
+}
+
+function stockBeneath(on: On, cwd: () => string = () => '/repo', agents: () => AgentInfo[] = () => []) {
+  on('ui.render', { component: 'ToolUse' }, async ($, e) => stock($.ui.resolve(e)))
+  on('ui.render', { component: 'ToolGroup' }, async ($, e) => stock($.ui.resolve(e)))
+  on('ui.render', { component: 'ToolResult' }, async ($, e) => stock($.ui.resolve(e)))
+  on('ui.render', { component: 'UserMessage' }, async ($, e) => stock($.ui.resolve(e)))
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e) => stock($.ui.resolve(e)))
+  on('session.cwd', async () => ({ value: cwd() }))
+  on('env.get', async () => ({ value: '/Users/me' }))
+  on('agent.list', async () => ({ value: agents() }))
+}
+
+function agentInfo(status: AgentInfo['status']): AgentInfo {
+  return { id: 'a1', description: 'count ts files', type: 'Explore', status }
+}
+
+const backgroundAgent = {
+  tool: 'Agent',
+  input: { subagent_type: 'Explore', description: 'count ts files', prompt: 'p', run_in_background: true },
+  output: { status: 'async_launched', agentId: 'a1', description: 'count ts files', prompt: 'p', outputFile: '/tmp/o' },
+}
+
+async function launched($: Engine, on: On, call: { tool: string; input: Record<string, unknown>; output: unknown }) {
+  on('tool.call', async () => ({ result: call.output }) as never)
+  await $.tool.call({ tool: call.tool, ...call.input } as never)
+}
+
+async function colourOf(ui: { findAll: (query: { type: 'Text' }) => Promise<ReadonlyArray<{ text?: string; props: Record<string, unknown> }>> }, text: string): Promise<unknown> {
+  const nodes = await ui.findAll({ type: 'Text' })
+  return nodes.find(node => node.text === text && node.props.color !== undefined)?.props.color
+}
+
+async function toolUse($: Engine, props: Record<string, unknown>) {
+  return $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolUse', props: { tool_use_id: 't1', ...listing, ...props } })
+}
+
+async function toolGroup($: Engine, props: Record<string, unknown>) {
+  return $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolGroup', props: { calls: [listing, reading], isActive: false, isExpanded: false, isCallsOnly: true, ...props } })
+}
+
+describe('ToolUse', () => {
+  test('draws a compact row of its own', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, {})
+    expect(await ui.find({ type: 'Text', text: 'Ran' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
+  })
+
+  test('passes to stock when expanded so ctrl+o shows the output', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, { isExpanded: true, output: { stdout: 'a.ts' } })
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeDefined()
+  })
+
+  test('says a failed call failed', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, { input: { command: 'cat x' }, isErrored: true, output: 'Error: Exit code 1\ncat: x: No such file' })
+    expect(await ui.find({ type: 'Text', text: "Couldn't run" })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '✗' })).toBeDefined()
+  })
+
+  test('marks a refused write as refused and leaves the words to its result row', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, { tool: 'Write', input: { file_path: '/repo/out/deny.md' }, isErrored: true, isInterrupted: true, output: 'User rejected tool use' })
+    expect(await ui.find({ type: 'Text', text: 'Denied write' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '⊘' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Wrote' })).toBeUndefined()
+  })
+
+  test('draws a call waiting at the permission dialog as wanted, never as done', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, { tool: 'Write', input: { file_path: '/repo/out/x.md' }, output: undefined })
+    expect(await ui.find({ type: 'Text', text: 'Wants to write' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Wrote' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: '◌' })).toBeDefined()
+  })
+
+  test('passes a running call to stock so its elapsed time and progress stay', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, { isRunning: true, output: undefined })
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeDefined()
+  })
+
+  test('draws a background agent as running while its loop runs, then as done', async ($, on) => {
+    let status: AgentInfo['status'] = 'running'
+    stockBeneath(on, () => '/repo', () => [agentInfo(status)])
+    const running = await toolUse($, backgroundAgent)
+    expect(await running.find({ type: 'Text', text: 'Delegating to Explore' })).toBeDefined()
+    expect(await running.find({ type: 'Text', text: /background/ })).toBeDefined()
+    status = 'completed'
+    const finished = await toolUse($, { tool_use_id: 't2', ...backgroundAgent })
+    expect(await finished.find({ type: 'Text', text: 'Delegated to Explore' })).toBeDefined()
+    expect(await finished.find({ type: 'Text', text: /background/ })).toBeUndefined()
+  })
+
+  test('redraws a background agent row when its loop finishes', async ($, on) => {
+    let status: AgentInfo['status'] = 'running'
+    stockBeneath(on, () => '/repo', () => [agentInfo(status)])
+    on('turn.complete', async () => ({ text: 'done' }))
+    const ui = await toolUse($, backgroundAgent)
+    expect(await ui.find({ type: 'Text', text: 'Delegating to Explore' })).toBeDefined()
+    status = 'completed'
+    await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 'x', agentId: 'a1', reason: 'answer' })
+    expect(await ui.find({ type: 'Text', text: 'Delegated to Explore' })).toBeDefined()
+  })
+
+  test('draws a background agent the engine has dropped with no known end as started, not finished', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, backgroundAgent)
+    expect(await ui.find({ type: 'Text', text: 'Started delegating to Explore' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Delegated to Explore' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: '◐' })).toBeUndefined()
+  })
+
+  test('draws a background agent the engine dropped after it ended as done', async ($, on) => {
+    stockBeneath(on)
+    await taskNotification($, 'a1', 'completed')
+    const ui = await toolUse($, backgroundAgent)
+    expect(await ui.find({ type: 'Text', text: 'Delegated to Explore' })).toBeDefined()
+  })
+
+  test('draws plain detail words in the palette text colour, never the terminal default', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, { tool: 'Grep', input: { pattern: 'x', path: '/repo/hooks' } })
+    const words = (await ui.findAll({ type: 'Text' })).find(node => node.text === ' in ')
+    expect(words?.props.color).toMatch(/^#[0-9a-f]{6}$/i)
+  })
+
+  test('links the path to the file and keeps it unabbreviated outside the project', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, { tool: 'Read', input: { file_path: '/Users/someone/notes.md' } })
+    const link = await ui.find({ type: 'Link' })
+    expect(link?.props.href).toBe('file:///Users/someone/notes.md')
+    expect(await ui.find({ type: 'Text', text: '/Users/someone/notes.md' })).toBeDefined()
+  })
+
+  test('cuts a long path in the middle so the file name stays', async ($, on) => {
+    stockBeneath(on)
+    const path = `/repo/${'very-long-directory/'.repeat(6)}target.ts`
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolUse', viewport: { columns: 50, rows: 20 }, props: { tool_use_id: 't1', ...listing, tool: 'Read', input: { file_path: path } } })
+    expect(await ui.find({ type: 'Text', text: /….*target\.ts$/ })).toBeDefined()
+  })
+
+  test('draws paths relative to the session directory as it is now', async ($, on) => {
+    let cwd = '/repo'
+    stockBeneath(on, () => cwd)
+    const first = await toolUse($, { tool: 'Read', input: { file_path: '/repo/sub/a.ts' } })
+    expect(await first.find({ type: 'Text', text: 'sub/a.ts' })).toBeDefined()
+    cwd = '/repo/sub'
+    const second = await toolUse($, { tool_use_id: 't2', tool: 'Read', input: { file_path: '/repo/sub/a.ts' } })
+    expect(await second.find({ type: 'Text', text: 'a.ts' })).toBeDefined()
+  })
+})
+
+describe('ToolGroup', () => {
+  test('draws a settled group under a headline that says what ran, as the stock line does', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolGroup($, {})
+    expect(await ui.find({ type: 'Text', text: 'Ran 1 command, read 1 file' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'ls hooks' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
+  })
+
+  test('heads a group with a failed call with its own headline, never the stock one', async ($, on) => {
+    stockBeneath(on)
+    const failing = { ...reading, isErrored: true, output: 'File does not exist.' }
+    const ui = await toolGroup($, { calls: [listing, failing], isCallsOnly: false })
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: '✗' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Ran 1 command, 1 file failed' })).toBeDefined()
+  })
+
+  test('marks an interrupted group as interrupted, not failed', async ($, on) => {
+    stockBeneath(on)
+    const cut = { ...listing, isErrored: true, isInterrupted: true, output: 'Interrupted by user' }
+    const ui = await toolGroup($, { calls: [reading, cut], isCallsOnly: false })
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Read 1 file, 1 command stopped' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '⊘' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '✗' })).toBeUndefined()
+  })
+
+  test('names the call that failed under its own headline, in the failure colour', async ($, on) => {
+    stockBeneath(on)
+    const failing = { ...listing, input: { command: 'false' }, isErrored: true, output: 'Exit code 1' }
+    const ui = await toolGroup($, { isCallsOnly: false, calls: [failing, reading] })
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Read 1 file, 1 command failed' })).toBeDefined()
+    expect(await colourOf(ui, "Couldn't run")).toBe(dark.error)
+    expect(await ui.find({ type: 'Text', text: /false/ })).toBeDefined()
+  })
+
+  test('keeps a failed headline in strong ink and the failure colour for its glyph and failed branch only', async ($, on) => {
+    stockBeneath(on)
+    const failing = { ...listing, input: { command: 'false' }, isErrored: true, output: 'Exit code 1' }
+    const ui = await toolGroup($, { isCallsOnly: false, calls: [failing, reading] })
+    expect(await colourOf(ui, 'Read 1 file, 1 command failed')).toBe(dark.strong)
+    expect(await colourOf(ui, '✗')).toBe(dark.error)
+    expect(await colourOf(ui, "Couldn't run")).toBe(dark.error)
+  })
+
+  test('draws a group of background work this process never saw end as started, never done', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolGroup($, { calls: [backgroundShell('u1'), reading] })
+    expect(await ui.find({ type: 'Text', text: '○' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '●' })).toBeUndefined()
+    expect(await colourOf(ui, '○')).toBe(dark.muted)
+  })
+
+  test('adds no mark to a stock group whose calls all went well', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolGroup($, { isCallsOnly: false })
+    expect(await ui.find({ type: 'Text', text: '✗' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: '⊘' })).toBeUndefined()
+  })
+
+  test('draws a one-call group of a backgrounded shell as running', async ($, on) => {
+    stockBeneath(on)
+    const shell = { ...listing, input: { command: 'sleep 25', run_in_background: true }, output: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'g1' } }
+    await launched($, on, shell)
+    const ui = await toolGroup($, { calls: [shell] })
+    expect(await ui.find({ type: 'Text', text: 'Running' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /background/ })).toBeDefined()
+  })
+
+  test('passes to stock when the group holds more than calls', async ($, on) => {
+    stockBeneath(on)
+    expect(await (await toolGroup($, { isCallsOnly: false })).find({ type: 'Text', text: STOCK })).toBeDefined()
+    expect(await (await toolGroup($, { isCallsOnly: undefined })).find({ type: 'Text', text: STOCK })).toBeDefined()
+  })
+
+  test('passes to stock while live so the task summary and elapsed time stay', async ($, on) => {
+    stockBeneath(on)
+    expect(await (await toolGroup($, { isActive: true })).find({ type: 'Text', text: STOCK })).toBeDefined()
+  })
+
+  test('passes to stock when expanded', async ($, on) => {
+    stockBeneath(on)
+    expect(await (await toolGroup($, { isExpanded: true })).find({ type: 'Text', text: STOCK })).toBeDefined()
+  })
+})
+
+function taskNotification($: Engine, id: string, status: string) {
+  return $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'UserMessage', props: { text: 'Background command finished', origin: { kind: 'task-notification' }, isExpanded: false, task: { id, status } } } as never)
+}
+
+function backgroundShell(id: string) {
+  return { tool: 'Bash', input: { command: 'sleep 25 && echo slept', run_in_background: true }, output: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: id } }
+}
+
+describe('background tasks', () => {
+  test('draws a backgrounded shell as running until its notification says it ended', async ($, on) => {
+    stockBeneath(on)
+    await launched($, on, backgroundShell('s1'))
+    const ui = await toolUse($, backgroundShell('s1'))
+    expect(await ui.find({ type: 'Text', text: 'Running' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /background/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Ran' })).toBeUndefined()
+    await taskNotification($, 's1', 'completed')
+    expect(await ui.find({ type: 'Text', text: 'Ran' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /background/ })).toBeUndefined()
+  })
+
+  test('draws a backgrounded shell that failed as failed', async ($, on) => {
+    stockBeneath(on)
+    await taskNotification($, 's2', 'failed')
+    const ui = await toolUse($, backgroundShell('s2'))
+    expect(await ui.find({ type: 'Text', text: "Couldn't run" })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '✗' })).toBeDefined()
+  })
+
+  test('draws a shell a stop call ended as stopped', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, backgroundShell('s3'))
+    await toolUse($, { tool_use_id: 't9', tool: 'TaskStop', input: { task_id: 's3' }, output: { message: 'stopped', task_id: 's3', task_type: 'local_bash' } })
+    expect(await ui.find({ type: 'Text', text: 'Stopped running' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '⊘' })).toBeDefined()
+  })
+
+  test('never draws a background shell this process did not launch as running', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, backgroundShell('s5'))
+    expect(await ui.find({ type: 'Text', text: 'Running' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: '◐' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Started running' })).toBeDefined()
+  })
+
+  test('draws a monitor as watching while its task runs', async ($, on) => {
+    stockBeneath(on)
+    const monitor = { tool: 'Monitor', input: { description: 'tail the log', timeout_ms: 1000, command: 'tail -f x' }, output: { taskId: 'm1', timeoutMs: 1000 } }
+    await launched($, on, monitor)
+    const ui = await toolUse($, monitor)
+    expect(await ui.find({ type: 'Text', text: 'Watching' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /background/ })).toBeDefined()
+  })
+
+  test('ignores a notification that names no task', async ($, on) => {
+    stockBeneath(on)
+    await launched($, on, backgroundShell('s4'))
+    await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'UserMessage', props: { text: 'x', origin: { kind: 'task-notification' }, isExpanded: false } } as never)
+    expect(await (await toolUse($, backgroundShell('s4'))).find({ type: 'Text', text: 'Running' })).toBeDefined()
+  })
+})
+
+describe('ToolResult', () => {
+  const created = { type: 'create', filePath: '/repo/out/a.md', content: 'alpha\nbeta\n', structuredPatch: [], originalFile: null }
+
+  async function toolResult($: Engine, props: Record<string, unknown>) {
+    return $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolResult', props: { tool_use_id: 't1', tool: 'Write', output: created, isErrored: false, ...props } })
+  }
+
+  test('says how much a new file holds without repeating the verb and path above it', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolResult($, {})
+    expect(await ui.find({ type: 'Text', text: /2 lines/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Wrote/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'beta' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
+  })
+
+  test('says how many lines of a long new file it leaves out', async ($, on) => {
+    stockBeneath(on)
+    const content = Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join('\n')
+    const ui = await toolResult($, { output: { ...created, content } })
+    expect(await ui.find({ type: 'Text', text: /14 lines/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /\+4 lines/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'line 11' })).toBeUndefined()
+  })
+
+  test('draws an empty new file as empty', async ($, on) => {
+    stockBeneath(on)
+    expect(await (await toolResult($, { output: { ...created, content: '' } })).find({ type: 'Text', text: /0 lines/ })).toBeDefined()
+  })
+
+  test('draws an errored result as its reason in the palette error colour, the rest muted', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolResult($, { tool: 'Edit', isErrored: true, output: '<tool_use_error>String to replace not found in file.\nString: NOT_THERE</tool_use_error>' })
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
+    expect(await colourOf(ui, 'String to replace not found in file.')).toBe(dark.error)
+    expect(await colourOf(ui, 'String: NOT_THERE')).toBe(dark.muted)
+  })
+
+  test('keeps a long error to a preview and counts the rest', async ($, on) => {
+    stockBeneath(on)
+    const output = ['Exit code 1', ...Array.from({ length: 14 }, (_, i) => `line ${i}`)].join('\n')
+    const ui = await toolResult($, { tool: 'Bash', isErrored: true, output })
+    expect(await ui.find({ type: 'Text', text: /\+5 lines/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'line 13' })).toBeUndefined()
+  })
+
+  test('passes every other result to stock', async ($, on) => {
+    stockBeneath(on)
+    expect(await (await toolResult($, { output: { ...created, type: 'update' } })).find({ type: 'Text', text: STOCK })).toBeDefined()
+    expect(await (await toolResult($, { isErrored: true, output: 'User rejected write to out/a.md' })).find({ type: 'Text', text: STOCK })).toBeDefined()
+    expect(await (await toolResult($, { isErrored: true, output: 'Interrupted by user' })).find({ type: 'Text', text: STOCK })).toBeDefined()
+    expect(await (await toolResult($, { isErrored: true, output: { stdout: '' } })).find({ type: 'Text', text: STOCK })).toBeDefined()
+    expect(await (await toolResult($, { isErrored: true, isExpanded: true, output: 'Exit code 1' })).find({ type: 'Text', text: STOCK })).toBeDefined()
+    expect(await (await toolResult($, { isExpanded: true })).find({ type: 'Text', text: STOCK })).toBeDefined()
+    expect(await (await toolResult($, { tool: 'Bash', output: { stdout: 'x', stderr: '', interrupted: false } })).find({ type: 'Text', text: STOCK })).toBeDefined()
+  })
+})
+
+describe('AssistantMessage', () => {
+  test('keeps the summary mark on a summarised block', async ($, on) => {
+    stockBeneath(on)
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'AssistantMessage', props: { text: 'Did things', isFirstOfReply: true, isSummary: true } })
+    expect(await ui.find({ type: 'Text', text: /summary/ })).toBeDefined()
+  })
+
+  test('adds no mark to verbatim text', async ($, on) => {
+    stockBeneath(on)
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'AssistantMessage', props: { text: 'Did things', isFirstOfReply: true } })
+    expect(await ui.find({ type: 'Text', text: /summary/ })).toBeUndefined()
+  })
+})

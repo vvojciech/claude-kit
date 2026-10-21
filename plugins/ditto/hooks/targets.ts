@@ -1,20 +1,24 @@
 import type { Block } from './model'
 import { cellWidth } from './width'
 
-export type TargetKind = 'reply' | 'code' | 'table'
+export type TargetKind = 'reply' | 'code' | 'table' | ToolKind
 
-export type Target = { kind: TargetKind; name: string; label: string; text: string; what: string }
+export type ToolKind = 'file' | 'plan' | 'output'
+
+export type Target = { kind: TargetKind; name: string; label: string; text: string; what: string; unavailable?: string }
 
 export type Row = { shown: Target[]; hidden: Target[] }
 
 export type Resolved = { text: string; partial: boolean; blocks: Block[] }
 
 export const GLYPH = '⧉'
-export const REPLY = 'md'
+export const REPLY = 'reply'
+export const TOOL_KINDS: readonly ToolKind[] = ['file', 'plan', 'output']
 export const GAP = 2
 const TABLE = 'table'
 const UNNAMED_CODE = 'code'
-const REPLY_LANGUAGE = 'markdown'
+const CLASHING_CODE = 'code'
+const RESERVED = new Set([TABLE, UNNAMED_CODE, REPLY, 'selection', 'help', ...TOOL_KINDS])
 
 function copyable(block: Block): boolean {
   return block.kind === 'code' || block.kind === 'table'
@@ -24,7 +28,7 @@ function baseName(block: Block): string {
   if (block.kind === 'table') return TABLE
   const lang = block.lang ?? ''
   if (lang === '') return UNNAMED_CODE
-  return lang === REPLY ? REPLY_LANGUAGE : lang
+  return RESERVED.has(lang.toLowerCase()) ? `${lang}-${CLASHING_CODE}` : lang
 }
 
 function bodyOf(block: Block): string {
@@ -36,7 +40,7 @@ function whatOf(block: Block, base: string): string {
   return base === UNNAMED_CODE ? 'code block' : `${base} block`
 }
 
-function numbered(names: string[]): string[] {
+export function numbered(names: string[]): string[] {
   const totals = new Map<string, number>()
   for (const name of names) totals.set(name, (totals.get(name) ?? 0) + 1)
   const seen = new Map<string, number>()
@@ -47,7 +51,7 @@ function numbered(names: string[]): string[] {
   })
 }
 
-function target(kind: TargetKind, name: string, text: string, what: string): Target {
+export function target(kind: TargetKind, name: string, text: string, what: string): Target {
   return { kind, name, label: `${GLYPH} ${name}`, text, what }
 }
 

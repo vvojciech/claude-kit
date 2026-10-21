@@ -14,6 +14,8 @@ function contrast(a: string, b: string): number {
   return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05)
 }
 
+const PITWALL_DARK_GROUNDS = ['#141311', '#1d1c19', '#0e0d0c', '#000000', '#1e1e1e']
+const PITWALL_LIGHT_GROUNDS = ['#f5f4f0', '#ffffff']
 const DARK_GROUNDS = ['#000000', '#141311', '#0e0d0c', '#181926', '#1e1e1e', '#24273a', '#282c34', '#2e3440', '#1d1c19']
 const LIGHT_GROUNDS = ['#ffffff', '#f5f4f0', '#fafafa', '#eff1f5', '#fdf6e3']
 
@@ -54,8 +56,30 @@ describe('tone', () => {
     for (const [theme, muted] of Object.entries(LUCID_MUTED)) expect(toneFor(theme).muted).toBe(muted)
   })
 
-  test('marker, chips and the hovered chip reach 4.5:1 on every ground', async () => {
-    for (const ground of DARK_GROUNDS) for (const role of [dark.muted, dark.text, dark.accent]) expect(contrast(role, ground)).toBeGreaterThanOrEqual(4.5)
-    for (const ground of LIGHT_GROUNDS) for (const role of [light.muted, light.text, light.accent]) expect(contrast(role, ground)).toBeGreaterThanOrEqual(4.5)
+  test('takes the Pitwall orange lucid draws, not a lighter stand-in', async () => {
+    expect(dark.accent).toBe('#d4734f')
+    expect(light.accent).toBe('#c96442')
+  })
+
+  test('the hovered chip is orange on dark, where the Pitwall orange reads at 4.5:1 on the Pitwall grounds', async () => {
+    expect(dark.pointed).toBe(dark.accent)
+    for (const ground of PITWALL_DARK_GROUNDS) expect(contrast(dark.pointed, ground)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  test('the hovered chip is ink on light, as the light Pitwall orange reads under 4.5:1 there and Pitwall keeps it for marks', async () => {
+    for (const ground of PITWALL_LIGHT_GROUNDS) expect(contrast(light.accent, ground)).toBeLessThan(4.5)
+    for (const ground of LIGHT_GROUNDS) expect(contrast(light.pointed, ground)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  test('marker and chips reach 4.5:1 on every ground', async () => {
+    for (const ground of DARK_GROUNDS) for (const role of [dark.muted, dark.text]) expect(contrast(role, ground)).toBeGreaterThanOrEqual(4.5)
+    for (const ground of LIGHT_GROUNDS) for (const role of [light.muted, light.text]) expect(contrast(role, ground)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  test('resolves a custom theme with no ground in its name from the terminal, as lucid does', async () => {
+    expect(toneFor('highlighter', 'light')).toBe(light)
+    expect(toneFor('solarized-custom', 'light')).toBe(light)
+    expect(toneFor('dark-ansi', 'light')).toBe(dark)
+    expect(groundOfTerminal('')).toBeUndefined()
   })
 })

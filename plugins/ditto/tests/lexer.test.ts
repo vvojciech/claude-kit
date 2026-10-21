@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { blocksOf, cacheChars } from '../hooks/lexer'
+import { SizedCache, blocksOf, cacheChars } from '../hooks/lexer'
+import { Lexer } from '../hooks/vendor/marked.js'
 import type { Block } from '../hooks/model'
 
 const code = (text: string) => blocksOf(text).flatMap(b => (b.kind === 'code' ? [{ language: b.lang, source: b.text }] : []))
@@ -143,20 +144,41 @@ describe('the block model', () => {
   })
 })
 
+function lexedChars(run: () => unknown): number {
+  const original = Lexer.prototype.blockTokens
+  let chars = 0
+  Lexer.prototype.blockTokens = function (this: Lexer, src: string, ...rest: never[]) {
+    chars += src.length
+    return original.call(this, src, ...rest)
+  } as typeof original
+  try {
+    run()
+  } finally {
+    Lexer.prototype.blockTokens = original
+  }
+  return chars
+}
+
+const NESTING_CAP = 24
+
+function lexesEachCharAtMostOncePerLevel(text: string): void {
+  expect(lexedChars(() => blocksOf(text))).toBeLessThanOrEqual((NESTING_CAP + 1) * text.length)
+}
+
 describe('limits', () => {
   test('caps nesting: deep quotes end in one verbatim block instead of overflowing the stack', async () => {
-    const started = Date.now()
-    const blocks = blocksOf(`${'>'.repeat(20000)} x`)
-    expect(Date.now() - started).toBeLessThan(2000)
+    const deep = `${'>'.repeat(2000)} x`
+    lexesEachCharAtMostOncePerLevel(deep)
+    const blocks = blocksOf(deep)
     expect(blocks.filter(b => b.kind === 'quote').length).toBeLessThanOrEqual(24)
     expect(blocks.at(-1)?.kind).toBe('code')
   })
 
   test('caps nesting in deep lists', async () => {
-    const text = Array.from({ length: 2000 }, (_, i) => `${'  '.repeat(i)}- item ${i}`).join('\n')
-    const started = Date.now()
+    const ladder = (levels: number) => Array.from({ length: levels }, (_, i) => `${'  '.repeat(i)}- item ${i}`).join('\n')
+    const text = ladder(200)
+    lexesEachCharAtMostOncePerLevel(text)
     const blocks = blocksOf(text)
-    expect(Date.now() - started).toBeLessThan(2000)
     expect(Math.max(...blocks.map(b => b.depth))).toBeLessThanOrEqual(24)
   })
 
@@ -168,9 +190,34 @@ describe('limits', () => {
     expect(inner[0]?.source).toContain('```sh')
   })
 
-  test('bounds the cache by size, not entries', async () => {
-    for (let i = 0; i < 200; i++) blocksOf(`${'x'.repeat(40_000)} ${i}`)
-    expect(cacheChars()).toBeLessThanOrEqual(4_000_000 + 40_010)
+  test('bounds the cache by size, not entries: the oldest go first and one entry past the limit is kept whole', async () => {
+    const cache = new SizedCache<number>(100)
+    for (let i = 0; i < 20; i++) cache.set(`${'x'.repeat(38)}${String(i).padStart(2, '0')}`, i)
+    expect(cache.chars()).toBeLessThanOrEqual(100)
+    expect(cache.keys().map(key => key.slice(-2))).toEqual(['18', '19'])
+    const big = new SizedCache<number>(10)
+    big.set('a'.repeat(50), 1)
+    expect(big.keys()).toHaveLength(1)
+  })
+
+  test('keeps what was read last when the cache evicts', async () => {
+    const cache = new SizedCache<number>(6)
+    cache.set('aa', 1)
+    cache.set('bb', 2)
+    cache.get('aa')
+    cache.set('cc', 3)
+    cache.set('dd', 4)
+    expect(cache.keys()).toEqual(['aa', 'cc', 'dd'])
+    cache.get('cc')
+    cache.set('ee', 5)
+    expect(cache.keys()).toEqual(['dd', 'cc', 'ee'])
+  })
+
+  test('caches what blocksOf lexed by its size', async () => {
+    const before = cacheChars()
+    const text = `fresh ${Date.now()}-${Math.random()}`
+    blocksOf(text)
+    expect(cacheChars()).toBe(before + text.length)
   })
 
   test('answers the same blocks from the cache', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { BAD_REPLY, USAGE, chooseBlock, missingReply, parse } from '../hooks/commands'
+import { BAD_REPLY, SELECTION_HAS_NO_REPLY, USAGE, badToolCount, chooseBlock, missingReply, numberFirst, parse } from '../hooks/commands'
 import type { Choice } from '../hooks/commands'
 import { replyTargets } from '../hooks/targets'
 import { resolved } from './support'
@@ -10,19 +10,55 @@ const HISTORY = ['first\n```py\nold()\n```', 'second\n| a |\n|---|\n| 1 |', 'thi
 function pick(history: string[], args: string, partial = false): Choice {
   const request = parse(args)
   if ('error' in request) return request
-  if (request.kind === 'selection') return { error: 'selection' }
+  if (request.kind !== 'block') return { error: request.kind }
   const text = history[history.length - request.reply]
   return text === undefined ? { error: missingReply(history.length) } : chooseBlock(resolved(text, partial), request)
 }
 
 describe('/ditto arguments', () => {
-  test('takes the last reply by default, and md names it too', async () => {
+  test('takes the last reply by default, and reply names it too', async () => {
     expect(pick(HISTORY, '')).toEqual({ text: HISTORY[2], what: 'last reply' })
-    expect(pick(HISTORY, 'md')).toEqual({ text: HISTORY[2], what: 'last reply' })
+    expect(pick(HISTORY, 'reply')).toEqual({ text: HISTORY[2], what: 'last reply' })
+  })
+
+  test('md names a markdown block by the label lucid draws on it, not the whole reply', async () => {
+    const history = ['Notes:\n\n```md\n# Title\n```\n\n```markdown\n- item\n```']
+    expect(pick(history, 'md')).toEqual({ text: '# Title', what: 'md block' })
+    expect(pick(history, 'markdown')).toEqual({ text: '- item', what: 'markdown block' })
+    expect(replyTargets(resolved(history[0] ?? '')).map(t => t.label)).toEqual(['⧉ reply', '⧉ md', '⧉ markdown'])
+  })
+
+  test('renames a block whose language clashes with a command word, so the command stays reachable', async () => {
+    const history = ['```reply\nr\n```\n\n```file\nf\n```']
+    expect(replyTargets(resolved(history[0] ?? '')).map(t => t.name)).toEqual(['reply', 'reply-code', 'file-code'])
+    expect(pick(history, 'reply-code')).toEqual({ text: 'r', what: 'reply-code block' })
+  })
+
+  test('reads help in its usual spellings, and file, plan and output as tool requests', async () => {
+    for (const word of ['help', '-h', '--help', '?', 'HELP']) expect(parse(word)).toEqual({ kind: 'help' })
+    expect(parse('file')).toEqual({ kind: 'tool', tool: 'file', back: 1 })
+    expect(parse('file 3')).toEqual({ kind: 'tool', tool: 'file', back: 3 })
+    expect(parse('plan')).toEqual({ kind: 'tool', tool: 'plan', back: 1 })
+    expect(parse('output 2')).toEqual({ kind: 'tool', tool: 'output', back: 2 })
+    expect(parse('output 0')).toEqual({ error: badToolCount('output') })
+    expect(parse('file x')).toEqual({ error: USAGE })
+    expect(parse('file 1 2')).toEqual({ error: USAGE })
   })
 
   test('says when the reply copied was cut short', async () => {
     expect(pick(HISTORY, '', true)).toEqual({ text: HISTORY[2], what: 'last reply (partial)' })
+  })
+
+  test('copies a code block in a table language by its own name, not the real table', async () => {
+    const history = ['```table\nt\n```\n\n| x |\n|---|\n| 1 |']
+    expect(pick(history, 'table-code')).toEqual({ text: 't', what: 'table-code block' })
+    expect(pick(history, 'table')).toEqual({ text: '| x |\n|---|\n| 1 |', what: 'table' })
+  })
+
+  test('says the reply number goes first when it follows reply, and that selection takes none', async () => {
+    expect(parse('reply 2')).toEqual({ error: 'The reply number goes first: /ditto 2 reply' })
+    expect(parse('selection 2')).toEqual({ error: numberFirst('2', 'selection') })
+    expect(parse('2 reply')).toEqual({ kind: 'block', reply: 2, name: 'reply' })
   })
 
   test('counts replies back with R', async () => {
@@ -53,7 +89,7 @@ describe('/ditto arguments', () => {
     const reply = ['```python\nprint(1)\n```\n\n```sh\nls\n```']
     expect(pick(reply, 'code')).toEqual({ text: 'print(1)', what: 'python block' })
     expect(pick(reply, 'code 2')).toEqual({ text: 'ls', what: 'sh block' })
-    expect(pick(reply, 'code 3')).toEqual({ error: 'No "code 3" in the last reply; it has md, python, sh' })
+    expect(pick(reply, 'code 3')).toEqual({ error: 'No "code 3" in the last reply; it has reply, python, sh' })
   })
 
   test('reaches an older reply by R before the name', async () => {
@@ -64,22 +100,22 @@ describe('/ditto arguments', () => {
   test('copies what every chip of a reply copies, by the chip name', async () => {
     const reply = '```ruby\na\n```\n\n```json\n{}\n```\n\n```ruby\nb\n```\n\n| x |\n|---|\n| 1 |\n\n```123\ndigits\n```'
     for (const chip of replyTargets(resolved(reply))) {
-      const what = chip.name === 'md' ? 'last reply' : chip.what
+      const what = chip.name === 'reply' ? 'last reply' : chip.what
       expect(pick([reply], `1 ${chip.name}`)).toEqual({ text: chip.text, what })
       if (!/^\d+$/.test(chip.name)) expect(pick([reply], chip.name)).toEqual({ text: chip.text, what })
     }
   })
 
   test('names what the reply has when the name is not there', async () => {
-    expect(pick(HISTORY, 'table')).toEqual({ error: 'No "table" in the last reply; it has md, sh 1, sh 2, code' })
-    expect(pick(HISTORY, '3 sh')).toEqual({ error: 'No "sh" in reply 3 back; it has md, py' })
+    expect(pick(HISTORY, 'table')).toEqual({ error: 'No "table" in the last reply; it has reply, sh 1, sh 2, code' })
+    expect(pick(HISTORY, '3 sh')).toEqual({ error: 'No "sh" in reply 3 back; it has reply, py' })
   })
 
   test('explains an empty history and bad arguments', async () => {
     expect(pick([], '')).toEqual({ error: 'No reply to copy yet' })
     expect(pick(HISTORY, '0')).toEqual({ error: BAD_REPLY })
     expect(pick(HISTORY, '0 sh')).toEqual({ error: BAD_REPLY })
-    expect(pick(HISTORY, '2 3')).toEqual({ error: 'No "3" in reply 2 back; it has md, table' })
+    expect(pick(HISTORY, '2 3')).toEqual({ error: 'No "3" in reply 2 back; it has reply, table' })
     expect(pick(HISTORY, 'sh x')).toEqual({ error: USAGE })
     expect(pick(HISTORY, 'sh 1 2')).toEqual({ error: USAGE })
   })
@@ -87,7 +123,7 @@ describe('/ditto arguments', () => {
   test('reads selection as its own request, in any case', async () => {
     expect(parse('selection')).toEqual({ kind: 'selection' })
     expect(parse(' Selection ')).toEqual({ kind: 'selection' })
-    expect(parse('2 selection')).toEqual({ kind: 'block', reply: 2, name: 'selection' })
+    expect(parse('2 selection')).toEqual({ error: SELECTION_HAS_NO_REPLY })
   })
 
   test('the usage says which way each number counts and what code and selection mean', async () => {
@@ -95,5 +131,15 @@ describe('/ditto arguments', () => {
     expect(USAGE).toContain('count from the top of the reply')
     expect(USAGE).toContain('any code block when none lacks one')
     expect(USAGE).toContain('/ditto selection')
+    expect(USAGE).toContain('/ditto 1 123')
+  })
+})
+
+describe('tool counts', () => {
+  test('N of 0 gets one line on how N counts, as /ditto 0 does, not the whole usage', async () => {
+    expect(parse('output 0')).toEqual({ error: badToolCount('output') })
+    expect(parse('file 00')).toEqual({ error: badToolCount('file') })
+    expect(parse('output x')).toEqual({ error: USAGE })
+    expect(parse('output 2')).toEqual({ kind: 'tool', tool: 'output', back: 2 })
   })
 })
