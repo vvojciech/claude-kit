@@ -1,0 +1,11 @@
+export type Reply = { texts: string[]; partial: boolean }
+
+export type Replies = Reply[] | null
+
+export type Owners = Record<string, Reply | null>
+
+declare module 'claude-code' {
+  interface PluginState {
+    'ditto': { replies: Replies; owners: Owners; live: boolean }
+  }
+}

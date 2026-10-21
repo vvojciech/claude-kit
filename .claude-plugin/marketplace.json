@@ -1,0 +1,19 @@
+{
+  "name": "vvojciech-mods",
+  "owner": {
+    "name": "Wojciech Kucha",
+    "email": "672093+vvojciech@users.noreply.github.com"
+  },
+  "metadata": {
+    "description": "Claude Code mods by Wojciech Kucha",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "ditto",
+      "source": "./plugins/ditto",
+      "description": "Copy what Claude wrote as clean text: reply markdown, code blocks and tables, by button or /ditto",
+      "version": "0.1.0"
+    }
+  ]
+}

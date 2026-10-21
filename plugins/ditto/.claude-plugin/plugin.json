@@ -1,0 +1,1 @@
+{ "name": "ditto", "version": "0.1.0", "description": "Copy what Claude wrote as clean text: reply markdown, code blocks and tables, by button or /ditto", "author": { "name": "Wojciech Kucha" }, "types": "./types/index.d.ts" }
