@@ -14,6 +14,25 @@ type Host = { os?: string; pbcopyExit?: number; theme?: string; colorFgBg?: stri
 
 const HINTS = [FIRST_RUN, NO_FULLSCREEN]
 
+function withLucidTone(on: On, tone: unknown) {
+  on('engine.create', async (_, e, next) => ({ ...(await next(e)), lucid: { tone: () => tone, blocks: () => undefined } }) as never)
+}
+
+type DrawnNode = { type?: string; hover?: unknown; children?: unknown[] }
+
+function hoversOn(tree: unknown, text: string): unknown[] {
+  if (Array.isArray(tree)) return tree.flatMap(node => hoversOn(node, text))
+  if (typeof tree !== 'object' || tree === null) return []
+  const node = tree as DrawnNode
+  const own = node.type === 'Text' && node.children?.join('') === text ? [node.hover] : []
+  return [...own, ...hoversOn(node.children ?? [], text)]
+}
+
+function underTheEngineInverse(hover: unknown): { ink: unknown; ground: unknown } {
+  const { color, backgroundColor } = (hover ?? {}) as { color?: string; backgroundColor?: string }
+  return { ink: backgroundColor, ground: color }
+}
+
 const pause = (ms: number) => new Promise(done => setTimeout(done, ms))
 
 const REPLY = '# Plan\n\nRun this:\n\n```bash\ngit status\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |'
@@ -35,6 +54,7 @@ function fakeHost(on: On, transcript: Transcript, host: Host = {}) {
   const hints: string[] = []
   const statuses: (string | undefined)[] = []
   const terminal: string[] = []
+  const surfaces: (string | undefined)[] = []
   hinted.clear()
   on('process.run', (_, e) => {
     if (e.argv[0] === '/usr/bin/pbcopy') copied.push(e.init?.stdin ?? '')
@@ -53,6 +73,7 @@ function fakeHost(on: On, transcript: Transcript, host: Host = {}) {
   })
   on('ui.log', () => ({ value: undefined }))
   on('ui.copy', (_, e) => {
+    surfaces.push(e.surface)
     if (!host.terminalCopies) return { value: { isCopied: false, reason: 'no-clipboard' } }
     terminal.push(e.text)
     return { value: { isCopied: true } }
@@ -65,7 +86,7 @@ function fakeHost(on: On, transcript: Transcript, host: Host = {}) {
   on('session.end', () => ({ sessionId: 's' }))
   on('session.start', () => ({ cwd: '/w' }))
   on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: ['beneath'] }))
-  return { copied, toasts, hints, statuses, terminal }
+  return { copied, toasts, hints, statuses, terminal, surfaces }
 }
 
 async function write($: Engine, uuid: string, text: string, agentId?: string) {
@@ -76,8 +97,8 @@ async function finishTurn($: Engine, agentId?: string) {
   await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer', agentId } as never)
 }
 
-async function run($: Engine, args: string) {
-  return $.command.run({ command: 'ditto', args, origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 100 } })
+async function run($: Engine, args: string, origin: { kind: 'composer' } | { kind: 'bridge' } = { kind: 'composer' }) {
+  return $.command.run({ command: 'ditto', args, origin, presentation: { isFullscreen: true, columns: 100 } })
 }
 
 type View = { columns?: number; isFullscreen?: boolean; requestId?: string }
@@ -131,16 +152,39 @@ describe('the copy marker', () => {
     expect(boxes.every(b => b.props.left === undefined)).toBe(true)
   })
 
-  test('colours the marker muted and the chips as body text; under the pointer a chip turns bold underlined ink on light; ditto asks for no inverse, the engine still inverts the Button under the pointer', async ($, on) => {
+  test('colours the marker muted and the chips as body text; under the pointer a chip shows bold underlined orange on the ground, its hover colours swapped so the engine inverse undoes the swap instead of filling a block', async ($, on) => {
     fakeHost(on, { messages: [prompt('plan'), said(REPLY)] }, { theme: 'light' })
     const ui = await mount($, REPLY)
     expect((await ui.find({ type: 'Text', text: '⧉' }))?.props.color).toBe(light.muted)
     const chips = (await ui.findAll({ type: 'Text' })).filter(t => CHIPS.includes(t.text))
     expect(chips.map(t => t.props.color)).toEqual(CHIPS.map(() => light.text))
-    const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn.split(JSON.stringify({ color: light.pointed, bold: true, underline: true })).length - 1).toBe(CHIPS.length)
-    expect(drawn).not.toContain('backgroundColor')
+    const drawn = await ui.drawn()
+    expect(CHIPS.map(chip => hoversOn(drawn, chip))).toEqual(CHIPS.map(() => [{ color: light.background, backgroundColor: light.pointed, bold: true, underline: true }]))
+    expect(CHIPS.map(chip => underTheEngineInverse(hoversOn(drawn, chip)[0]))).toEqual(CHIPS.map(() => ({ ink: light.pointed, ground: light.background })))
     expect((await ui.findAll({ type: 'Button' })).every(b => b.props.dimColor !== true)).toBe(true)
+  })
+
+  test('on dark the pointed chip shows Pitwall orange on the ground, not an orange slab', async ($, on) => {
+    fakeHost(on, { messages: [prompt('plan'), said(REPLY)] }, { theme: 'dark-ansi' })
+    const ui = await mount($, REPLY)
+    expect(hoversOn(await ui.drawn(), '⧉ reply').map(underTheEngineInverse)).toEqual([{ ink: dark.accent, ground: dark.background }])
+  })
+
+  test('takes the tone lucid last drew with when lucid is loaded, over its own reading of the theme', async ($, on) => {
+    fakeHost(on, { messages: [prompt('plan'), said(REPLY)] }, { theme: 'dark' })
+    withLucidTone(on, { ground: 'light', daltonized: false, palette: { text: '#101010', strong: '#000000', muted: '#505050', accent: '#a04020' } })
+    const ui = await mount($, REPLY)
+    expect((await ui.find({ type: 'Text', text: '⧉' }))?.props.color).toBe('#505050')
+    const chip = (await ui.findAll({ type: 'Text' })).find(t => t.text === '⧉ reply')
+    expect(chip?.props.color).toBe('#101010')
+    expect(hoversOn(await ui.drawn(), '⧉ reply').map(underTheEngineInverse)).toEqual([{ ink: '#a04020', ground: light.background }])
+  })
+
+  test('falls back to its own tone when lucid has not drawn yet or answers with something else', async ($, on) => {
+    fakeHost(on, { messages: [prompt('plan'), said(REPLY)] }, { theme: 'light' })
+    withLucidTone(on, { ground: 'light', palette: { muted: 'grey' } })
+    const ui = await mount($, REPLY)
+    expect((await ui.find({ type: 'Text', text: '⧉' }))?.props.color).toBe(light.muted)
   })
 
   test('takes the light tone under auto on a light terminal', async ($, on) => {
@@ -571,6 +615,31 @@ describe('tool rows', () => {
     expect((await ui.findAll({ type: 'Text' })).filter(t => t.text === 'copied (pbcopy)').length).toBeGreaterThan(0)
   })
 
+  test('a background Agent row gets ⧉ output once its report arrives, and none before', async ($, on) => {
+    const notice = prompt('<task-notification>\n<task-id>a7</task-id>\n<status>completed</status>\n<result>Found 3 callers.\nDone.</result>\n</task-notification>')
+    const transcript = { messages: [prompt('go'), used(LAUNCHED)] }
+    const { copied } = fakeHost(on, transcript)
+    expect(await (await mountTool($, LAUNCHED, { requestId: 'toolu_bg1' })).findAll({ type: 'Button' })).toEqual([])
+    transcript.messages.push(notice)
+    const ui = await mountTool($, LAUNCHED, { requestId: 'toolu_bg2' })
+    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['⧉ output'])
+    await ui.press({ key: 'copy-output' })
+    expect(copied).toEqual(['Found 3 callers.\nDone.'])
+  })
+
+  test('a background Agent row whose report only reached the session as an unreadable message gets no chip', async ($, on) => {
+    fakeHost(on, { messages: [prompt('go'), used(LAUNCHED), stubbed('a7')] })
+    expect(await (await mountTool($, LAUNCHED, { requestId: 'toolu_bg3' })).findAll({ type: 'Button' })).toEqual([])
+  })
+
+  test('a background Agent row takes the SubagentHandback report when the notification only points to it', async ($, on) => {
+    const agents = { a7: [prompt('look'), { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'h', tool: 'SubagentHandback', input: { message: 'Real report.' } }] } as SessionMessage] }
+    const { copied } = fakeHost(on, { messages: [prompt('go'), used(LAUNCHED), stubbed('a7')] }, { agents })
+    const ui = await mountTool($, LAUNCHED, { requestId: 'toolu_bg4' })
+    await ui.press({ key: 'copy-output' })
+    expect(copied).toEqual(['Real report.'])
+  })
+
   test('/ditto output copies a background Agent report once its task notification arrives', async ($, on) => {
     const launched: Call = { tool: 'Agent', input: { prompt: 'look' }, output: { status: 'async_launched', agentId: 'a7', description: 'look', prompt: 'look', outputFile: '/tmp/a7' } }
     const notice = prompt('<task-notification>\n<task-id>a7</task-id>\n<status>completed</status>\n<result>Found 3 callers.\nDone.</result>\n</task-notification>')
@@ -642,6 +711,14 @@ describe('clipboard route', () => {
     expect(terminal).toEqual(['one line'])
   })
 
+  test('a /ditto typed at the terminal copies to the terminal it was typed in; one from the bridge leaves the surface to the engine', async ($, on) => {
+    const { surfaces } = fakeHost(on, { messages: [prompt('a'), said('one line')] }, { ssh: true, terminalCopies: true })
+    await run($, '')
+    await run($, 'reply')
+    await run($, '', { kind: 'bridge' })
+    expect(surfaces).toEqual(['terminal', 'terminal', undefined])
+  })
+
   test('over SSH with a terminal that refuses, fails and says why, rather than filling the remote clipboard', async ($, on) => {
     const { copied } = fakeHost(on, { messages: [prompt('a'), said('one line')] }, { ssh: true })
     expect((await run($, '')).text).toContain('over SSH ditto copies through your terminal (OSC 52) only')
@@ -686,7 +763,7 @@ describe('grouped tool rows', () => {
       await run($, `output ${n}`)
     }
     expect(copied).toEqual(['two', 'two', 'ok\nfile.md', 'ok\nfile.md'])
-    expect(USAGE).toContain('⧉ output 2 is /ditto output 2')
+    expect(USAGE).toContain('⧉ output 2 is /ditto output 2 only while that group holds the last tool call')
   })
 
   test('put the chip after the folded line in cells of its own, on the same row a single tool uses', async ($, on) => {

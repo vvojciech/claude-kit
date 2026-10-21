@@ -15,10 +15,9 @@ export const GLYPH = '⧉'
 export const REPLY = 'reply'
 export const TOOL_KINDS: readonly ToolKind[] = ['file', 'plan', 'output']
 export const GAP = 2
+export const CODE = 'code'
 const TABLE = 'table'
-const UNNAMED_CODE = 'code'
-const CLASHING_CODE = 'code'
-const RESERVED = new Set([TABLE, UNNAMED_CODE, REPLY, 'selection', 'help', ...TOOL_KINDS])
+const RESERVED = new Set([TABLE, CODE, REPLY, 'selection', 'help', ...TOOL_KINDS])
 
 function copyable(block: Block): boolean {
   return block.kind === 'code' || block.kind === 'table'
@@ -27,8 +26,8 @@ function copyable(block: Block): boolean {
 function baseName(block: Block): string {
   if (block.kind === 'table') return TABLE
   const lang = block.lang ?? ''
-  if (lang === '') return UNNAMED_CODE
-  return RESERVED.has(lang.toLowerCase()) ? `${lang}-${CLASHING_CODE}` : lang
+  if (lang === '') return CODE
+  return RESERVED.has(lang.toLowerCase()) ? `${lang}-${CODE}` : lang
 }
 
 function bodyOf(block: Block): string {
@@ -37,7 +36,7 @@ function bodyOf(block: Block): string {
 
 function whatOf(block: Block, base: string): string {
   if (block.kind === 'table') return TABLE
-  return base === UNNAMED_CODE ? 'code block' : `${base} block`
+  return base === CODE ? 'code block' : `${base} block`
 }
 
 export function numbered(names: string[]): string[] {

@@ -10,13 +10,13 @@ import type { Draw, Run } from './runs'
 import { table, tableRows } from './tables'
 import { cellWidth } from './width'
 
-type Context = { done: boolean; nesting: number; gutter: string }
+type Context = { done: boolean; nesting: number; gutter: string; owed: number[] }
 
 type Size = { nodes: number; depth: number }
 
 type DrawnBlock = { node: RenderNode; size: Size }
 
-const TOP: Context = { done: false, nesting: 0, gutter: '' }
+const TOP: Context = { done: false, nesting: 0, gutter: '', owed: [] }
 
 const NESTING_LIMIT = 8
 
@@ -62,10 +62,14 @@ function isCode(b: Block): boolean {
   return b.kind === 'code'
 }
 
+function holds(b: Block, leaf: (b: Block) => boolean): boolean {
+  if (leaf(b)) return true
+  if (b.kind === 'list') return b.items.some(item => item.blocks.some(child => holds(child, leaf)))
+  return b.kind === 'quote' && b.blocks.some(child => holds(child, leaf))
+}
+
 function holdsCode(b: Block): boolean {
-  if (b.kind === 'code') return true
-  if (b.kind === 'list') return b.items.some(item => item.blocks.some(holdsCode))
-  return b.kind === 'quote' && b.blocks.some(holdsCode)
+  return holds(b, isCode)
 }
 
 function segments(blocks: Block[], pulled: (b: Block) => boolean = isCode): Segment[] {
@@ -80,9 +84,7 @@ function segments(blocks: Block[], pulled: (b: Block) => boolean = isCode): Segm
 }
 
 export function holdsWide(b: Block): boolean {
-  if (WIDE_BLOCKS.has(b.kind)) return true
-  if (b.kind === 'list') return b.items.some(item => item.blocks.some(holdsWide))
-  return b.kind === 'quote' && b.blocks.some(holdsWide)
+  return holds(b, child => WIDE_BLOCKS.has(child.kind))
 }
 
 function itemBody(draw: Draw, blocks: Block[], marker: RenderNode | null, lead: number, width: number, gap: number, loose: boolean, context: Context): RenderNode {
@@ -92,9 +94,9 @@ function itemBody(draw: Draw, blocks: Block[], marker: RenderNode | null, lead: 
     <Box flexDirection="column" paddingLeft={lead} width={room + lead} marginTop={gap}>
       {marker}
       {blocks.length === 0 ? <draw.kit.Text> </draw.kit.Text> : null}
-      {blocks.map((child, i) => {
-        const drawn = block(draw, child, room, context)
-        return loose && i > 0 ? <Box marginTop={1}>{drawn}</Box> : drawn
+      {blocks.flatMap((child, i) => {
+        const drawn = barredBlock(draw, child, room, context)
+        return spaced(draw, loose && i > 0 ? 1 : 0, context, top => (top > 0 ? <Box marginTop={top}>{drawn}</Box> : drawn))
       })}
     </Box>
   )
@@ -122,14 +124,15 @@ function flushCode(draw: Draw, blocks: Block[], width: number, top: number, cont
 
 function listItem(draw: Draw, item: ListItem, loose: boolean, numberWidth: number, width: number, context: Context, gap: number): RenderNode[] {
   const lead = markerWidth(item, numberWidth) + 1
-  const inner = { done: context.done || item.marker === 'done', nesting: context.nesting + 1, gutter: context.gutter }
+  const inner = { ...context, done: context.done || item.marker === 'done', nesting: context.nesting + 1 }
   const indented = { ...inner, gutter: context.gutter + ' '.repeat(lead) }
   const childGap = loose ? 1 : 0
-  return segments(item.blocks).map((segment, i) => {
-    const top = i === 0 ? gap : childGap
-    if (segment.isCode) return flushCode(draw, segment.blocks, width, top, inner, indented.gutter)
-    return itemBody(draw, segment.blocks, i === 0 ? itemMarker(draw, item) : null, lead, width, top, loose, indented)
-  })
+  return segments(item.blocks).flatMap((segment, i) =>
+    spaced(draw, i === 0 ? gap : childGap, context, top => {
+      if (segment.isCode) return flushCode(draw, segment.blocks, width, top, inner, indented.gutter)
+      return itemBody(draw, segment.blocks, i === 0 ? itemMarker(draw, item) : null, lead, width, top, loose, indented)
+    }),
+  )
 }
 
 function list(draw: Draw, b: Extract<Block, { kind: 'list' }>, width: number, context: Context): RenderNode {
@@ -149,7 +152,7 @@ function listRows(b: Extract<Block, { kind: 'list' }>, width: number): number {
 export function blockRows(b: Block, width: number): number {
   switch (b.kind) {
     case 'heading':
-      return wrappedRows(spansText(b.spans), width)
+      return wrappedRows(spansText(b.spans), width) + (b.level === 1 ? 1 : 0)
     case 'paragraph':
       return wrappedRows(spansText(b.spans), width)
     case 'list':
@@ -177,38 +180,79 @@ function quoteChild(draw: Draw, child: Block, width: number, context: Context): 
   return child.kind === 'paragraph' ? paragraph(draw, child.spans, draw.palette.muted) : block(draw, child, width, context)
 }
 
-function quoteBar(draw: Draw, rows: number): RenderNode {
+function barAt(draw: Draw, left: number, rows: number): RenderNode {
   const { Box, Text } = draw.kit
   return (
-    <Box position="absolute" left={0} top={0} bottom={0} width={1} overflow="hidden">
+    <Box position="absolute" left={left} top={0} bottom={0} width={1} overflow="hidden">
       <Text color={draw.palette.faint}>{Array.from({ length: rows }, () => QUOTE_BAR).join('\n')}</Text>
     </Box>
   )
 }
 
-function quoteProse(draw: Draw, blocks: Block[], label: RenderNode | null, width: number, top: number, context: Context): RenderNode {
+function quoteBar(draw: Draw, rows: number): RenderNode {
+  return barAt(draw, 0, rows)
+}
+
+function owedBars(draw: Draw, owed: number[], edge: number, rows: number): RenderNode[] {
+  return owed.map(column => barAt(draw, column - edge, rows))
+}
+
+function barredGap(draw: Draw, context: Context, rows: number): RenderNode {
+  return (
+    <draw.kit.Box height={rows} width={1}>
+      {owedBars(draw, context.owed, cellWidth(context.gutter), rows)}
+    </draw.kit.Box>
+  )
+}
+
+function spaced(draw: Draw, top: number, context: Context, build: (top: number) => RenderNode): RenderNode[] {
+  if (top === 0 || context.owed.length === 0) return [build(top)]
+  return [barredGap(draw, context, top), build(0)]
+}
+
+type DrawBlock = (draw: Draw, b: Block, width: number, context: Context) => RenderNode
+
+function barredBlock(draw: Draw, child: Block, width: number, context: Context, drawChild: DrawBlock = block): RenderNode {
+  if (context.owed.length === 0 || holdsCode(child)) return drawChild(draw, child, width, context)
+  return (
+    <draw.kit.Box flexDirection="column">
+      {drawChild(draw, child, width, { ...context, owed: [] })}
+      {owedBars(draw, context.owed, cellWidth(context.gutter), blockRows(child, width))}
+    </draw.kit.Box>
+  )
+}
+
+function quoteProse(draw: Draw, blocks: Block[], label: RenderNode | null, width: number, top: number, context: Context, edge: number): RenderNode {
   const { Box } = draw.kit
   const inner = Math.max(1, width - QUOTE_INDENT)
   const rows = (label === null ? 0 : 1) + proseRows(blocks, inner)
-  const children = blocks.map((child, i) => <Box flexDirection="column" marginTop={i > 0 ? 1 : 0}>{quoteChild(draw, child, inner, context)}</Box>)
+  const unowed = { ...context, owed: [] }
+  const children = blocks.map((child, i) => <Box flexDirection="column" marginTop={i > 0 ? 1 : 0}>{quoteChild(draw, child, inner, unowed)}</Box>)
   return (
     <Box flexDirection="column" paddingLeft={QUOTE_INDENT} marginTop={top}>
       {label}
       {children}
       {quoteBar(draw, rows)}
+      {owedBars(draw, context.owed, edge, rows)}
     </Box>
   )
 }
+
 
 function quoteHoldingCode(draw: Draw, blocks: Block[], width: number, top: number, context: Context): RenderNode {
   const inner = Math.max(1, width - QUOTE_INDENT)
   return (
     <draw.kit.Box flexDirection="column" paddingLeft={QUOTE_INDENT} marginTop={top}>
-      {blocks.map((child, i) => {
-        const top = i > 0 ? 1 : 0
-        if (isCode(child)) return flushCode(draw, [child], inner, top, context, context.gutter)
-        return <draw.kit.Box flexDirection="column" marginTop={top}>{quoteChild(draw, child, inner, context)}</draw.kit.Box>
-      })}
+      {blocks.flatMap((child, i) =>
+        spaced(draw, i > 0 ? 1 : 0, context, top => {
+          if (isCode(child)) return flushCode(draw, [child], inner, top, context, context.gutter)
+          return (
+            <draw.kit.Box flexDirection="column" marginTop={top}>
+              {barredBlock(draw, child, inner, context, quoteChild)}
+            </draw.kit.Box>
+          )
+        }),
+      )}
     </draw.kit.Box>
   )
 }
@@ -219,18 +263,31 @@ function alertLabel(draw: Draw, b: Extract<Block, { kind: 'quote' }>): RenderNod
 
 function quote(draw: Draw, b: Extract<Block, { kind: 'quote' }>, width: number, context: Context): RenderNode {
   const label = alertLabel(draw, b)
+  const edge = cellWidth(context.gutter)
   const prose = { ...context, gutter: context.gutter + QUOTE_GUTTER }
+  const owing = { ...prose, owed: [...context.owed, edge] }
   const parts = segments(b.blocks, holdsCode).filter((segment, i) => segment.blocks.length > 0 || (i === 0 && label !== null))
   return (
     <draw.kit.Box flexDirection="column">
-      {parts.map((segment, i) => {
-        const top = i > 0 ? 1 : 0
-        if (segment.isCode && segment.blocks.every(isCode)) return flushCode(draw, segment.blocks, width, top, context, prose.gutter)
-        if (segment.isCode) return quoteHoldingCode(draw, segment.blocks, width, top, prose)
-        return quoteProse(draw, segment.blocks, i === 0 ? label : null, width, top, prose)
-      })}
+      {parts.flatMap((segment, i) =>
+        spaced(draw, i > 0 ? 1 : 0, { ...context, owed: owing.owed }, top => {
+          if (segment.isCode && segment.blocks.every(isCode)) return flushCode(draw, segment.blocks, width, top, context, prose.gutter)
+          if (segment.isCode) return quoteHoldingCode(draw, segment.blocks, width, top, owing)
+          return quoteProse(draw, segment.blocks, i === 0 ? label : null, width, top, prose, edge)
+        }),
+      )}
     </draw.kit.Box>
   )
+}
+
+function levelledItems(item: ListItem): ListItem[] {
+  const own = item.blocks.filter(child => child.kind !== 'list')
+  const deeper = item.blocks.flatMap(child => (child.kind === 'list' ? child.items.flatMap(levelledItems) : []))
+  return [{ ...item, blocks: own }, ...deeper]
+}
+
+function levelled(b: Extract<Block, { kind: 'list' }>): Extract<Block, { kind: 'list' }> {
+  return { ...b, items: b.items.flatMap(levelledItems) }
 }
 
 function flattened(draw: Draw, b: Block): RenderNode {
@@ -240,11 +297,11 @@ function flattened(draw: Draw, b: Block): RenderNode {
 function block(draw: Draw, b: Block, width: number, context: Context = TOP): RenderNode {
   switch (b.kind) {
     case 'heading':
-      return heading(draw, b.level, b.spans)
+      return heading(draw, b.level, b.spans, width)
     case 'paragraph':
       return paragraph(draw, b.spans, context.done ? draw.palette.muted : draw.palette.text)
     case 'list':
-      return context.nesting >= NESTING_LIMIT ? flattened(draw, b) : list(draw, b, width, context)
+      return list(draw, context.nesting >= NESTING_LIMIT ? levelled(b) : b, width, context)
     case 'code':
       return code(draw, b.language, b.source, width)
     case 'table':

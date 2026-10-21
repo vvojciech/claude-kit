@@ -235,13 +235,13 @@ describe('html-looking text', () => {
 describe('html and footnotes', () => {
   test('drops comments and tags but keeps their text', async () => {
     const blocks = parseBlocks('<details>\n<summary>More</summary>\n\nbody\n</details>\n\n<!-- a comment -->')
-    expect(blocks.map(b => (b.kind === 'paragraph' ? text(b.spans) : b.kind))).toEqual(['More', 'body'])
+    expect(blocks.map(b => (b.kind === 'paragraph' ? text(b.spans) : b.kind))).toEqual(['▸ More', 'body'])
     expect(text(inlineSpans('press <kbd>Ctrl</kbd> <!-- hidden -->now'))).toBe('press Ctrl now')
   })
 
   test('keeps text from adjacent block tags apart', async () => {
     const blocks = parseBlocks('<details><summary>More</summary>hidden</details>')
-    expect(blocks.map(b => (b.kind === 'paragraph' ? text(b.spans) : b.kind))).toEqual(['More\nhidden'])
+    expect(blocks.map(b => (b.kind === 'paragraph' ? text(b.spans) : b.kind))).toEqual(['▸ More\nhidden'])
   })
 
   test('turns br into a line break', async () => {
@@ -297,7 +297,7 @@ describe('footnote definitions', () => {
   })
 
   test('reads a fenced block indented under a footnote as code in its language', async () => {
-    expect(parseBlocks('[^f]: Lead\n\n    ```js\n    x()\n    ```\n').at(-1)).toEqual({ kind: 'code', language: 'js', source: 'x()' })
+    expect(parseBlocks('[^f]: Lead\n\n    ```js\n    x()\n    ```\n').at(-1)).toEqual({ kind: 'code', language: 'js', source: 'x()', hang: 4 })
   })
 
   test('ends a footnote at the first paragraph that is not indented', async () => {
@@ -650,3 +650,46 @@ function parseOne(markdown: string): Span[] {
   const [first] = parseBlocks(markdown)
   return first?.kind === 'paragraph' ? first.spans : []
 }
+
+describe('html tags whatever their case', () => {
+  test('styles uppercase and mixed-case tags like lowercase ones, and leaves components literal', async () => {
+    expect(inlineSpans('<B>LOUD</B> and <Em>mixed</Em> and <Strong>x</Strong>').map(s => [s.text, s.bold ?? false, s.italic ?? false])).toEqual([['LOUD', true, false], [' and ', false, false], ['mixed', false, true], [' and ', false, false], ['x', true, false]])
+    expect(inlineSpans('<Button>Save</Button>').map(s => s.text).join('')).toBe('<Button>Save</Button>')
+    expect(inlineSpans('<KBD>Ctrl</KBD>')[0]).toMatchObject({ text: 'Ctrl', kind: 'code' })
+  })
+
+  test('keeps a component tag written in PascalCase verbatim', async () => {
+    expect(text(inlineSpans('<Header>x</Header>'))).toBe('<Header>x</Header>')
+    expect(text(inlineSpans('<Details>x</Details> <Code>y</Code>'))).toBe('<Details>x</Details> <Code>y</Code>')
+  })
+
+  test('underlines inserted text so a deletion and its replacement read apart', async () => {
+    const spans = inlineSpans('<del>v1</del><ins>v2</ins> and <u>this</u>')
+    expect(spans.map(s => [s.text, s.strike ?? false, s.underline ?? false])).toEqual([['v1', true, false], ['v2', false, true], [' and ', false, false], ['this', false, true]])
+  })
+
+  test('draws a details summary as a marked bold line', async () => {
+    const [summary, body] = parseBlocks('<details>\n<summary>Why it <i>failed</i></summary>\n\nbody\n</details>')
+    expect(summary?.kind === 'paragraph' ? summary.spans.map(s => [s.text, s.bold ?? false, s.italic ?? false]) : []).toEqual([['▸ ', false, false], ['Why it ', true, false], ['failed', true, true]])
+    expect(body?.kind === 'paragraph' ? text(body.spans) : '').toBe('body')
+  })
+
+  test('leaves an unclosed summary as plain text', async () => {
+    expect(parseBlocks('<details>\n<summary>Why').map(b => (b.kind === 'paragraph' ? text(b.spans) : b.kind))).toEqual(['Why'])
+  })
+})
+
+describe('footnote continuations', () => {
+  test('hangs a footnote continuation under the text after its label', async () => {
+    const blocks = parseBlocks('[^long]: First paragraph.\n\n    Second paragraph.\n\n    - point\n\nAfter.')
+    expect(blocks.map(b => [b.kind, b.hang])).toEqual([['paragraph', undefined], ['paragraph', 7], ['list', 7], ['paragraph', undefined]])
+  })
+
+  test('hangs by the width of a wide label', async () => {
+    expect(parseBlocks('[^注]: a\n\n    b').at(-1)?.hang).toBe(5)
+  })
+
+  test('hangs nothing for a footnote with no continuation', async () => {
+    expect(parseBlocks('[^n]: only').map(b => b.hang)).toEqual([undefined])
+  })
+})

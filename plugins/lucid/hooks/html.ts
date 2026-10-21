@@ -1,6 +1,6 @@
 import { decodeEntities } from './entities'
 
-export type TagRole = 'bold' | 'italic' | 'strike' | 'code' | 'link' | 'image' | 'text' | 'quote' | 'superscript' | 'subscript' | 'break' | 'block' | 'hidden'
+export type TagRole = 'bold' | 'italic' | 'strike' | 'underline' | 'code' | 'link' | 'image' | 'text' | 'quote' | 'superscript' | 'subscript' | 'break' | 'block' | 'hidden'
 
 export type Tag = { name: string; role: TagRole; closing: boolean; empty: boolean; attributes: Record<string, string> }
 
@@ -11,7 +11,8 @@ const ROLES: Record<string, TagRole> = {
   ...roles('italic', ['i', 'em', 'cite', 'dfn', 'var']),
   ...roles('strike', ['del', 's', 'strike']),
   ...roles('code', ['code', 'kbd', 'samp', 'tt']),
-  ...roles('text', ['span', 'u', 'ins', 'mark', 'small', 'big', 'abbr', 'time', 'data', 'bdi', 'bdo', 'font']),
+  ...roles('underline', ['u', 'ins']),
+  ...roles('text', ['span', 'mark', 'small', 'big', 'abbr', 'time', 'data', 'bdi', 'bdo', 'font']),
   ...roles('block', ['p', 'div', 'details', 'summary', 'section', 'article', 'header', 'footer', 'nav', 'main', 'aside', 'center', 'figure', 'figcaption', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr']),
   a: 'link',
   img: 'image',
@@ -22,15 +23,21 @@ const ROLES: Record<string, TagRole> = {
   wbr: 'hidden',
 }
 
+const MIXED_CASE_ROLES = new Set<TagRole>(['bold', 'italic', 'strike', 'underline', 'superscript', 'subscript'])
+
 const VOID = new Set(['br', 'wbr', 'img', 'hr'])
 
-const TAG = /^<(\/?)([a-z][a-z\d]*)((?:\s+[a-zA-Z_:][\w:.-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>$/
+const TAG = /^<(\/?)([a-z][a-z\d]*)((?:\s+[a-zA-Z_:][\w:.-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>$/i
 
 const ATTRIBUTE = /([a-zA-Z_:][\w:.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
 
 const COMMENT = /<!--[\s\S]*?(?:-->|$)/g
 
-const MARKUP = /<\/?[a-z][a-z\d]*(?:\s[^<>]*)?\/?>/g
+const MARKUP = /<\/?[a-z][a-z\d]*(?:\s[^<>]*)?\/?>/gi
+
+const SUMMARY = /<summary(?:\s[^<>]*)?>([\s\S]*?)<\/summary\s*>/gi
+
+const SUMMARY_LEAD = '▸ '
 
 const PRE = /^[ \t]*<pre(\s[^>]*)?>\n?([\s\S]*?)(?:<\/pre>[ \t]*\n?([\s\S]*))?$/i
 
@@ -46,18 +53,28 @@ function roles(role: TagRole, names: string[]): Record<string, TagRole> {
 
 export function tagOf(markup: string): Tag | undefined {
   const match = TAG.exec(markup)
-  const name = match?.[2]
-  const role = name !== undefined && Object.hasOwn(ROLES, name) ? ROLES[name] : undefined
+  const name = match?.[2]?.toLowerCase()
+  const role = name !== undefined && Object.hasOwn(ROLES, name) ? roleAsWritten(match?.[2] ?? '', ROLES[name]) : undefined
   if (!match || name === undefined || role === undefined) return undefined
   const closing = match[1] === '/'
   if (closing && (match[3] !== '' || match[4] !== '')) return undefined
   return { name, role, closing, empty: VOID.has(name) || match[4] === '/', attributes: attributesOf(match[3] ?? '') }
 }
 
+function roleAsWritten(written: string, role: TagRole | undefined): TagRole | undefined {
+  const singleCase = written === written.toLowerCase() || written === written.toUpperCase()
+  return singleCase || (role !== undefined && MIXED_CASE_ROLES.has(role)) ? role : undefined
+}
+
 function attributesOf(source: string): Record<string, string> {
   const attributes: Record<string, string> = {}
   for (const [, name = '', double, single, bare] of source.matchAll(ATTRIBUTE)) attributes[name.toLowerCase()] = decodeEntities(double ?? single ?? bare ?? '')
   return attributes
+}
+
+export function isTagNamePrefix(prefix: string): boolean {
+  const lower = prefix.toLowerCase()
+  return lower !== '' && Object.keys(ROLES).some(name => name.startsWith(lower))
 }
 
 export function isComment(markup: string): boolean {
@@ -83,8 +100,12 @@ function blockMarkupText(markup: string): string {
   return tag.role === 'block' || tag.role === 'break' ? '\n' : markup
 }
 
+function summaryLine(_markup: string, title: string): string {
+  return `\n${SUMMARY_LEAD}<b>${title.trim()}</b>\n`
+}
+
 export function flowOfBlock(html: string): string {
-  return html.replace(COMMENT, '').replace(MARKUP, blockMarkupText).replace(/[ \t]*\n\s*/g, '\n').trim()
+  return html.replace(COMMENT, '').replace(SUMMARY, summaryLine).replace(MARKUP, blockMarkupText).replace(/[ \t]*\n\s*/g, '\n').trim()
 }
 
 function languageOf(attributes: string): string {

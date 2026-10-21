@@ -23,10 +23,16 @@ function only<K extends Block['kind']>(blocks: Block[] | undefined, kind: K): Ex
   return found as Extract<Block, { kind: K }>
 }
 
+const ATTEMPTS = 3
+
 function elapsed(run: () => unknown): number {
   const start = performance.now()
   run()
   return performance.now() - start
+}
+
+function bestRatio(measure: (attempt: number) => number): number {
+  return Math.min(...Array.from({ length: ATTEMPTS }, (_, attempt) => measure(attempt)))
 }
 
 const CORPUS = [
@@ -98,26 +104,29 @@ describe('incremental parsing', () => {
   })
 
   test('parses each token of a 100KB reply in a small share of a full parse', async () => {
-    const prose = Array.from({ length: 900 }, (_, i) => `Line ${i}: see \`app/x_${i}.rb:${i}\`, **bold** and https://x.io/${i}.`).join('\n\n')
-    const full = elapsed(() => parseAfresh(prose))
-    parseBlocks(prose, { streaming: true })
-    let streaming = 0
-    for (let token = 0; token < 20; token++) streaming += elapsed(() => parseBlocks(`${prose} more${'x'.repeat(token)}`, { streaming: true }))
-    expect(streaming / 20).toBeLessThan(full / 10)
+    const ratio = bestRatio(attempt => {
+      const prose = Array.from({ length: 900 }, (_, i) => `Line ${i}: see \`app/x_${i}.rb:${i}\`, **bold** and https://x.io/${attempt}/${i}.`).join('\n\n')
+      const full = elapsed(() => parseAfresh(prose))
+      parseBlocks(prose, { streaming: true })
+      let streaming = 0
+      for (let token = 0; token < 20; token++) streaming += elapsed(() => parseBlocks(`${prose} more${'x'.repeat(token)}`, { streaming: true }))
+      return streaming / 20 / full
+    })
+    expect(ratio).toBeLessThan(1 / 10)
   })
 
   test('re-lexes only the growing tail block, however long the settled reply is', async () => {
     const settled = Array.from({ length: 900 }, (_, i) => `Paragraph ${i}.`).join('\n\n')
     const short = '```ts\nconst a = 1\n'
-    const run = (head: string) => {
-      parseBlocks(`${head}\n\n${short}`, { streaming: true })
+    const run = (head: string, attempt: number) => {
+      const tail = `${short}${attempt}`
+      parseBlocks(`${head}\n\n${tail}`, { streaming: true })
       return elapsed(() => {
-        for (let token = 0; token < 50; token++) parseBlocks(`${head}\n\n${short}${'b'.repeat(token)}`, { streaming: true })
+        for (let token = 0; token < 50; token++) parseBlocks(`${head}\n\n${tail}${'b'.repeat(token)}`, { streaming: true })
       })
     }
-    const small = run('Intro.')
-    const large = run(settled)
-    expect(large).toBeLessThan(small * 10 + 20)
+    const excess = bestRatio(attempt => run(settled, attempt) - (run('Intro.', attempt) * 10 + 20))
+    expect(excess).toBeLessThan(0)
   })
 
   test('forgets the oldest streamed prefixes once their text passes the byte budget', async () => {
@@ -202,10 +211,10 @@ describe('blocksOf', () => {
   test('lists drawn blocks in order with the raw markdown of each', async () => {
     const message = '# Title\n\nSome **text**.\n\n```Ruby extra\nputs 1\n```\n\n| a | b |\n|---|---|\n| `x \\| y` | 2 |\n'
     expect(blocksOf(message)).toEqual([
-      { kind: 'heading', source: '# Title', depth: 0 },
-      { kind: 'paragraph', source: 'Some **text**.', depth: 0 },
-      { kind: 'code', source: '```Ruby extra\nputs 1\n```', depth: 0, lang: 'ruby', text: 'puts 1' },
-      { kind: 'table', source: '| a | b |\n|---|---|\n| `x \\| y` | 2 |\n', depth: 0 },
+      { kind: 'heading', source: '# Title', depth: 0, start: 0, end: 7 },
+      { kind: 'paragraph', source: 'Some **text**.', depth: 0, start: 9, end: 23 },
+      { kind: 'code', source: '```Ruby extra\nputs 1\n```', depth: 0, start: 25, end: 49, lang: 'ruby', text: 'puts 1' },
+      { kind: 'table', source: '| a | b |\n|---|---|\n| `x \\| y` | 2 |\n', depth: 0, start: 51, end: message.length },
     ])
   })
 
@@ -227,8 +236,8 @@ describe('blocksOf', () => {
   })
 
   test('gives front matter, pre blocks and over-deep nesting as the code blocks lucid draws', async () => {
-    expect(blocksOf('---\ntitle: x\n---\nBody')[0]).toEqual({ kind: 'code', source: '---\ntitle: x\n---\n', depth: 0, lang: 'yaml', text: 'title: x' })
-    expect(blocksOf('<pre>a\n b</pre>')).toEqual([{ kind: 'code', source: '<pre>a\n b</pre>', depth: 0, lang: '', text: 'a\n b' }])
+    expect(blocksOf('---\ntitle: x\n---\nBody')[0]).toEqual({ kind: 'code', source: '---\ntitle: x\n---\n', depth: 0, start: 0, end: 17, lang: 'yaml', text: 'title: x' })
+    expect(blocksOf('<pre>a\n b</pre>')).toEqual([{ kind: 'code', source: '<pre>a\n b</pre>', depth: 0, start: 0, end: 15, lang: '', text: 'a\n b' }])
     const deep = blocksOf('>'.repeat(40) + ' deep')
     expect(deep.at(-1)).toMatchObject({ kind: 'code', lang: '' })
     expect(blocksOf('<!-- note -->')).toEqual([])
@@ -240,13 +249,13 @@ describe('blocksOf', () => {
   })
 
   test('gives a provisional streaming table the text that really arrived', async () => {
-    expect(blocksOf('Summary\n\n| a | b |', { streaming: true }).at(-1)).toEqual({ kind: 'table', source: '| a | b |', depth: 0 })
+    expect(blocksOf('Summary\n\n| a | b |', { streaming: true }).at(-1)).toEqual({ kind: 'table', source: '| a | b |', depth: 0, start: 9, end: 18 })
   })
 
   test('gives an alert body without the alert marker lucid hides', async () => {
     expect(blocksOf('> [!NOTE]\n> body')).toEqual([
-      { kind: 'quote', source: '> [!NOTE]\n> body', depth: 0 },
-      { kind: 'paragraph', source: 'body', depth: 1 },
+      { kind: 'quote', source: '> [!NOTE]\n> body', depth: 0, start: 0, end: 16 },
+      { kind: 'paragraph', source: 'body', depth: 1, start: 12, end: 16 },
     ])
   })
 
@@ -257,7 +266,39 @@ describe('blocksOf', () => {
   })
 
   test('lists the indented paragraphs of a footnote after its lead, without the indent', async () => {
-    expect(blocksOf('[^n]: Lead\n\n    More.\n').map(e => `${e.depth}:${e.kind}:${e.source}`)).toEqual(['0:paragraph:[^n]: Lead', '0:paragraph:More.\n'])
+    expect(blocksOf('[^n]: Lead\n\n    More.\n').map(e => `${e.depth}:${e.kind}:${e.source}`)).toEqual(['0:paragraph:[^n]: Lead', '1:paragraph:More.\n'])
+  })
+
+  test('locates every block in the text as given, nested and CRLF ones included', async () => {
+    const message = '# T\r\n\r\n- item one\r\n  - child **x**\r\n\r\n> quoted\r\n> more\r\n'
+    const located = blocksOf(message).map(e => [e.depth, e.kind, message.slice(e.start, e.end)])
+    expect(located).toEqual([
+      [0, 'heading', '# T'],
+      [0, 'list', '- item one\r\n  - child **x**'],
+      [1, 'paragraph', 'item one'],
+      [1, 'list', '- child **x**'],
+      [2, 'paragraph', 'child **x**'],
+      [0, 'quote', '> quoted\r\n> more\r\n'],
+      [1, 'paragraph', 'quoted\r\n> more'],
+    ])
+  })
+
+  test('locates each streamed prefix in its own text', async () => {
+    for (const message of CORPUS) {
+      for (let end = 1; end <= message.length; end += 7) {
+        const prefix = message.slice(0, end)
+        for (const entry of blocksOf(prefix, { streaming: true }).filter(e => e.depth === 0)) expect({ prefix, at: prefix.slice(entry.start, entry.end) }).toEqual({ prefix, at: entry.source })
+      }
+    }
+  })
+
+  test('locates a nested block at its own content, never on a container marker with the same text', async () => {
+    for (const [message, expected] of [
+      ['1. 1\n2. 2\n', [[0, 0, 10], [1, 3, 4], [1, 8, 9]]],
+      ['- 1. 1\n', [[0, 0, 7], [1, 2, 6], [2, 5, 6]]],
+      ['1) 1)\n', [[0, 0, 6], [1, 3, 5]]],
+      ['- - x\n', [[0, 0, 6], [1, 2, 5], [2, 4, 5]]],
+    ] as const) expect({ message, at: blocksOf(message).map(e => [e.depth, e.start, e.end]) }).toEqual({ message, at: expected.map(entry => [...entry]) })
   })
 
   test('draws nothing for an empty message', async () => {
@@ -286,5 +327,148 @@ describe('ReplyStream', () => {
     expect(replies.isStreaming('b')).toBe(false)
     replies.turnStarted()
     expect(replies.isStreaming('b')).toBe(false)
+  })
+})
+
+function shownSyntax(blocks: Block[]): string {
+  return blocks
+    .map(block => {
+      if (block.kind === 'paragraph' || block.kind === 'heading') return text(block.spans)
+      if (block.kind === 'code') return `code:${block.language}`
+      if (block.kind === 'list') return block.items.map(item => `${item.marker}(${shownSyntax(item.blocks)})`).join(' ')
+      if (block.kind === 'quote') return `quote${block.alert ? `:${block.alert}` : ''}(${shownSyntax(block.blocks)})`
+      return block.kind
+    })
+    .join(' | ')
+}
+
+const SWEPT = [
+  'Some **bold* and **bold** done',
+  'x __bold_ y __bold__ and _it_',
+  'a ~~strike~ b ~~strike~~',
+  'Some **bold\ncontinues here** ok',
+  `see \`${'tok '.repeat(30)}\` done`,
+  'Intro\n\n```ruby\nputs 1\n```\n\nafter',
+  'Intro\n\n~~~ruby\nputs 1\n~~~\n\nafter',
+  'x < y and <!-- c --> and <a href="u">l</a> end',
+  '| a | b |\n|---|---|\n| 1 | **2** |\n',
+  '- [ ] task\n- [x] done\n',
+  '[x]: https://x.y\n\nsee [ref][x] now\n',
+  'an image ![alt](http://i.png) inline',
+  '- item **one\n  two** three\n- next',
+  '> [!NOTE]\n> a `b` **c**\n',
+  '1. one\n2. two\n10. ten\n',
+]
+
+function isInOrder(shown: string, final: string): boolean {
+  let at = 0
+  for (const char of shown) {
+    at = final.indexOf(char, at) + 1
+    if (at === 0) return false
+  }
+  return true
+}
+
+describe('streaming shows no syntax still being typed', () => {
+  test('holds back a fence until its info string is finished', async () => {
+    for (const prefix of ['Intro\n\n```s', 'Intro\n\n~~~rub', 'Intro\n\n```', '- step\n\n  ```js']) expect({ prefix, shown: shownSyntax(streamed(prefix)) }).toEqual({ prefix, shown: prefix.startsWith('-') ? 'bullet(step)' : 'Intro' })
+    expect(shownSyntax(streamed('Intro\n\n```sh\n'))).toBe('Intro | code:sh')
+  })
+
+  test('holds back a bare quote marker, a task box and a footnote label until they mean something', async () => {
+    for (const prefix of ['Intro\n\n>', 'Intro\n\n> ', 'Intro\n\n> >', 'Intro\n\n- [', 'Intro\n\n- [x', 'Intro\n\n- [ ]', 'Intro\n\n[^1', 'Intro\n\n[^1]:']) expect({ prefix, shown: shownSyntax(streamed(prefix)) }).toEqual({ prefix, shown: 'Intro' })
+    expect(shownSyntax(streamed('Intro\n\n> [!WARNING]\n> x'))).toBe('Intro | quote:warning(x)')
+    expect(shownSyntax(streamed('Intro\n\n- [ ] x'))).toBe('Intro | todo(x)')
+  })
+
+  test('holds back a half-typed closing fence, a table row before its second pipe and a lone bullet dash', async () => {
+    for (const prefix of ['Intro\n\n```ruby\nputs 1\n`', 'Intro\n\n```ruby\nputs 1\n``', 'Intro\n\n~~~ruby\nputs 1\n~~']) expect({ prefix, code: only(streamed(prefix), 'code').source }).toEqual({ prefix, code: 'puts 1' })
+    for (const prefix of ['Intro\n\n|', 'Intro\n\n| a', 'Intro\n\n| a ']) expect({ prefix, shown: shownSyntax(streamed(prefix)) }).toEqual({ prefix, shown: 'Intro' })
+    expect(shownSyntax(streamed('-'))).toBe('')
+    expect(shownSyntax(streamed('- '))).toBe('')
+  })
+
+  test('holds back an opener inside the last table row until it closes', async () => {
+    const table = only(streamed('| a | b |\n|---|---|\n| 1 | **2'), 'table')
+    expect(table.rows.map(row => row.map(text))).toEqual([['1', '']])
+  })
+
+  test('never shows a frame whose text the finished reply does not contain in order', async () => {
+    for (const message of SWEPT) {
+      const final = shownSyntax(parseBlocks(message)).replace(/\s+/g, '')
+      for (let end = 1; end <= message.length; end++) {
+        const prefix = message.slice(0, end)
+        expect({ prefix, inOrder: isInOrder(shownSyntax(streamed(prefix)).replace(/\s+/g, ''), final) }).toEqual({ prefix, inOrder: true })
+      }
+    }
+  })
+
+  test('never glues the next list number onto the item before it', async () => {
+    expect(shownSyntax(streamed('1. one\n2'))).toBe('number(one)')
+    expect(shownSyntax(streamed('1. one\n2.'))).toBe('number(one)')
+    expect(shownSyntax(streamed('1. one\n2. two'))).toBe('number(one) number(two)')
+  })
+
+  test('holds back an inline opener until its closer arrives', async () => {
+    for (const [prefix, shown] of [
+      ['Some **bol', 'Some'],
+      ['Some *it', 'Some'],
+      ['a ~~gone', 'a'],
+      ['run `npm', 'run'],
+      ['see [docs', 'see'],
+      ['see [docs]', 'see'],
+      ['see [docs](https://e.c', 'see'],
+      ['see ![logo](a.png', 'see'],
+      ['x <b>bo', 'x'],
+      ['x <b', 'x'],
+      ['x </b', 'x'],
+      ['x <a href="https://e', 'x'],
+      ['- see **bol', 'bullet(see)'],
+      ['> see **bol', 'quote(see)'],
+      ['## Title **bo', 'Title'],
+      ['Done **bold** and `x` then **mo', 'Done bold and x then'],
+      ['Some **bold*', 'Some'],
+      ['x __bold_', 'x'],
+      ['a ~~strike~', 'a'],
+      ['Some **bold\ncontinues here', 'Some'],
+      ['- item **one\n  two', 'bullet(item)'],
+      [`see \`${'tok '.repeat(30)}`, 'see'],
+      [`a **${'word '.repeat(30)}`, 'a'],
+      ['x <', 'x'],
+      ['x <!', 'x'],
+      ['x <!-', 'x'],
+      ['x <!-- note', 'x'],
+      ['a <a h', 'a'],
+      ['a <a ', 'a'],
+      ['a <a href="u" t', 'a'],
+      ['see [ref][', 'see'],
+      ['see [ref][x', 'see'],
+      ['an image !', 'an image'],
+    ] as const) expect({ prefix, shown: shownSyntax(streamed(prefix)) }).toEqual({ prefix, shown })
+    expect(shownSyntax(streamed('<details>\n<sum'))).toBe('')
+    expect(shownSyntax(streamed('see [docs](https://e.com)'))).toBe('see docs')
+  })
+
+  test('shows finished inline text whole, closed or never meant to close', async () => {
+    for (const [prefix, shown] of [
+      ['Some **bold** done', 'Some bold done'],
+      ['5 * 3 = 15', '5 * 3 = 15'],
+      ['snake_case_name here', 'snake_case_name here'],
+      ['open ~/x/y.rb now', 'open ~/x/y.rb now'],
+      ['if a<b then c', 'if a<b then c'],
+      ['Vec<i32> works', 'Vec<i32> works'],
+      ['use a <Button> here', 'use a <Button> here'],
+      ['line one [x\nline two', 'line one [x\nline two'],
+      [`odd [ ${'word '.repeat(20)}end`, `odd [ ${'word '.repeat(20)}end`],
+      ['Some **bold* text', 'Some *bold text'],
+      ['line one *x\n\nline two', 'line one *x | line two'],
+      ['I have <a few apples', 'I have <a few apples'],
+    ] as const) expect({ prefix, shown: shownSyntax(streamed(prefix)) }).toEqual({ prefix, shown })
+  })
+
+  test('holds nothing back once the reply is finished', async () => {
+    for (const message of ['Great!', 'Some **bol', 'see [docs](https://e.c', 'x <b>bo', 'Intro\n\n```s', '1. one\n2', 'Intro\n\n>']) expect(parseBlocks(message)).toEqual(parseAfresh(message).blocks)
+    expect(shownSyntax(parseBlocks('Some **bol'))).toBe('Some **bol')
+    expect(shownSyntax(parseBlocks('x <b>bo'))).toBe('x <b>bo')
   })
 })

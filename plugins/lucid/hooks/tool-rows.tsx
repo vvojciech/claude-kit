@@ -8,15 +8,6 @@ import { cellWidth } from './width'
 import { fitMiddle } from './tools'
 import type { ToolLine, ToolRow, ToolState } from './tools'
 
-export type { Draw } from './runs'
-export { flagValues } from './runs'
-export { headingLook } from './headings'
-export { sourceRuns } from './code'
-export { headerRule } from './tables'
-export { blockGap, blockRows, drawnBlock, holdsWide, plainText, quoteBarRows, renderMarkdown, treeSize } from './blocks'
-export { collapsePastes, renderPrompt } from './prompt'
-export { clipCells } from './width'
-
 const GUTTER = 2
 
 const STATE_LOOK: Record<ToolState, { glyph: string; role: keyof Palette; name: keyof Palette; label: keyof Palette }> = {
@@ -143,7 +134,7 @@ export function renderFailure(draw: Draw, reason: ReadonlyArray<string>): Render
         <Text color={draw.palette.error}>{first}</Text>
       </Text>
       {shown.map((line, i) => (
-        <Box key={i} paddingLeft={BRANCH.length}>
+        <Box key={String(i)} paddingLeft={BRANCH.length}>
           <Text wrap="truncate-end" color={draw.palette.muted}>
             {line}
           </Text>

@@ -17,7 +17,7 @@ export type ListItem = {
   blocks: Block[]
 }
 
-export type Block =
+export type Block = (
   | { kind: 'heading'; level: number; spans: Span[] }
   | { kind: 'paragraph'; spans: Span[] }
   | { kind: 'list'; loose: boolean; items: ListItem[] }
@@ -25,6 +25,7 @@ export type Block =
   | { kind: 'table'; header: Span[][]; align: (Align | undefined)[]; rows: Span[][][] }
   | { kind: 'quote'; alert?: AlertKind; blocks: Block[] }
   | { kind: 'rule' }
+) & { hang?: number }
 
 export type OutlineEntry = LucidBlock
 
@@ -40,12 +41,13 @@ export type Span = {
   bold?: boolean
   italic?: boolean
   strike?: boolean
+  underline?: boolean
   href?: string
 }
 
 type Footnotes = ReadonlySet<string>
 
-type Style = { bold?: boolean; italic?: boolean; strike?: boolean; href?: string; inLink?: boolean; footnotes?: Footnotes }
+type Style = { bold?: boolean; italic?: boolean; strike?: boolean; underline?: boolean; href?: string; inLink?: boolean; footnotes?: Footnotes }
 
 type Trail = { depth: number; outline: OutlineEntry[]; footnotes: Footnotes }
 
@@ -98,6 +100,14 @@ function continuationEnd(tokens: Token[], from: number): number {
   return end
 }
 
+function footnoteBlocks(footnote: FootnoteToken, trail: Trail): Block[] {
+  const [lead, ...rest] = footnote.tokens
+  const leadBlocks = lead ? blockOf(lead, trail) : []
+  const label = FOOTNOTE_DEFINITION.exec(lead?.raw.split(NEXT_FOOTNOTE_DEFINITION).at(-1) ?? '')?.[1] ?? ''
+  const hang = cellWidth(`[${label}] `)
+  return [...leadBlocks, ...blocksOf(rest, deeper(trail)).map(block => ({ ...block, hang }))]
+}
+
 function footnoteToken([lead, ...rest]: Token[]): Token {
   const body = rest.filter(isContinuation).map(token => (token as Tokens.Code).text).join('\n\n')
   const footnote: FootnoteToken = { type: 'footnote', raw: [lead, ...rest].map(token => token?.raw ?? '').join(''), tokens: [lead as Token, ...lexBlocks(body)] }
@@ -143,7 +153,7 @@ function blockOf(token: Token, trail: Trail): Block[] {
     case 'html':
       return htmlBlockOf(token as Tokens.HTML, trail)
     case 'footnote':
-      return blocksOf((token as unknown as FootnoteToken).tokens, trail)
+      return footnoteBlocks(token as unknown as FootnoteToken, trail)
     default:
       return []
   }
@@ -303,6 +313,8 @@ function taggedSpans(tag: Tag, inner: Token[], style: Style): Span[] {
       return spansOf(inner, { ...style, italic: true })
     case 'strike':
       return spansOf(inner, { ...style, strike: true })
+    case 'underline':
+      return spansOf(inner, { ...style, underline: true })
     case 'code':
       return codeSpans(decodeEntities(rawOf(inner)), style)
     case 'link':
@@ -318,7 +330,7 @@ function taggedSpans(tag: Tag, inner: Token[], style: Style): Span[] {
   }
 }
 
-const STYLING_ROLES = new Set<Tag['role']>(['bold', 'italic', 'strike', 'code', 'link', 'text', 'quote', 'superscript', 'subscript'])
+const STYLING_ROLES = new Set<Tag['role']>(['bold', 'italic', 'strike', 'underline', 'code', 'link', 'text', 'quote', 'superscript', 'subscript'])
 
 function inlineHtmlSpans(markup: string, style: Style): Span[] {
   if (isComment(markup)) return []
@@ -337,7 +349,7 @@ function push(spans: Span[], span: Span): void {
 }
 
 function sameStyle(a: Span, b: Span): boolean {
-  return a.bold === b.bold && a.italic === b.italic && a.strike === b.strike && a.href === b.href
+  return a.bold === b.bold && a.italic === b.italic && a.strike === b.strike && a.underline === b.underline && a.href === b.href
 }
 
 function spansOfToken(token: Token, style: Style): Span[] {
@@ -381,6 +393,7 @@ function styled(text: string, kind: Span['kind'], style: Style): Span {
   if (style.bold) span.bold = true
   if (style.italic) span.italic = true
   if (style.strike) span.strike = true
+  if (style.underline) span.underline = true
   if (style.href !== undefined) span.href = style.href
   return span
 }

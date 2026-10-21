@@ -183,7 +183,7 @@ describe('ToolGroup', () => {
     const ui = await toolGroup($, { calls: [listing, failing], isCallsOnly: false })
     expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: '✗' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: 'Ran 1 command, 1 file failed' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Ran 1 command, read 0 of 1 file (1 failed)' })).toBeDefined()
   })
 
   test('marks an interrupted group as interrupted, not failed', async ($, on) => {
@@ -191,7 +191,7 @@ describe('ToolGroup', () => {
     const cut = { ...listing, isErrored: true, isInterrupted: true, output: 'Interrupted by user' }
     const ui = await toolGroup($, { calls: [reading, cut], isCallsOnly: false })
     expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: 'Read 1 file, 1 command stopped' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Read 1 file, ran 0 of 1 command (1 stopped)' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '⊘' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '✗' })).toBeUndefined()
   })
@@ -201,7 +201,7 @@ describe('ToolGroup', () => {
     const failing = { ...listing, input: { command: 'false' }, isErrored: true, output: 'Exit code 1' }
     const ui = await toolGroup($, { isCallsOnly: false, calls: [failing, reading] })
     expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: 'Read 1 file, 1 command failed' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Read 1 file, ran 0 of 1 command (1 failed)' })).toBeDefined()
     expect(await colourOf(ui, "Couldn't run")).toBe(dark.error)
     expect(await ui.find({ type: 'Text', text: /false/ })).toBeDefined()
   })
@@ -210,7 +210,7 @@ describe('ToolGroup', () => {
     stockBeneath(on)
     const failing = { ...listing, input: { command: 'false' }, isErrored: true, output: 'Exit code 1' }
     const ui = await toolGroup($, { isCallsOnly: false, calls: [failing, reading] })
-    expect(await colourOf(ui, 'Read 1 file, 1 command failed')).toBe(dark.strong)
+    expect(await colourOf(ui, 'Read 1 file, ran 0 of 1 command (1 failed)')).toBe(dark.strong)
     expect(await colourOf(ui, '✗')).toBe(dark.error)
     expect(await colourOf(ui, "Couldn't run")).toBe(dark.error)
   })
@@ -315,6 +315,67 @@ describe('background tasks', () => {
     await launched($, on, backgroundShell('s4'))
     await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'UserMessage', props: { text: 'x', origin: { kind: 'task-notification' }, isExpanded: false } } as never)
     expect(await (await toolUse($, backgroundShell('s4'))).find({ type: 'Text', text: 'Running' })).toBeDefined()
+  })
+})
+
+describe('stopped calls', () => {
+  const cut = { isRunning: false, isErrored: true, isInterrupted: true, output: 'User rejected tool use' }
+
+  test('calls a call stopped with Esc while it ran stopped, never denied', async ($, on) => {
+    stockBeneath(on)
+    await toolUse($, { tool_use_id: 'esc1', isRunning: true, output: undefined })
+    const ui = await toolUse($, { tool_use_id: 'esc1', input: { command: 'find / -name x' }, ...cut })
+    expect(await ui.find({ type: 'Text', text: 'Stopped running' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Denied/ })).toBeUndefined()
+  })
+
+  test('keeps a call refused before it ran denied', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, { tool_use_id: 'deny1', tool: 'Write', input: { file_path: '/repo/x.md' }, ...cut })
+    expect(await ui.find({ type: 'Text', text: 'Denied write' })).toBeDefined()
+  })
+
+  test('heads a group whose running call was stopped as stopped', async ($, on) => {
+    stockBeneath(on)
+    const finding = { tool_use_id: 'esc2', tool: 'Bash', input: { command: 'find /' } }
+    await toolGroup($, { calls: [{ ...listing, tool_use_id: 'ok2' }, { ...finding, isRunning: true, isErrored: false, isInterrupted: false }], isActive: true })
+    const ui = await toolGroup($, { calls: [{ ...listing, tool_use_id: 'ok2' }, { ...finding, ...cut }], isCallsOnly: false })
+    expect(await ui.find({ type: 'Text', text: 'Ran 1 of 2 commands (1 stopped)' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /denied/ })).toBeUndefined()
+  })
+})
+
+describe('task notifications', () => {
+  function notification($: Engine, props: Record<string, unknown>) {
+    return $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'UserMessage', props: { origin: { kind: 'task-notification' }, isExpanded: false, ...props } } as never)
+  }
+
+  test('draws a finished task as a lucid row with its glyph and how long it ran', async ($, on) => {
+    stockBeneath(on)
+    const ui = await notification($, { text: 'Agent "say hi" finished', task: { id: 'n1', status: 'completed', durationMs: 3000 } })
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Agent "say hi" finished' })).toBeDefined()
+    expect(await colourOf(ui, '●')).toBe(dark.done)
+    expect(await ui.find({ type: 'Text', text: /3s/ })).toBeDefined()
+  })
+
+  test('marks a failed task as failed', async ($, on) => {
+    stockBeneath(on)
+    expect(await colourOf(await notification($, { text: 'Background command "x" failed with exit code 2', task: { id: 'n2', status: 'failed' } }), '✗')).toBe(dark.error)
+  })
+
+  test('leaves a monitor event to stock, whose row carries the event the summary lacks', async ($, on) => {
+    stockBeneath(on)
+    const ui = await notification($, { text: 'Monitor event: "ticks from a loop"', task: { id: 'n3' } })
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '○' })).toBeUndefined()
+  })
+
+  test('passes to stock when expanded, when the text is empty, and when no task is named', async ($, on) => {
+    stockBeneath(on)
+    expect(await (await notification($, { text: 'x', isExpanded: true, task: { id: 'n4', status: 'completed' } })).find({ type: 'Text', text: STOCK })).toBeDefined()
+    expect(await (await notification($, { text: ' ', task: { id: 'n5', status: 'completed' } })).find({ type: 'Text', text: STOCK })).toBeDefined()
+    expect(await (await notification($, { text: 'x' })).find({ type: 'Text', text: STOCK })).toBeDefined()
   })
 })
 

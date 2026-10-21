@@ -50,7 +50,7 @@ export function cellWidth(text: string): number {
   return width
 }
 
-const ELLIPSIS = '…'
+export const ELLIPSIS = '…'
 
 function clusters(text: string): string[] {
   return Array.from(GRAPHEMES.segment(text), ({ segment }) => segment)

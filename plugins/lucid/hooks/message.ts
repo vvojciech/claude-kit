@@ -1,6 +1,6 @@
 import type { Token } from './vendor/marked.js'
 
-import { settledText, settledTokens } from './holdback'
+import { settledText, settledTokens, withoutPendingInline } from './holdback'
 import { lexBlocks } from './lexer'
 import { codePiece, footnoteLabels, pieceOf, withFootnoteBodies } from './markdown'
 import type { Block, OutlineEntry, Piece } from './markdown'
@@ -14,8 +14,9 @@ type Parse = {
   stableEnd: number
   hasDefinitions: boolean
   open: Map<number, Piece>
+  pieces: Piece[]
   blocks: Block[]
-  outline: OutlineEntry[]
+  outline?: OutlineEntry[]
 }
 
 type Front = { piece: Piece; bodyStart: number }
@@ -49,12 +50,89 @@ export function parseBlocks(text: string, options: ParseOptions = {}): Block[] {
 }
 
 export function blocksOf(text: string, options: ParseOptions = {}): OutlineEntry[] {
-  return parsed(text, options.streaming === true).outline
+  const parse = parsed(text, options.streaming === true)
+  parse.outline ??= locatedOutline(parse, text)
+  return parse.outline
 }
 
 export function parseAfresh(text: string, options: ParseOptions = {}): { blocks: Block[]; outline: OutlineEntry[] } {
-  const { blocks, outline } = parseMessage(normalised(text), options.streaming === true, () => undefined)
-  return { blocks, outline }
+  const parse = parseMessage(normalised(text), options.streaming === true, () => undefined)
+  return { blocks: parse.blocks, outline: locatedOutline(parse, text) }
+}
+
+function locatedOutline(parse: Parse, original: string): OutlineEntry[] {
+  const toOriginal = originalOffsets(original)
+  const outline: OutlineEntry[] = []
+  let offset = 0
+  for (const piece of parse.pieces) {
+    outline.push(...locatedPiece(piece, parse.text, offset).map(entry => ({ ...entry, start: toOriginal(entry.start ?? 0), end: toOriginal(entry.end ?? 0) })))
+    offset += piece.source.length
+  }
+  return outline
+}
+
+function locatedPiece(piece: Piece, text: string, offset: number): OutlineEntry[] {
+  const cursors: number[] = [offset]
+  return piece.outline.map(entry => {
+    if (entry.depth === 0) {
+      const found = text.indexOf(entry.source, cursors[0])
+      const start = found === -1 ? offset : found
+      cursors.length = 0
+      cursors.push(start + entry.source.length, start)
+      return { ...entry, start, end: start + entry.source.length }
+    }
+    const [start, end] = linesSpan(text, entry.source, cursors[entry.depth] ?? offset)
+    cursors[entry.depth] = end
+    cursors[entry.depth + 1] = start
+    return { ...entry, start, end }
+  })
+}
+
+function linesSpan(text: string, source: string, from: number): [number, number] {
+  let start: number | undefined
+  let end = from
+  for (const line of source.split('\n')) {
+    const content = line.trim()
+    if (content === '') continue
+    const at = contentAt(text, content, end)
+    if (at === -1) continue
+    start ??= at
+    end = at + content.length
+  }
+  return [start ?? from, end]
+}
+
+const CONTAINER_PREFIX = /^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*(?:\[[ xX]\][ \t]*)?$/
+
+const BLANK = /^[ \t]*$/
+
+function contentAt(text: string, content: string, from: number): number {
+  for (let at = text.indexOf(content, from); at !== -1; at = text.indexOf(content, at + 1)) if (isLineContent(text, at, content.length)) return at
+  return text.indexOf(content, from)
+}
+
+function isLineContent(text: string, at: number, length: number): boolean {
+  const lineStart = text.lastIndexOf('\n', at - 1) + 1
+  const lineEnd = text.indexOf('\n', at + length)
+  return CONTAINER_PREFIX.test(text.slice(lineStart, at)) && BLANK.test(text.slice(at + length, lineEnd === -1 ? undefined : lineEnd))
+}
+
+function originalOffsets(original: string): (offset: number) => number {
+  if (!original.includes('\r')) return offset => offset
+  const removed: number[] = []
+  for (const match of original.matchAll(/\r\n/g)) removed.push((match.index ?? 0) - removed.length)
+  return offset => offset + countBelow(removed, offset)
+}
+
+function countBelow(sorted: number[], value: number): number {
+  let low = 0
+  let high = sorted.length
+  while (low < high) {
+    const middle = (low + high) >> 1
+    if ((sorted[middle] ?? 0) < value) low = middle + 1
+    else high = middle
+  }
+  return low
 }
 
 function normalised(text: string): string {
@@ -110,7 +188,7 @@ function parseMessage(text: string, streaming: boolean, findBase: (text: string,
   const stableEnd = from + split.length
   const tail = streaming ? shownPieces(body, stableEnd, pieces) : pieces.of(split.rest, stableEnd)
   const all = [...(front ? [front.piece] : []), ...stable, ...tail]
-  return { text, bodyStart, stable, stableEnd, hasDefinitions, open: pieces.made, blocks: all.flatMap(piece => piece.blocks), outline: all.flatMap(piece => piece.outline) }
+  return { text, bodyStart, stable, stableEnd, hasDefinitions, open: pieces.made, pieces: all, blocks: all.flatMap(piece => piece.blocks) }
 }
 
 class Pieces {
@@ -151,8 +229,16 @@ function openBlocksStart(tokens: Token[]): number {
 }
 
 function shownPieces(body: string, stableEnd: number, pieces: Pieces): Piece[] {
-  const shown = settledText(body).slice(stableEnd)
-  return shown === '' ? [] : pieces.of(settledTokens(shown), stableEnd).map(trimmedTo(shown))
+  const { shown, tokens } = shownTail(settledText(body).slice(stableEnd))
+  return shown === '' ? [] : pieces.of(tokens, stableEnd).map(trimmedTo(shown))
+}
+
+function shownTail(settled: string): { shown: string; tokens: Token[] } {
+  const tokens = settledTokens(settled)
+  const inline = withoutPendingInline(settled, tokens)
+  if (inline === settled) return { shown: settled, tokens }
+  const shown = settledText(inline)
+  return { shown, tokens: settledTokens(shown) }
 }
 
 function trimmedTo(shown: string): (piece: Piece, index: number, pieces: Piece[]) => Piece {

@@ -1,4 +1,4 @@
-import type { EngineInterface, RenderSurface } from 'claude-code'
+import type { EngineInterface, PromptOrigin, RenderSurface } from 'claude-code'
 
 export type Host = { os: string; wayland: boolean; x11: boolean; remote: boolean }
 export type ClipCommand = { argv: string[]; env?: Record<string, string> }
@@ -24,6 +24,10 @@ export function missingToolHint(host: Host): string {
   if (host.remote) return 'over SSH ditto copies through your terminal (OSC 52) only, so the remote clipboard is never mistaken for yours'
   if (host.os === 'Linux') return 'no clipboard tool found: install wl-clipboard (Wayland) or xclip (X11)'
   return `no clipboard command known for ${host.os === '' ? 'this system' : host.os}`
+}
+
+export function commandSurface(origin: PromptOrigin): RenderSurface | undefined {
+  return origin.kind === 'composer' ? 'terminal' : undefined
 }
 
 let hostOf: Promise<Host> | undefined

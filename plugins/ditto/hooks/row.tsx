@@ -29,10 +29,14 @@ const EDGE = ' '
 
 const LEAD = ' '.repeat(GAP)
 
-export const MARKER_ROOM = LEAD.length + EDGE.length + GLYPH.length + 1
+const PANE_EDGE = 1
 
-export function pointedAt(tone: Tone): { color: string; bold: true; underline: true } {
-  return { color: tone.pointed, bold: true, underline: true }
+export const MARKER_ROOM = LEAD.length + EDGE.length + GLYPH.length + PANE_EDGE
+
+export type Pointed = { color: string; backgroundColor: string; bold: true; underline: true }
+
+export function pointedAt(tone: Tone): Pointed {
+  return { color: tone.background, backgroundColor: tone.pointed, bold: true, underline: true }
 }
 
 export function stripLabels(marker: Pick<Marker, 'row' | 'partial' | 'note'>): string[] {
@@ -49,7 +53,7 @@ export function keyOf(target: Target): string {
 function control(kit: Kit, tone: Tone, key: string, label: string, onPress: Press, color: string): RenderNode {
   const { Box, Button, Text } = kit
   return (
-    <Box key={key}>
+    <Box key={`hover-${key}`}>
       <Button key={key} plain label={label} onPress={onPress}>
         <Text color={color} hover={pointedAt(tone)}>
           {label}

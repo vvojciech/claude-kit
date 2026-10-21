@@ -132,6 +132,23 @@ function barredBy(found: { ancestors: Drawn[] } | undefined): Drawn[] {
   return (found?.ancestors ?? []).flatMap(ancestor => childrenOf(ancestor).filter(isBar) as Drawn[])
 }
 
+function barColumns(found: { ancestors: Drawn[] } | undefined): number[] {
+  const ancestors = found?.ancestors ?? []
+  const isBar = (node: unknown) => (node as Drawn).type === 'Box' && (node as Drawn).props?.position === 'absolute' && (node as Drawn).props?.bottom === 0
+  return ancestors.flatMap((parent, depth) => {
+    const above = ancestors.slice(0, depth).reduce((cells, a) => cells + Number(a.props?.paddingLeft ?? 0) + Number(a.props?.marginLeft ?? 0), 0)
+    const edge = above + Number(parent.props?.marginLeft ?? 0)
+    return (childrenOf(parent).filter(isBar) as Drawn[]).filter(bar => textOf(bar).includes('▎')).map(bar => edge + Number(bar.props?.left ?? 0))
+  })
+}
+
+function wrappedSource(tree: unknown, marker: string): { head: string; rest: string; headBox: Record<string, unknown> | undefined } {
+  const rest = findText(tree, text => text.includes(marker) && !text.includes('\n'))
+  const line = rest?.ancestors.at(-1)
+  const headBox = childrenOf(line).find(child => (child as Drawn).props?.position === 'absolute' && (child as Drawn).props?.top === 0) as Drawn | undefined
+  return { head: textOf(headBox), rest: textOf(rest?.element), headBox: headBox?.props }
+}
+
 function shiftOf(found: { ancestors: Drawn[] } | undefined): number {
   return (found?.ancestors ?? []).reduce((cells, a) => cells + Number(a.props?.paddingLeft ?? 0) + Number(a.props?.marginLeft ?? 0), 0)
 }
@@ -155,9 +172,19 @@ describe('AssistantMessage headings', () => {
     expect(findText(tree, text => text.startsWith('#'))).toBeUndefined()
   })
 
-  test('draws no rule glyph under any heading, so a pasted heading is only its text', async ($, on) => {
+  test('rules only an h1, faint and sized to its title, so h1 and h2 differ by shape and not just by ink', async ($, on) => {
     const tree = await drawDark($, on, `# One\n\n## Second\n\n### Three\n\n#### Four\n\n# ${'word '.repeat(30).trim()}`, 40)
-    expect(allTexts(tree, text => /[─┄╌━]/.test(text))).toEqual([])
+    const rules = allTexts(tree, text => /[─┄╌━]/.test(text))
+    expect(rules.map(textOf)).toEqual(['━━━', '━'.repeat(40)])
+    for (const rule of rules) expect(rule.props?.color).toBe(dark.faint)
+  })
+
+  test('rules an h1 that is the first block, inside a list, and one with no text', async ($, on) => {
+    useTheme(on, () => 'dark')
+    for (const [text, rule] of [['# Title\n\nbody', '━━━━━'], ['- item\n\n  # Title', '━━━━━'], ['# `a`', '━']] as const) {
+      const tree = await (await draw($, text)).drawn()
+      expect(allTexts(tree, t => t.startsWith('━')).map(textOf)).toEqual([rule])
+    }
   })
 
   test('sets h1 as bold underlined ink with no fill, so it never reads as an inline code chip', async ($, on) => {
@@ -168,12 +195,21 @@ describe('AssistantMessage headings', () => {
     expect(props('Two').backgroundColor).toBeUndefined()
   })
 
-  test('ranks h2 above a bold paragraph: the heading is in strong ink, bold prose keeps the body ink', async ($, on) => {
-    const tree = await drawDark($, on, '## Findings\n\n**Summary**')
-    expect(findText(tree, text => text === 'Findings')?.element.props).toMatchObject({ bold: true, color: dark.strong })
-    const bold = findText(tree, text => text === 'Summary')
-    expect(bold?.element.props?.bold).toBe(true)
-    expect(bold?.element.props?.color ?? dark.text).toBe(dark.text)
+  test('underlines an h2 so it outranks a bold paragraph on its own row, as the first block and inside a list', async ($, on) => {
+    useTheme(on, () => 'dark')
+    for (const text of ['## Findings\n\n**Summary**', '- item\n\n  ## Findings\n\n  **Summary**']) {
+      const tree = await (await draw($, text)).drawn()
+      expect(findText(tree, t => t === 'Findings')?.element.props).toMatchObject({ bold: true, underline: true })
+      const bold = findText(tree, t => t === 'Summary')
+      expect(bold?.element.props?.bold).toBe(true)
+      expect(bold?.element.props?.underline).toBeUndefined()
+    }
+  })
+
+  test('keeps h1 in stronger ink than h2, so the two underlined levels stay apart', async ($, on) => {
+    const tree = await drawDark($, on, '# One\n\n## Two')
+    expect(findText(tree, t => t === 'One')?.element.props?.color).toBe(dark.strong)
+    expect(findText(tree, t => t === 'Two')?.element.props?.color).toBe(dark.text)
   })
 
   test('opens an h2 that follows prose with the section gap a bold paragraph never gets', async ($, on) => {
@@ -207,7 +243,7 @@ describe('AssistantMessage headings', () => {
     const spans = [plain, ...['bold', 'italic', 'code', 'link'].map(look)]
     expect(new Set(headings).size).toBe(4)
     for (const heading of headings) expect(spans).not.toContain(heading)
-    for (const title of ['Two', 'Three', 'Four']) expect(findText(tree, text => text === title)?.element.props?.underline).toBeUndefined()
+    for (const title of ['Three', 'Four']) expect(findText(tree, text => text === title)?.element.props?.underline).toBeUndefined()
     expect(findText(tree, text => text === 'link')?.element.props?.bold).toBeUndefined()
   })
 
@@ -334,23 +370,44 @@ describe('AssistantMessage code', () => {
     expect(findText(tree, text => text.includes('>_') || text.includes('· '))).toBeUndefined()
   })
 
-  test('leaves a long line whole for the terminal to soft-wrap, so a selection pastes the exact source', async ($, on) => {
+  test('leaves the rest of a long line whole for the terminal to soft-wrap, so a selection pastes the exact source', async ($, on) => {
     const line = '  requested > limit && "over" && some_really_long_identifier_name_here && another'
     const tree = await drawDark($, on, '```ruby\n' + line + '\nend\n```', 40)
-    const source = allTexts(tree, text => text.includes('requested') || text === 'end').map(textOf)
-    expect(source).toEqual([line, 'end'])
-    expect(allTexts(tree, text => text.includes('↪'))).toEqual([])
+    const wrapped = wrappedSource(tree, 'requested')
+    expect(wrapped.head + wrapped.rest).toBe(line)
+    expect(wrapped.head).toBe('  ')
+    expect(allTexts(tree, text => text === 'end')).toHaveLength(1)
   })
 
-  test('marks the rows a wrapped code line continues on at the right edge, outside the source text', async ($, on) => {
+  test('marks every continuation row of a wrapped code line in a faint gutter beside the text, outside the soft-wrapped source', async ($, on) => {
     const line = 'def premium_for(quote) = quote.covers.sum { |cover| cover.net_premium * cover.loading_factor }'
     const tree = await drawDark($, on, '```ruby\nshort\n' + line + '\n\nend\n```', 40)
-    const marks = findText(tree, text => /^(↩\n)*↩$/.test(text))
+    const marks = findText(tree, text => /^(↪\n)*↪$/.test(text))
     expect(marks?.element.props?.color).toBe(dark.faint)
-    expect(marks?.ancestors.at(-1)?.props).toMatchObject({ position: 'absolute', right: 0, top: 0, bottom: 1, width: 1, overflow: 'hidden' })
-    expect(marks?.ancestors.at(-2)?.props).toMatchObject({ width: 40, paddingRight: 1 })
-    expect(allTexts(tree, text => text.includes('premium_for')).map(textOf)).toEqual([line])
+    expect(marks?.ancestors.at(-1)?.props).toMatchObject({ position: 'absolute', left: 0, top: 1, bottom: 0, width: 1, overflow: 'hidden' })
+    expect(marks?.ancestors.at(-2)?.props).toMatchObject({ width: 40, paddingLeft: 2 })
+    expect(textOf(marks?.element).split('\n').length).toBeGreaterThanOrEqual(Math.ceil((line.length - 2) / 38) - 1)
+    const wrapped = wrappedSource(tree, 'premium_for')
+    expect(wrapped.head + wrapped.rest).toBe(line)
+    expect(wrapped.headBox).toMatchObject({ position: 'absolute', left: 0, top: 0, width: 2, height: 1 })
+    expect(allTexts(tree, text => text.includes('↩'))).toEqual([])
     expect(allTexts(tree, text => text.includes('short') || text === ' ' || text === '\nend').map(textOf)).toEqual(['short', '\nend'])
+  })
+
+  test('keeps the source tones on the first two cells it lifts into the gutter', async ($, on) => {
+    const tree = await drawDark($, on, '```ts\n// ' + 'note '.repeat(12) + '\n```', 40)
+    const head = findText(tree, text => text === '//')
+    expect(head?.ancestors.some(a => a.props?.position === 'absolute' && a.props?.width === 2)).toBe(true)
+    expect(head?.element.props).toMatchObject({ color: dark.muted, italic: true })
+  })
+
+  test('draws a wrapped line that opens with a tab or a wide glyph whole, with no gutter', async ($, on) => {
+    useTheme(on, () => 'dark')
+    for (const line of ['\tgo build ./... && echo ok && echo more words here', '漢字 ' + 'word '.repeat(12)]) {
+      const tree = await (await draw($, '```\n' + line + '\n```', 40)).drawn()
+      expect(allTexts(tree, text => text.includes('↪'))).toEqual([])
+      expect(allTexts(tree, text => text.includes('word') || text.includes('go build')).map(textOf)).toEqual([line])
+    }
   })
 
   test('marks no row of a code line that fits the width exactly', async ($, on) => {
@@ -364,13 +421,14 @@ describe('AssistantMessage code', () => {
   })
 
   test('counts a tab as a tab stop when deciding that a code line wraps', async ($, on) => {
-    const tree = await drawDark($, on, '```make\nbuild:\n\t\t\t\tgo build ./... && echo ok\n```', 40)
-    expect(allTexts(tree, text => text.includes('↩')).length).toBe(1)
+    const tree = await drawDark($, on, '```make\nbuild:\nab\t\t\t\tgo build ./... && echo ok\n```', 40)
+    expect(allTexts(tree, text => text.includes('↪')).length).toBe(1)
   })
 
   test('adds no row break to a line with no spaces wider than the terminal', async ($, on) => {
     const tree = await drawDark($, on, '```\n' + 'x'.repeat(50) + '\n```', 20)
-    expect(textOf(findText(tree, text => text.startsWith('xxx'))?.element)).toBe('x'.repeat(50))
+    const wrapped = wrappedSource(tree, 'xxx')
+    expect(wrapped.head + wrapped.rest).toBe('x'.repeat(50))
   })
 })
 
@@ -429,7 +487,8 @@ describe('AssistantMessage quotes', () => {
   test('draws code in a quote with no bar beside it, so its lines paste as written', async ($, on) => {
     const tree = await drawDark($, on, '> before\n>\n> ```sh\n> echo quoted\n> ```\n>\n> after', 40)
     const bars = quoteBars(tree).map(bar => textOf(bar).split('\n').length)
-    expect(bars).toEqual([1, 1])
+    expect(bars).toEqual([1, 1, 1, 1])
+    expect(barredBy(findText(tree, text => text === 'echo quoted'))).toEqual([])
     const source = findText(tree, text => text === 'echo quoted')
     for (const ancestor of source?.ancestors ?? []) expect(ancestor.props?.paddingLeft ?? 0).toBe(0)
   })
@@ -453,6 +512,45 @@ describe('AssistantMessage quotes', () => {
       expect(findText(tree, text => text === 'item in quote')).toBeDefined()
       expect(findText(tree, text => text === 'after')).toBeDefined()
     }
+  })
+
+  test('keeps the quote bar at the first column on every prose row of a quote whose list holds code', async ($, on) => {
+    useTheme(on, () => 'dark')
+    for (const columns of [40, 110]) {
+      const text = '> Quote intro line.\n>\n> - item in quote\n>\n>   ```sh\n>   echo in quote list\n>   ```\n>\n> - second quoted item'
+      const tree = await (await draw($, text, columns)).drawn()
+      for (const prose of ['Quote intro line.', 'item in quote', 'second quoted item']) {
+        const columnsOfBars = barColumns(findText(tree, t => t === prose))
+        expect(columnsOfBars).toEqual([0])
+      }
+      expect(barredBy(findText(tree, t => t.includes('cho in quote list')))).toEqual([])
+    }
+  })
+
+  test('runs the quote bar through the blank rows between the children of a quote whose list holds code', async ($, on) => {
+    useTheme(on, () => 'dark')
+    for (const columns of [40, 110]) {
+      const tree = await (await draw($, '> Quote intro line.\n>\n> - item in quote\n>\n>   ```sh\n>   echo in quote list\n>   ```\n>\n> - second quoted item', columns)).drawn()
+      const gapBars: number[] = []
+      walk(tree, (element, ancestors) => {
+        const [gap, bar] = ancestors.slice(-2)
+        if (element.type !== 'Text' || textOf(element) !== '▎' || gap?.props?.height === undefined) return
+        gapBars.push(shiftOf({ ancestors: ancestors.slice(0, -1) }) + Number(bar?.props?.left ?? 0))
+      })
+      expect(gapBars).toEqual([0, 0, 0])
+      expect(barredBy(findText(tree, t => t.includes('cho in quote list')))).toEqual([])
+    }
+  })
+
+  test('leaves the gaps of an unquoted list holding code bare', async ($, on) => {
+    const tree = await drawDark($, on, '- item\n\n  ```sh\n  echo x\n  ```\n\n- next', 40)
+    expect(allTexts(tree, t => t.includes('▎'))).toEqual([])
+  })
+
+  test('keeps both bars on prose of a nested quote whose outer quote holds code', async ($, on) => {
+    const tree = await drawDark($, on, '> - item\n>\n>   > nested words\n>\n>   ```sh\n>   echo x\n>   ```', 40)
+    expect(barColumns(findText(tree, t => t === 'nested words')).sort((a, b) => a - b)).toEqual([0, 4])
+    expect(barredBy(findText(tree, t => t === 'echo x'))).toEqual([])
   })
 
   test('keeps code in a quote in a list in a quote whole at the first column', async ($, on) => {
@@ -573,6 +671,19 @@ describe('AssistantMessage size', () => {
     expect(text.length).toBeGreaterThan(100000)
     const ui = await draw($, text)
     expect((await nodesOf(ui)).nodes).toBeLessThan(20000)
+  })
+
+  test('keeps items past the nesting limit styled, each with its own muted marker and hanging indent', async ($, on) => {
+    const nested = Array.from({ length: 12 }, (_, i) => `${'  '.repeat(i)}- level ${i} text that wraps at narrow widths`).join('\n')
+    const tree = await drawDark($, on, nested, 40)
+    for (const i of [8, 9, 10, 11]) {
+      const item = findText(tree, text => text === `level ${i} text that wraps at narrow widths`)
+      expect(item?.element.props?.color).toBe(dark.text)
+      const body = item?.ancestors.findLast(a => typeof a.props?.paddingLeft === 'number' && a.props.paddingLeft > 0)
+      expect(body?.props?.paddingLeft).toBe(2)
+    }
+    expect(allTexts(tree, text => /^- level/.test(text))).toEqual([])
+    expect(allTexts(tree, text => text === '-').length).toBe(12)
   })
 
   test('draws a deeply nested list within the depth limit', async $ => {

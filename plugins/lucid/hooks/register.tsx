@@ -1,11 +1,13 @@
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
-import { renderFailure, renderMarkdown, renderPrompt, renderToolRow, renderWrittenFile } from './render'
-import type { Draw } from './render'
+import { renderMarkdown } from './blocks'
+import { renderPrompt } from './prompt'
+import type { Draw } from './runs'
+import { renderFailure, renderToolRow, renderWrittenFile } from './tool-rows'
 import { ReplyStream } from './live'
 import { blocksOf } from './message'
 import { drawnTone, forgetTheme, themePalette } from './theme'
-import { TASK_STILL_RUNNING, TASK_UNTRACKED, backgroundTaskId, createdContent, describeCall, failureOf, stateOf, stoppedTaskId, summariseGroup, unsuccessfulState } from './tools'
+import { TASK_STILL_RUNNING, TASK_UNTRACKED, backgroundTaskId, createdContent, describeCall, failureOf, notificationRow, stateOf, stoppedTaskId, summariseGroup, unsuccessfulState } from './tools'
 import type { Roots, ToolCall } from './tools'
 
 const DEFAULT_COLUMNS = 100
@@ -15,6 +17,8 @@ const STOPPED = 'killed'
 const endedTasks = new Map<string, string>()
 
 const launchedTasks = new Set<string>()
+
+const ranCalls = new Set<string>()
 
 const replies = new ReplyStream()
 
@@ -43,6 +47,14 @@ async function taskStatusOf($: Pick<EngineInterface, 'agent'>, call: Pick<ToolCa
   if (id === undefined) return undefined
   if (call.tool === 'Agent') return (await agentStatusOf($, id)) ?? endedTasks.get(id) ?? TASK_UNTRACKED
   return endedTasks.get(id) ?? (launchedTasks.has(id) ? TASK_STILL_RUNNING : TASK_UNTRACKED)
+}
+
+function recordRun(call: { tool_use_id?: string; isRunning: boolean }): void {
+  if (call.isRunning && call.tool_use_id !== undefined) ranCalls.add(call.tool_use_id)
+}
+
+function hasRun(call: { tool_use_id?: string }): boolean {
+  return call.tool_use_id !== undefined && ranCalls.has(call.tool_use_id)
 }
 
 function recordLaunch(tool: string, result: unknown): void {
@@ -84,7 +96,7 @@ export const register: Register = on => {
     const draw = { kit: $.ui.resolve(e), palette: await themePalette($) }
     const message = renderMarkdown(draw, e.props.text, e.viewport?.columns ?? DEFAULT_COLUMNS, replies.isStreaming(e.requestId))
     return e.props.isSummary ? markSummary(draw, message) : message
-  })
+  }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
     const answer = await next(e)
@@ -93,12 +105,14 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    recordRun(e.props)
     if (e.surface !== 'terminal' || e.props.isExpanded || e.props.isRunning) return next(e)
-    if (stateOf(e.props) === 'done') recordEnd($, stoppedTaskId(e.props), STOPPED)
-    const taskStatus = await taskStatusOf($, e.props)
-    const row = describeCall(e.props, await rootsOf($), taskStatus)
-    return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, stateOf(e.props, taskStatus), e.viewport?.columns ?? DEFAULT_COLUMNS)
-  })
+    const call = { ...e.props, hasRun: hasRun(e.props) }
+    if (stateOf(call) === 'done') recordEnd($, stoppedTaskId(call), STOPPED)
+    const taskStatus = await taskStatusOf($, call)
+    const row = describeCall(call, await rootsOf($), taskStatus)
+    return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, stateOf(call, taskStatus), e.viewport?.columns ?? DEFAULT_COLUMNS)
+  }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.isExpanded) return next(e)
@@ -107,22 +121,26 @@ export const register: Register = on => {
     if (failure !== undefined) return renderFailure({ kit: $.ui.resolve(e), palette: await themePalette($) }, failure)
     if (content !== undefined) return renderWrittenFile({ kit: $.ui.resolve(e), palette: await themePalette($) }, content)
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     const { calls, isActive, isCallsOnly, isExpanded } = e.props
+    calls.forEach(recordRun)
     if (e.surface !== 'terminal' || isExpanded || isActive || calls.length === 0) return next(e)
-    const tracked = await Promise.all(calls.map(async call => ({ ...call, taskStatus: await taskStatusOf($, call) })))
+    const tracked = await Promise.all(calls.map(async call => ({ ...call, hasRun: hasRun(call), taskStatus: await taskStatusOf($, call) })))
     if (isCallsOnly !== true && unsuccessfulState(tracked) === undefined) return next(e)
     const { row, state } = summariseGroup(tracked, await rootsOf($))
     return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, state, e.viewport?.columns ?? DEFAULT_COLUMNS)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     recordEnd($, e.props.task?.id, e.props.task?.status)
-    if (e.surface !== 'terminal' || e.props.origin.kind !== 'composer') return next(e)
+    if (e.surface !== 'terminal') return next(e)
+    const notice = e.props.task !== undefined && !e.props.isExpanded ? notificationRow(e.props.text, e.props.task) : undefined
+    if (notice !== undefined) return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, notice.row, notice.state, e.viewport?.columns ?? DEFAULT_COLUMNS)
+    if (e.props.origin.kind !== 'composer') return next(e)
     return renderPrompt({ kit: $.ui.resolve(e), palette: await themePalette($) }, e.props.text, e.viewport?.columns ?? DEFAULT_COLUMNS)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)

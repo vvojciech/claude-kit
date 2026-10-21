@@ -2,11 +2,11 @@ import { TERMINAL_ROUTE } from './clipboard'
 import type { CopyOutcome } from './clipboard'
 import type { Target } from './targets'
 
-export const NOT_OUTERMOST = 'No ⧉ marker: a plugin listed before ditto draws replies itself. Put ditto first in CLAUDE_CODE_PLUGIN_DIRS.'
+export const NOT_OUTERMOST = 'No ⧉: list ditto first in CLAUDE_CODE_PLUGIN_DIRS (a plugin listed earlier draws replies)'
 
-export const FIRST_RUN = 'ditto: hover the ⧉ under a reply or beside a tool row to copy it as markdown. /ditto help lists the commands.'
+export const FIRST_RUN = 'Hover ⧉ to copy a reply, block or tool output; /ditto help lists commands'
 
-export const NO_FULLSCREEN = 'ditto: no ⧉ markers outside fullscreen, as clicks cannot land there. /ditto still copies; /ditto help lists how.'
+export const NO_FULLSCREEN = 'No ⧉ outside fullscreen, as clicks cannot land; /ditto still copies (/ditto help)'
 
 export const LARGE_FOR_TERMINAL = 100_000
 

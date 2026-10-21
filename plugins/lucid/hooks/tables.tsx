@@ -78,7 +78,7 @@ function stackedTable(draw: Draw, head: Span[][], rows: Span[][][]): RenderNode 
   )
 }
 
-export function headerRule(head: Span[][], widths: number[], align: Align[]): string {
+function headerRule(head: Span[][], widths: number[], align: Align[]): string {
   return widths
     .map((width, i) => {
       const length = Math.max(1, Math.min(width, spansWidth(head[i] ?? [])))

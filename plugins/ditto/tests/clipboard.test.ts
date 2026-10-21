@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { clipboardCommands, missingToolHint } from '../hooks/clipboard'
-import { confirmation, failure } from '../hooks/notices'
+import { FIRST_RUN, NOT_OUTERMOST, NO_FULLSCREEN, confirmation, failure } from '../hooks/notices'
 
 describe('clipboardCommands', () => {
   test('uses pbcopy over stdin with a UTF-8 locale on macOS', async () => {
@@ -50,5 +50,26 @@ describe('confirmation', () => {
   test('failure carries the error message', async () => {
     expect(failure(new Error('gone'))).toBe('Copy failed: gone')
     expect(failure('plain')).toBe('Copy failed: plain')
+  })
+})
+
+describe('standing notices', () => {
+  const ROOM = 90
+
+  test('the first-run and no-fullscreen toasts and the load-order status fit in one line of a 110-column terminal, room left for the name the engine puts before them', async () => {
+    for (const notice of [FIRST_RUN, NO_FULLSCREEN, NOT_OUTERMOST]) expect(notice.length).toBeLessThanOrEqual(ROOM)
+  })
+
+  test('the load-order status names the setting to change before anything the line could lose', async () => {
+    expect(NOT_OUTERMOST.indexOf('CLAUDE_CODE_PLUGIN_DIRS')).toBeGreaterThanOrEqual(0)
+    expect(NOT_OUTERMOST.indexOf('CLAUDE_CODE_PLUGIN_DIRS') + 'CLAUDE_CODE_PLUGIN_DIRS'.length).toBeLessThanOrEqual(50)
+  })
+
+  test('the load-order status says why ditto must come first in words that read as a reason', async () => {
+    expect(NOT_OUTERMOST).toContain('(a plugin listed earlier draws replies)')
+  })
+
+  test('toasts under the plugin name do not repeat it', async () => {
+    for (const notice of [FIRST_RUN, NO_FULLSCREEN]) expect(notice.startsWith('ditto:')).toBe(false)
   })
 })

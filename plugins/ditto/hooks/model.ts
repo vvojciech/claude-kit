@@ -8,7 +8,7 @@ export type Block = { kind: BlockKind; source: string; depth: number; lang?: str
 
 declare module 'claude-code' {
   interface EngineInterface {
-    lucid: { blocks: (args: { text: string }) => Promise<unknown> }
+    lucid: { blocks: (args: { text: string }) => Promise<unknown>; tone: () => Promise<unknown> }
   }
 }
 

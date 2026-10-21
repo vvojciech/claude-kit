@@ -194,6 +194,15 @@ function targetOf(found: ToolCall | Target): Target | undefined {
   return 'tool' in found ? toolTarget(found) : found
 }
 
+export function launchedInBackground(call: ToolCall): boolean {
+  return launchedAgent(call.output) !== undefined
+}
+
+export async function reportedTarget(call: ToolCall, messages: SessionMessage[], lookup: ReportLookup): Promise<Target | undefined> {
+  const picked = targetOf(await delivered(withReport(call, backgroundReports(messages)), lookup))
+  return picked?.unavailable === undefined ? picked : undefined
+}
+
 export async function toolTargets(messages: SessionMessage[], kind: ToolKind, lookup: ReportLookup): Promise<Target[]> {
   const found = await Promise.all(calls(messages).map(call => delivered(call, lookup)))
   return found.flatMap(one => {

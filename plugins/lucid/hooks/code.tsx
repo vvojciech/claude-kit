@@ -14,13 +14,15 @@ const DIFF_LANGUAGES = new Set(['diff', 'patch'])
 
 const SHELL_PROMPT = /^(\s*\$\s)/
 
-const WRAP_MARK = '↩'
+const CONTINUATION_MARK = '↪'
+
+const CONTINUATION_GUTTER = 2
 
 const TAB = /\t/g
 
 const TAB_CELLS = '        '
 
-const MARKED_WIDTH = 3
+const MARKED_WIDTH = CONTINUATION_GUTTER + 2
 
 type Stretch = { runs: Run[][]; wraps: boolean }
 
@@ -58,10 +60,6 @@ function joinedRuns(lines: Run[][]): Run[] {
   return runs
 }
 
-export function sourceRuns(language: string, lines: string[], palette: Palette): Run[] {
-  return joinedRuns(lineRuns(language, lines, palette))
-}
-
 export function codeLines(source: string): string[] {
   return source.replace(/\n+$/, '').split('\n')
 }
@@ -85,19 +83,53 @@ function stretches(lines: string[], runs: Run[][], width: number): Stretch[] {
   return found
 }
 
-function markRows(cells: number, width: number): string {
-  const rows = Math.ceil((2 * cells) / (width - 1)) + 1
-  return Array.from({ length: rows }, () => WRAP_MARK).join('\n')
+function continuationMarks(cells: number, room: number): string {
+  const rows = Math.ceil((2 * cells) / room) + 1
+  return Array.from({ length: rows }, () => CONTINUATION_MARK).join('\n')
+}
+
+function isNarrowCell(glyph: string): boolean {
+  return glyph !== '\t' && cellWidth(glyph) === 1
+}
+
+function cutRuns(runs: Run[], at: number): [Run[], Run[]] {
+  const head: Run[] = []
+  const rest: Run[] = []
+  let seen = 0
+  for (const run of runs) {
+    const take = Math.max(0, Math.min(run.text.length, at - seen))
+    if (take > 0) head.push({ text: run.text.slice(0, take), look: run.look })
+    if (take < run.text.length) rest.push({ text: run.text.slice(take), look: run.look })
+    seen += run.text.length
+  }
+  return [head, rest]
+}
+
+function lineHead(runs: Run[]): [Run[], Run[]] | undefined {
+  const glyphs = Array.from(runs.map(run => run.text).join('')).slice(0, CONTINUATION_GUTTER)
+  if (glyphs.length < CONTINUATION_GUTTER || !glyphs.every(isNarrowCell)) return undefined
+  return cutRuns(runs, glyphs.join('').length)
+}
+
+function sourceText(draw: Draw, runs: Run[]): RenderNode {
+  return <draw.kit.Text color={draw.palette.text}>{drawRuns(draw, runs)}</draw.kit.Text>
 }
 
 function wrappedLine(draw: Draw, runs: Run[], width: number): RenderNode {
   const { kit, palette } = draw
-  const cells = lineCells(runs.map(run => run.text).join(''))
+  const split = lineHead(runs)
+  if (split === undefined) return sourceText(draw, runs)
+  const [head, rest] = split
+  const room = width - CONTINUATION_GUTTER
+  const cells = lineCells(rest.map(run => run.text).join(''))
   return (
-    <kit.Box flexDirection="column" width={width} paddingRight={1}>
-      <kit.Text color={palette.text}>{drawRuns(draw, runs)}</kit.Text>
-      <kit.Box position="absolute" right={0} top={0} bottom={1} width={1} overflow="hidden">
-        <kit.Text color={palette.faint}>{markRows(cells, width)}</kit.Text>
+    <kit.Box flexDirection="column" width={width} paddingLeft={CONTINUATION_GUTTER}>
+      {sourceText(draw, rest)}
+      <kit.Box position="absolute" left={0} top={0} width={CONTINUATION_GUTTER} height={1}>
+        {sourceText(draw, head)}
+      </kit.Box>
+      <kit.Box position="absolute" left={0} top={1} bottom={0} width={1} overflow="hidden">
+        <kit.Text color={palette.faint}>{continuationMarks(cells, room)}</kit.Text>
       </kit.Box>
     </kit.Box>
   )

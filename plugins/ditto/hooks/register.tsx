@@ -1,20 +1,21 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderElement, RenderInputOf, UiPressArgument, RenderViewport } from 'claude-code'
+import type { CommandRunInput, EngineInterface, Register, RenderElement, RenderInputOf, RenderSurface, UiPressArgument, RenderViewport } from 'claude-code'
 
-import { copyText } from './clipboard'
+import { commandSurface, copyText } from './clipboard'
 import { ARGUMENT_HINT, USAGE, chooseBlock, chooseTool, missingReply, parse } from './commands'
 import type { BlockRequest, Choice, ToolRequest } from './commands'
 import { replyBlocks } from './model'
 import { FIRST_RUN, NOT_OUTERMOST, NO_FULLSCREEN, NO_SELECTION, SELECTION_ELSEWHERE, confirmation, flashOf, selectionRepeats, failure, moreTargets, sharedTail, sharedTailNote, withWarning } from './notices'
-import { forgetTone, themeTone } from './palette'
+import { drawnTone, forgetTone } from './palette'
 import { repliesEndingWith, repliesFrom, replyText } from './replies'
 import { MARKER_ROOM, keyOf, replyMarker, toolMarker } from './row'
 import type { Flash, Marker, Note } from './row'
 import { behindAny } from './selection'
 import { freshSession, hinted, session } from './session'
-import { blockTargets, fitRow, replyTargets } from './targets'
+import { GAP, blockTargets, fitRow, replyTargets } from './targets'
 import type { Resolved, Row, Target } from './targets'
-import { groupTargets, handbackReport, toolTarget, toolTargets } from './tools'
+import { cellWidth } from './width'
+import { groupTargets, handbackReport, launchedInBackground, reportedTarget, toolTarget, toolTargets } from './tools'
 import type { ToolCall } from './tools'
 import { ownersOf, writtenText } from './turns'
 import type { Owners, Replies, Reply } from '../types'
@@ -26,6 +27,8 @@ type ToolRender = RenderInputOf<'ToolUse', 'terminal'>
 type GroupRender = RenderInputOf<'ToolGroup', 'terminal'>
 
 type Settled = Pick<ToolCall, 'tool' | 'input' | 'output'> & { isRunning: boolean; isErrored: boolean; isInterrupted: boolean }
+
+type CommandRun = Pick<CommandRunInput, 'args' | 'origin'>
 
 type Copied = { notice: string; flash: string }
 
@@ -169,7 +172,7 @@ function selectionSources(requestId: string | undefined, all: Reply[]): string[]
   return [...rows, ...all.map(replyText).reverse()]
 }
 
-async function copySelection($: EngineInterface): Promise<string> {
+async function copySelection($: EngineInterface, surface: RenderSurface | undefined): Promise<string> {
   const selected = await $.ui.selection()
   if (selected === undefined || selected.text.trim() === '') return NO_SELECTION
   const sources = selectionSources(selected.requestId, await refresh($))
@@ -177,16 +180,16 @@ async function copySelection($: EngineInterface): Promise<string> {
   if (found === undefined) return SELECTION_ELSEWHERE
   if ('places' in found) return selectionRepeats(found.places)
   if (found.text === '') return SELECTION_ELSEWHERE
-  return confirmation(await copyText($, found.text), 'selection as markdown', found.text)
+  return confirmation(await copyText($, found.text, surface), 'selection as markdown', found.text)
 }
 
-async function copyBlock($: EngineInterface, request: BlockRequest): Promise<string> {
+async function copyBlock($: EngineInterface, request: BlockRequest, surface: RenderSurface | undefined): Promise<string> {
   const all = await refresh($)
   const reply = all[all.length - request.reply]
   if (reply === undefined) return missingReply(all.length)
   const picked: Choice = chooseBlock(await resolve($, reply), request)
   if ('error' in picked) return picked.error
-  return confirmation(await copyText($, picked.text), picked.what, picked.text)
+  return confirmation(await copyText($, picked.text, surface), picked.what, picked.text)
 }
 
 async function agentReport($: EngineInterface, agentId: string): Promise<string | undefined> {
@@ -194,22 +197,22 @@ async function agentReport($: EngineInterface, agentId: string): Promise<string 
   return Array.isArray(found) ? handbackReport(found) : undefined
 }
 
-async function copyTool($: EngineInterface, request: ToolRequest): Promise<string> {
+async function copyTool($: EngineInterface, request: ToolRequest, surface: RenderSurface | undefined): Promise<string> {
   const picked = chooseTool(await toolTargets(await $.session.messages(), request.tool, agentId => agentReport($, agentId)), request)
   if ('error' in picked) return picked.error
-  return confirmation(await copyText($, picked.text), picked.what, picked.text)
+  return confirmation(await copyText($, picked.text, surface), picked.what, picked.text)
 }
 
-async function answer($: EngineInterface, args: string): Promise<string> {
+async function answer($: EngineInterface, args: string, surface: RenderSurface | undefined): Promise<string> {
   const request = parse(args)
   if ('error' in request) return request.error
   if (request.kind === 'help') return USAGE
-  if (request.kind === 'selection') return copySelection($)
-  return request.kind === 'tool' ? copyTool($, request) : copyBlock($, request)
+  if (request.kind === 'selection') return copySelection($, surface)
+  return request.kind === 'tool' ? copyTool($, request, surface) : copyBlock($, request, surface)
 }
 
-async function runCommand($: EngineInterface, args: string): Promise<string> {
-  return withWarning(await answer($, args), wrappedWarning())
+async function runCommand($: EngineInterface, e: CommandRun): Promise<string> {
+  return withWarning(await answer($, e.args, commandSurface(e.origin)), wrappedWarning())
 }
 
 function noteFor($: EngineInterface, shared: number[] | undefined): Note | undefined {
@@ -217,17 +220,21 @@ function noteFor($: EngineInterface, shared: number[] | undefined): Note | undef
   return { label: sharedTailNote(shared), press: () => $.ui.toast(sharedTail(shared)) }
 }
 
-function markerFor($: EngineInterface, scope: string, row: Row, tone: Marker['tone'], viewport: RenderViewport | undefined, extra: Pick<Marker, 'partial' | 'note'>): Marker {
+function noteRoom(note: Note | undefined): number {
+  return note === undefined ? 0 : cellWidth(note.label) + GAP
+}
+
+type MarkerSpec = Pick<Marker, 'scope' | 'row' | 'tone' | 'partial' | 'note'> & { viewport?: RenderViewport }
+
+function markerFor($: EngineInterface, spec: MarkerSpec): Marker {
+  const { viewport, ...shown } = spec
   const columns = viewport?.columns ?? 0
   return {
-    scope,
-    row,
-    tone,
-    ...extra,
-    flash: session.flashes.get(scope),
+    ...shown,
+    flash: session.flashes.get(spec.scope),
     press: target => async press => {
       const done = await copied($, target, press)
-      flash($, scope, { key: keyOf(target), text: done.flash })
+      flash($, spec.scope, { key: keyOf(target), text: done.flash })
       announceCopy($, done.notice, columns)
     },
     more: hidden => () => announce($, moreTargets(hidden), columns),
@@ -240,19 +247,24 @@ async function withMarker($: EngineInterface, e: AssistantRender, drawn: RenderE
   const resolved = await resolve($, owned.reply)
   const targets = owned.shared ? blockTargets(resolved.blocks) : replyTargets(resolved)
   const note = noteFor($, owned.shared)
-  const viewport = e.viewport?.columns ?? 0
-  const row = fitRow(targets, viewport - MARKER_ROOM - (note ? note.label.length + 2 : 0))
+  const columns = e.viewport?.columns ?? 0
+  const row = fitRow(targets, columns - MARKER_ROOM - noteRoom(note))
   if (row.shown.length === 0 && row.hidden.length === 0 && note === undefined) return drawn
   hintOnce($, 'firstRun', FIRST_RUN)
-  return replyMarker($.ui.resolve(e), drawn, markerFor($, `ditto-${e.requestId}`, row, await themeTone($), e.viewport, { partial: owned.reply.partial, note }))
+  return replyMarker($.ui.resolve(e), drawn, markerFor($, { scope: `ditto-${e.requestId}`, row, tone: await drawnTone($), viewport: e.viewport, partial: owned.reply.partial, note }))
+}
+
+async function rowTarget($: EngineInterface, call: ToolCall): Promise<Target | undefined> {
+  if (!launchedInBackground(call)) return toolTarget(call)
+  return reportedTarget(call, await $.session.messages(), agentId => agentReport($, agentId))
 }
 
 async function withToolMarker($: EngineInterface, e: ToolRender, drawn: RenderElement): Promise<RenderElement> {
-  const found = toolTarget(e.props)
+  const found = await rowTarget($, e.props)
   if (found === undefined) return drawn
   const row = fitRow([found], (e.viewport?.columns ?? 0) - MARKER_ROOM)
   if (row.shown.length === 0) return drawn
-  return toolMarker($.ui.resolve(e), drawn, markerFor($, `ditto-tool-${e.requestId}`, row, await themeTone($), e.viewport, { partial: false }))
+  return toolMarker($.ui.resolve(e), drawn, markerFor($, { scope: `ditto-tool-${e.requestId}`, row, tone: await drawnTone($), viewport: e.viewport, partial: false }))
 }
 
 function settled(call: Settled): boolean {
@@ -262,7 +274,7 @@ function settled(call: Settled): boolean {
 async function withGroupMarker($: EngineInterface, e: GroupRender, drawn: RenderElement): Promise<RenderElement> {
   const row = fitRow(groupTargets(e.props.calls.filter(settled)), (e.viewport?.columns ?? 0) - MARKER_ROOM)
   if (row.shown.length === 0 && row.hidden.length === 0) return drawn
-  return toolMarker($.ui.resolve(e), drawn, markerFor($, `ditto-group-${groupScope(e)}`, row, await themeTone($), e.viewport, { partial: false }))
+  return toolMarker($.ui.resolve(e), drawn, markerFor($, { scope: `ditto-group-${groupScope(e)}`, row, tone: await drawnTone($), viewport: e.viewport, partial: false }))
 }
 
 function groupScope(e: GroupRender): string {
@@ -314,7 +326,7 @@ export const register: Register = on => {
 
   on('command.run', { command: COMMAND }, async ($, e) => {
     try {
-      return { text: await runCommand($, e.args) }
+      return { text: await runCommand($, e) }
     } catch (error) {
       $.ui.log(failure(error), { to: 'debug' })
       return { text: failure(error) }

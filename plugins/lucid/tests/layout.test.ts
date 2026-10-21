@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { highlight } from '../hooks/highlight'
 import { parseBlocks } from '../hooks/message'
-import { plainText, treeSize } from '../hooks/render'
+import { plainText, treeSize } from '../hooks/blocks'
 import { gridWidths, padding } from '../hooks/table'
 
 const text = (natural: number) => ({ natural, numeric: false })

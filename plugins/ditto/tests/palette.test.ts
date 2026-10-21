@@ -1,17 +1,15 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { dark, groundOfTerminal, light, toneFor } from '../hooks/palette'
-import { LUCID_MUTED } from './fixtures/lucid-palette'
+import { contrast, dark, fromLucid, groundOfTerminal, isLucidTone, light, toneFor } from '../hooks/palette'
+import { LUCID_TONES } from './fixtures/lucid-palette'
 
-function luminance(hex: string): number {
-  const channels = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
-  const [r = 0, g = 0, b = 0] = channels.map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
-  return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05)
+function hue(hex: string): number {
+  const [r = 0, g = 0, b = 0] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+  const max = Math.max(r, g, b)
+  const span = max - Math.min(r, g, b)
+  if (span === 0) return -1
+  if (max === r) return (((g - b) / span) * 60 + 360) % 360
+  return max === g ? ((b - r) / span) * 60 + 120 : ((r - g) / span) * 60 + 240
 }
 
 const PITWALL_DARK_GROUNDS = ['#141311', '#1d1c19', '#0e0d0c', '#000000', '#1e1e1e']
@@ -52,8 +50,9 @@ describe('tone', () => {
   })
 
   test('greys the marker with the muted colour lucid draws for every theme lucid gives a colour', async () => {
-    expect(Object.keys(LUCID_MUTED).length).toBeGreaterThan(0)
-    for (const [theme, muted] of Object.entries(LUCID_MUTED)) expect(toneFor(theme).muted).toBe(muted)
+    const unset = Object.entries(LUCID_TONES).filter(([key]) => key.endsWith(' on unset'))
+    expect(unset.length).toBeGreaterThan(0)
+    for (const [key, tone] of unset) expect(toneFor(key.replace(/ on unset$/, '')).muted).toBe(tone.muted)
   })
 
   test('takes the Pitwall orange lucid draws, not a lighter stand-in', async () => {
@@ -66,9 +65,17 @@ describe('tone', () => {
     for (const ground of PITWALL_DARK_GROUNDS) expect(contrast(dark.pointed, ground)).toBeGreaterThanOrEqual(4.5)
   })
 
-  test('the hovered chip is ink on light, as the light Pitwall orange reads under 4.5:1 there and Pitwall keeps it for marks', async () => {
+  test('the hovered chip is orange on light too, a deeper Pitwall orange, as #c96442 reads under 4.5:1 there', async () => {
     for (const ground of PITWALL_LIGHT_GROUNDS) expect(contrast(light.accent, ground)).toBeLessThan(4.5)
     for (const ground of LIGHT_GROUNDS) expect(contrast(light.pointed, ground)).toBeGreaterThanOrEqual(4.5)
+    expect(Math.abs(hue(light.pointed) - hue(light.accent))).toBeLessThan(3)
+    expect(Math.abs(hue(dark.pointed) - hue(dark.accent))).toBeLessThan(3)
+  })
+
+  test('contrast is 21 for black on white, 1 for a colour on itself, and the same either way round', async () => {
+    expect(Math.round(contrast('#000000', '#ffffff') * 1000)).toBe(21000)
+    expect(contrast('#ab4f2d', '#ab4f2d')).toBe(1)
+    expect(contrast('#ab4f2d', '#f5f4f0')).toBe(contrast('#f5f4f0', '#ab4f2d'))
   })
 
   test('marker and chips reach 4.5:1 on every ground', async () => {
@@ -81,5 +88,35 @@ describe('tone', () => {
     expect(toneFor('solarized-custom', 'light')).toBe(light)
     expect(toneFor('dark-ansi', 'light')).toBe(dark)
     expect(groundOfTerminal('')).toBeUndefined()
+  })
+
+  test('the hovered chip reads at 4.5:1 on the ground ditto paints under it', async () => {
+    expect(contrast(dark.pointed, dark.background)).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(light.pointed, light.background)).toBeGreaterThanOrEqual(4.5)
+    expect([dark.background, light.background]).toEqual(['#141311', '#f5f4f0'])
+  })
+
+  test('under the pointer takes lucid\'s accent when it reads at 4.5:1 on the ground, and ditto\'s deeper orange when it does not', async () => {
+    const palette = { text: '#2e2c27', strong: '#1c1b18', muted: '#625e56' }
+    expect(fromLucid({ ground: 'light', palette: { ...palette, accent: '#a04020' } }).pointed).toBe('#a04020')
+    expect(fromLucid({ ground: 'light', palette: { ...palette, accent: '#c96442' } }).pointed).toBe(light.pointed)
+    expect(fromLucid({ ground: 'dark', palette: { ...palette, accent: '#5a2a1a' } }).pointed).toBe(dark.pointed)
+  })
+
+  test('maps the tone lucid drew to its own, orange on both grounds under the pointer', async () => {
+    const palette = { text: '#d8d5cc', strong: '#ecebe6', muted: '#a39e94', accent: '#d4734f' }
+    expect(fromLucid({ ground: 'dark', palette })).toEqual(dark)
+    expect(fromLucid({ ground: 'light', palette: { text: '#2e2c27', strong: '#1c1b18', muted: '#625e56', accent: '#c96442' } })).toEqual(light)
+  })
+
+  test('refuses a lucid tone that is missing, half filled or not hex, so ditto falls back to its own', async () => {
+    const palette = { text: '#d8d5cc', strong: '#ecebe6', muted: '#a39e94', accent: '#d4734f' }
+    expect(isLucidTone({ ground: 'dark', palette })).toBe(true)
+    expect(isLucidTone(undefined)).toBe(false)
+    expect(isLucidTone(null)).toBe(false)
+    expect(isLucidTone({ ground: 'dim', palette })).toBe(false)
+    expect(isLucidTone({ ground: 'dark' })).toBe(false)
+    expect(isLucidTone({ ground: 'dark', palette: { ...palette, accent: 'orange' } })).toBe(false)
+    expect(isLucidTone({ ground: 'dark', palette: { ...palette, strong: undefined } })).toBe(false)
   })
 })

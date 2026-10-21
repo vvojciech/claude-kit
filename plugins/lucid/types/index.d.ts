@@ -5,6 +5,9 @@ export type LucidBlock = {
   /** The block's markdown after CRLF is normalised to LF, with container markers (quote bars, list and footnote indents) removed. Depth-0 sources appear in the text in order. */
   source: string
   depth: number
+  /** Where the block sits in the text as given (before CRLF normalisation): start inclusive, end exclusive. A nested block spans its first to last content line. */
+  start?: number
+  end?: number
   lang?: string
   text?: string
 }

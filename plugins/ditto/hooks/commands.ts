@@ -1,4 +1,4 @@
-import { REPLY, TOOL_KINDS, replyTargets } from './targets'
+import { CODE, REPLY, TOOL_KINDS, replyTargets } from './targets'
 import type { Resolved, Target, ToolKind } from './targets'
 
 export type Choice = { text: string; what: string } | { error: string }
@@ -20,7 +20,7 @@ export const USAGE = [
   '/ditto copies the last reply as markdown. R picks the reply, 1 = the last: /ditto 2 is the reply before.',
   'A name copies one block, as its ⧉ chip shows it: /ditto ruby 2 is the chip "⧉ ruby 2": blocks of one name count from the top of the reply. code is a block with no language, or any code block when none lacks one. A chip named by digits, as ⧉ 123, needs R first: /ditto 1 123.',
   '/ditto file [N] copies the Nth last file Claude wrote, edited (the whole file after the edit) or read. /ditto plan copies the last plan. /ditto output [N] copies the Nth last Bash, Grep, WebFetch, Agent or MCP output, colours stripped.',
-  'N counts back from the last, 1 = the last. Chips on a group of tool calls count back the same way from its last call, so on the latest group ⧉ output 2 is /ditto output 2.',
+  'N counts back from the last, 1 = the last. Chips on a group of tool calls count back the same way from its last call, so ⧉ output 2 is /ditto output 2 only while that group holds the last tool call.',
   `/ditto ${SELECTION} copies the markdown behind what you last selected with the mouse.`,
   'The ⧉ markers need fullscreen; a reply still being written gets its marker when it ends.',
 ].join('\n')
@@ -36,8 +36,6 @@ export function badToolCount(tool: ToolKind): string {
 const COUNT = /^[1-9]\d*$/
 
 const DIGITS = /^\d+$/
-
-const UNNAMED_CODE = 'code'
 
 export function numberFirst(index: string, name: string): string {
   return name === SELECTION ? SELECTION_HAS_NO_REPLY : `The reply number goes first: /ditto ${index} ${name}`
@@ -98,7 +96,7 @@ function named(targets: Target[], name: string): Target | undefined {
 
 function anyCode(targets: Target[], name: string): Target | undefined {
   const { base, index } = split(name)
-  if (base !== UNNAMED_CODE || targets.some(t => t.kind === 'code' && t.what === 'code block')) return undefined
+  if (base !== CODE || targets.some(t => t.kind === 'code' && t.what === 'code block')) return undefined
   return targets.filter(t => t.kind === 'code')[index - 1]
 }
 

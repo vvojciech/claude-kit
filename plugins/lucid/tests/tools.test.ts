@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { collapsePastes } from '../hooks/render'
+import { collapsePastes } from '../hooks/prompt'
 import { spansWidth } from '../hooks/markdown'
 import type { Span } from '../hooks/markdown'
-import { TASK_STILL_RUNNING, TASK_UNTRACKED, backgroundTaskId, createdContent, describeCall, failureOf, fileHref, fitMiddle, headline, plural, relativePath, stateOf, stoppedTaskId, summarise, summariseGroup, toolName, unsuccessfulLines, unsuccessfulState, verbFor } from '../hooks/tools'
+import { TASK_STILL_RUNNING, TASK_UNTRACKED, backgroundTaskId, createdContent, describeCall, durationText, failureOf, notificationRow, fileHref, fitMiddle, headline, plural, relativePath, stateOf, stoppedTaskId, summarise, summariseGroup, toolName, unsuccessfulLines, unsuccessfulState, verbFor } from '../hooks/tools'
 import type { ToolCall, ToolLine, TrackedCall } from '../hooks/tools'
 
 const ROOTS = { cwd: '/repo', home: '/Users/me' }
@@ -251,7 +251,7 @@ describe('describeCall', () => {
     const running = describeCall(call, ROOTS, 'running')
     expect(running.name).toBe('Delegating to Explore')
     expect(running.note).toBe('background')
-    expect(text(running.detail)).toBe('· count ts files')
+    expect(text(running.detail)).toBe('"count ts files"')
     const finished = describeCall(call, ROOTS, 'completed')
     expect(finished.name).toBe('Delegated to Explore')
     expect(finished.note).toBeUndefined()
@@ -282,7 +282,7 @@ describe('headline', () => {
   test('heads a group of tool searches with the tools that loaded', async () => {
     const search = (query: string, matches: string[]) => ({ tool: 'ToolSearch', input: { query }, ...done, output: { matches, query } })
     expect(headline([search('todo list', ['TaskCreate', 'TodoWrite']), search('select:TodoWrite', ['TodoWrite'])], ROOTS)).toBe('Loaded 2 tools')
-    expect(headline([search('a', ['A']), { tool: 'WebSearch', input: { query: 'x' }, ...done }, { tool: 'WebSearch', input: { query: 'y' }, ...done }], ROOTS)).toBe('Loaded 1 tool, searched web ×2')
+    expect(headline([search('a', ['A']), { tool: 'WebSearch', input: { query: 'x' }, ...done }, { tool: 'WebSearch', input: { query: 'y' }, ...done }], ROOTS)).toBe('Loaded 1 tool, searched web for 2 queries')
   })
 
   test('puts running work first and merges it into its own kind', async () => {
@@ -333,7 +333,7 @@ describe('summariseGroup', () => {
   test('groups agent calls by who they went to', async () => {
     const agent = (type: string, description: string) => ({ tool: 'Agent', input: { subagent_type: type, description }, ...done })
     const { row } = group([agent('Explore', 'find a'), agent('Plan', 'plan b'), agent('Explore', 'find c')])
-    expect(row.lines?.map(line)).toEqual(['Delegated to Explore · find a · find c', 'Delegated to Plan · plan b'])
+    expect(row.lines?.map(line)).toEqual(['Delegated to Explore "find a" · "find c"', 'Delegated to Plan "plan b"'])
   })
 
   test('draws a one-call group as the call itself', async () => {
@@ -543,7 +543,7 @@ describe('round 4 tool rows', () => {
   test('drops the default agent type from delegation rows', async () => {
     const row = describeCall({ tool: 'Agent', input: { subagent_type: 'general-purpose', description: 'slow count' }, ...done }, ROOTS)
     expect(row.name).toBe('Delegated')
-    expect(text(row.detail)).toBe('· slow count')
+    expect(text(row.detail)).toBe('"slow count"')
   })
 })
 
@@ -623,7 +623,7 @@ describe('round 6 tool rows', () => {
   })
 
   test('says a group whose calls all failed failed, without a success verb', async () => {
-    expect(headline([{ ...read('/repo/a.ts'), ...failed }, { ...read('/repo/b.ts'), ...failed }], ROOTS)).toBe('2 files failed')
+    expect(headline([{ ...read('/repo/a.ts'), ...failed }, { ...read('/repo/b.ts'), ...failed }], ROOTS)).toBe('Read 0 of 2 files (2 failed)')
     expect(headline([bash('ls'), { ...bash('false'), ...failed }], ROOTS)).toBe('Ran 1 of 2 commands (1 failed)')
   })
 
@@ -659,9 +659,9 @@ describe('round 6 tool rows', () => {
     const watch = (id: string) => ({ tool: 'Monitor', input: { description: id, command: `tail ${id}` }, ...done, output: { taskId: id }, taskStatus: 'completed' })
     expect(headline([watch('a'), watch('b')], ROOTS)).toBe('Watched 2 commands')
     expect(headline([{ ...watch('a'), taskStatus: TASK_UNTRACKED }, bash('ls')], ROOTS)).toBe('Started watching 1 command, ran 1 command')
-    expect(headline([{ tool: 'WebSearch', input: { query: 'x' }, ...done }], ROOTS)).toBe('Searched web')
+    expect(headline([{ tool: 'WebSearch', input: { query: 'x' }, ...done }], ROOTS)).toBe('Searched web for 1 query')
     expect(describeCall({ tool: 'mcp__playwright__browser_tabs', input: { action: 'list' }, ...done }, ROOTS).name).toBe('Called playwright › browser tabs')
-    expect(describeCall({ tool: 'Agent', input: { description: 'say hi' }, ...done }, ROOTS).detail.map(s => s.text)).toEqual(['· ', 'say hi'])
+    expect(describeCall({ tool: 'Agent', input: { description: 'say hi' }, ...done }, ROOTS).detail.map(s => s.text)).toEqual(['"say hi"'])
     expect(describeCall({ tool: 'Agent', input: {}, ...done }, ROOTS).detail).toEqual([])
   })
 })
@@ -671,19 +671,19 @@ describe('round 7 tool rows', () => {
 
   test('names a denied or stopped call by what happened, not as failed', async () => {
     const write = { tool: 'Write', input: { file_path: '/repo/x.md' }, ...rejected }
-    expect(headline([write, read('/repo/a.ts')], ROOTS)).toBe('Read 1 file, 1 file denied')
+    expect(headline([write, read('/repo/a.ts')], ROOTS)).toBe('Read 1 file, wrote 0 of 1 file (1 denied)')
     expect(headline([read('/repo/a.ts'), { ...read('/repo/b.ts'), ...rejected }], ROOTS)).toBe('Read 1 of 2 files (1 denied)')
     expect(headline([bash('ls'), { ...bash('npm test'), isInterrupted: true }], ROOTS)).toBe('Ran 1 of 2 commands (1 stopped)')
     expect(headline([bash('ls'), { ...bash('false'), ...failed }, { ...bash('npm test'), isInterrupted: true }], ROOTS)).toBe('Ran 1 of 3 commands (1 failed, 1 stopped)')
-    expect(headline([{ ...bash('false'), ...failed }, { ...bash('npm test'), isInterrupted: true }], ROOTS)).toBe('1 command failed, 1 command stopped')
+    expect(headline([{ ...bash('false'), ...failed }, { ...bash('npm test'), isInterrupted: true }], ROOTS)).toBe('Ran 0 of 2 commands (1 failed, 1 stopped)')
   })
 
   test('puts what went well before kinds where nothing did', async () => {
-    expect(headline([{ ...bash('false'), ...failed }, read('/repo/a.ts')], ROOTS)).toBe('Read 1 file, 1 command failed')
+    expect(headline([{ ...bash('false'), ...failed }, read('/repo/a.ts')], ROOTS)).toBe('Read 1 file, ran 0 of 1 command (1 failed)')
     const grep = { tool: 'Grep', input: { pattern: 'x' }, ...failed }
     const glob = { tool: 'Glob', input: { pattern: '*.ts' }, ...failed }
-    expect(headline([read('/repo/a.ts'), grep, glob], ROOTS)).toBe('Read 1 file, 2 patterns failed')
-    expect(headline([grep, { ...glob, ...rejected }], ROOTS)).toBe('1 pattern failed, 1 pattern denied')
+    expect(headline([read('/repo/a.ts'), grep, glob], ROOTS)).toBe('Read 1 file, searched for 0 of 1 pattern (1 failed), listed 0 of 1 pattern (1 failed)')
+    expect(headline([grep, { ...glob, ...rejected }], ROOTS)).toBe('Searched for 0 of 1 pattern (1 failed), listed 0 of 1 pattern (1 denied)')
   })
 
   test('watches the command a monitor runs, not the prose describing it', async () => {
@@ -721,19 +721,126 @@ describe('round 8 group headline counts', () => {
   })
 
   test('does not say ran for work still running beside a failure', async () => {
-    expect(headline([shell('a', TASK_STILL_RUNNING), { ...bash('x'), ...failed }], ROOTS)).toBe('Running 1 command, 1 command failed')
+    expect(headline([shell('a', TASK_STILL_RUNNING), { ...bash('x'), ...failed }], ROOTS)).toBe('Ran 0 of 2 commands (1 still running, 1 failed)')
   })
 
-  test('counts a retried file once among the ones that worked and the failed try on its own', async () => {
-    expect(headline([read('/repo/a.ts'), { ...read('/repo/a.ts'), ...failed }], ROOTS)).toBe('Read 1 of 2 files (1 failed)')
+  test('counts a file a retry read as one file read, never as two files', async () => {
+    expect(headline([read('/repo/a.ts'), { ...read('/repo/a.ts'), ...failed }, read('/repo/a.ts')], ROOTS)).toBe('Read 1 file')
+    expect(headline([read('/repo/a.ts'), { ...read('/repo/b.ts'), ...failed }, { ...read('/repo/b.ts'), ...failed }], ROOTS)).toBe('Read 1 of 2 files (1 failed)')
   })
 
-  test('falls back to calls for a kind with no noun', async () => {
+  test('names web search failures by their queries, and falls back to calls for a kind with no noun', async () => {
     const web = (query: string) => ({ tool: 'WebSearch', input: { query }, ...done })
-    expect(headline([web('a'), { ...web('b'), ...failed }], ROOTS)).toBe('Searched web 1 of 2 calls (1 failed)')
+    expect(headline([web('a'), { ...web('b'), ...failed }], ROOTS)).toBe('Searched web for 1 of 2 queries (1 failed)')
+    expect(headline([read('/repo/a.ts'), { ...web('b'), ...failed }, { ...web('c'), ...failed }], ROOTS)).toBe('Read 1 file, searched web for 0 of 2 queries (2 failed)')
+    const task = (subject: string) => ({ tool: 'TaskCreate', input: { subject }, ...done })
+    expect(headline([task('a'), { ...task('b'), ...failed }], ROOTS)).toBe('Added task 1 of 2 calls (1 failed)')
   })
 
   test('keeps the plain total when nothing went wrong', async () => {
     expect(headline([bash('a'), bash('b')], ROOTS)).toBe('Ran 2 commands')
+  })
+})
+
+describe('round 9 tool rows', () => {
+  test('calls a rejection of a call that already ran stopped, and one that never ran denied', async () => {
+    const write = { tool: 'Write', input: { file_path: '/repo/x.md' }, ...rejected }
+    expect(stateOf({ ...rejected, hasRun: true })).toBe('interrupted')
+    expect(stateOf({ ...rejected, hasRun: false })).toBe('rejected')
+    expect(stateOf(rejected)).toBe('rejected')
+    expect(describeCall({ ...bash('find /'), ...rejected, hasRun: true }, ROOTS).name).toBe('Stopped running')
+    expect(headline([bash('echo now'), { ...bash('find /'), ...rejected, hasRun: true }], ROOTS)).toBe('Ran 1 of 2 commands (1 stopped)')
+    expect(headline([read('/repo/a.ts'), write], ROOTS)).toBe('Read 1 file, wrote 0 of 1 file (1 denied)')
+  })
+
+  test('keeps a failure that is not a rejection failed even after the call ran', async () => {
+    expect(stateOf({ ...failed, output: 'Exit code 1', hasRun: true })).toBe('failed')
+  })
+
+  test('heads every kind with its own verb and one count shape whatever the outcome', async () => {
+    const shell = (id: string, taskStatus: string) => ({ ...bash(`job ${id}`), output: { stdout: '', backgroundTaskId: id }, taskStatus })
+    expect(headline([shell('a', TASK_UNTRACKED), { ...bash('x'), ...failed }], ROOTS)).toBe('Ran 0 of 1 command (1 failed), started 1 command')
+    expect(headline([shell('a', TASK_STILL_RUNNING)], ROOTS)).toBe('Running 1 command')
+    expect(headline([], ROOTS)).toBe('')
+  })
+
+  test('counts a tool search that loaded nothing as one failed target beside the tools that loaded', async () => {
+    const search = (query: string, matches: string[]) => ({ tool: 'ToolSearch', input: { query }, ...done, output: { matches, query } })
+    expect(headline([search('select:A', ['A']), search('select:A', [])], ROOTS)).toBe('Loaded 1 tool')
+    expect(headline([search('select:Nope', [])], ROOTS)).toBe('Loaded 0 of 1 tool (1 failed)')
+  })
+
+  test('drops a leading watch verb from a monitor description so the row does not say it twice', async () => {
+    expect(text(summarise('Monitor', { description: 'watch log' }, ROOTS).detail)).toBe('log')
+    expect(text(summarise('Monitor', { description: 'Watching the deploy' }, ROOTS).detail)).toBe('the deploy')
+    expect(text(summarise('Monitor', { description: 'watch' }, ROOTS).detail)).toBe('watch')
+    expect(text(summarise('Monitor', { description: 'watchdog restarts' }, ROOTS).detail)).toBe('watchdog restarts')
+  })
+
+  test('shows the first line of a plan without its heading marks', async () => {
+    expect(text(summarise('ExitPlanMode', { plan: '\n## Ship it\nbody' }, ROOTS).detail)).toBe('Ship it')
+    expect(summarise('ExitPlanMode', { plan: '   ' }, ROOTS).detail).toEqual([])
+  })
+
+  test('draws a task notification as a row whose glyph says how the task ended', async () => {
+    expect(notificationRow('Agent "say hi" finished', { status: 'completed', durationMs: 3200 })).toEqual({ row: { name: 'Agent "say hi" finished', detail: [], note: '3s' }, state: 'done' })
+    expect(notificationRow('Background command "x" failed with exit code 2', { status: 'failed' })?.state).toBe('failed')
+    expect(notificationRow('Background command "x" was stopped', { status: 'killed' })?.state).toBe('interrupted')
+    expect(notificationRow('Monitor event: "ticks"', {})).toBeUndefined()
+    expect(notificationRow('Monitor event: "ticks"', { status: 'progress' })).toBeUndefined()
+    expect(notificationRow('  \n', { status: 'completed' })).toBeUndefined()
+  })
+
+  test('says how long a task ran in the units the stock row uses', async () => {
+    expect(durationText(undefined)).toBeUndefined()
+    expect(durationText(-1)).toBeUndefined()
+    expect(durationText(Number.NaN)).toBeUndefined()
+    expect(durationText(0)).toBe('0s')
+    expect(durationText(59_400)).toBe('59s')
+    expect(durationText(122_000)).toBe('2m 2s')
+    expect(durationText(120_000)).toBe('2m')
+    expect(durationText(3_600_000)).toBe('1h')
+    expect(durationText(3_780_000)).toBe('1h 3m')
+  })
+})
+
+describe('round 10 tool rows', () => {
+  const grep = (pattern: string, outcome = done) => ({ tool: 'Grep', input: { pattern, path: '/repo/hooks' }, ...outcome })
+  const glob = (pattern: string, outcome = done) => ({ tool: 'Glob', input: { pattern, path: '/repo' }, ...outcome })
+  const shell = (id: string, taskStatus?: string) => ({ ...bash(`sleep ${id}`), output: { stdout: '', backgroundTaskId: id }, taskStatus })
+  const watch = (taskStatus: string) => ({ tool: 'Monitor', input: { command: 'tail log' }, ...done, output: { taskId: 'm1' }, taskStatus })
+
+  test('counts searches by pattern, not by the directory they ran in', async () => {
+    expect(headline([grep('foo'), grep('bar')], ROOTS)).toBe('Searched for 2 patterns')
+    expect(headline([grep('foo'), grep('bar', failed)], ROOTS)).toBe('Searched for 1 of 2 patterns (1 failed)')
+    expect(headline([glob('*.ts'), glob('*.md', rejected)], ROOTS)).toBe('Listed 1 of 2 patterns (1 denied)')
+    expect(headline([grep('foo'), grep('foo')], ROOTS)).toBe('Searched for 1 pattern')
+  })
+
+  test('gives a group whose failed call was retried the glyph its headline earns', async () => {
+    const { row, state } = group([read('/repo/a.ts'), { ...read('/repo/a.ts'), ...failed }, read('/repo/a.ts')])
+    expect(row.name).toBe('Read 1 file')
+    expect(state).toBe('done')
+    expect(row.lines?.map(line)).toContain("Couldn't read a.ts")
+  })
+
+  test('keeps the failed glyph while any target never succeeded', async () => {
+    const { row, state } = group([read('/repo/a.ts'), { ...read('/repo/b.ts'), ...failed }])
+    expect(row.name).toBe('Read 1 of 2 files (1 failed)')
+    expect(state).toBe('failed')
+  })
+
+  test('says a kind is still at work when nothing of it has finished yet', async () => {
+    expect(headline([watch(TASK_STILL_RUNNING), bash('ls')], ROOTS)).toBe('Watching 1 command, ran 1 command')
+    expect(headline([shell('a', TASK_STILL_RUNNING), shell('b', 'completed')], ROOTS)).toBe('Ran 1 of 2 commands (1 still running)')
+    expect(headline([shell('a', TASK_STILL_RUNNING), shell('b', 'failed')], ROOTS)).toBe('Ran 0 of 2 commands (1 still running, 1 failed)')
+  })
+
+  test('quotes free-text targets the way search patterns are quoted', async () => {
+    expect(text(describeCall({ tool: 'WebSearch', input: { query: 'bun test' }, ...failed }, ROOTS).detail)).toBe('"bun test"')
+    expect(text(describeCall({ tool: 'WebSearch', input: {}, ...done }, ROOTS).detail)).toBe('')
+    expect(text(describeCall({ tool: 'Agent', input: { prompt: 'reply hi' }, ...done }, ROOTS).detail)).toBe('reply hi')
+    const { row } = group([{ tool: 'WebSearch', input: { query: 'a' }, ...failed }, { tool: 'WebSearch', input: { query: 'b' }, ...failed }])
+    expect(row.lines?.map(line)).toEqual(["Couldn't search web \"a\" · \"b\""])
   })
 })
