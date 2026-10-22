@@ -1,6 +1,7 @@
 import type { Block } from './model'
+import { ALERTS, QUOTE, outerQuotes, quoteName, quoteText } from './quote'
 
-export type TargetKind = 'reply' | 'code' | 'table' | ToolKind
+export type TargetKind = 'reply' | 'code' | 'table' | 'quote' | ToolKind
 
 export type ToolKind = 'file' | 'plan' | 'output'
 
@@ -18,26 +19,33 @@ export const TOOL_WHAT: Record<ToolKind, string> = { file: 'file', plan: 'plan',
 export const GAP = 2
 export const CODE = 'code'
 const TABLE = 'table'
-const RESERVED = new Set([TABLE, CODE, REPLY, 'selection', 'help', ...TOOL_KINDS])
+const RESERVED = new Set([TABLE, CODE, REPLY, QUOTE, ...ALERTS, 'selection', 'help', ...TOOL_KINDS])
 
-function copyable(block: Block): boolean {
-  return block.kind === 'code' || block.kind === 'table'
+function copyable(outer: Set<Block>): (block: Block) => boolean {
+  return block => block.kind === 'code' || block.kind === 'table' || outer.has(block)
 }
 
 function baseName(block: Block): string {
   if (block.kind === 'table') return TABLE
+  if (block.kind === 'quote') return quoteName(block)
   const lang = block.lang ?? ''
   if (lang === '') return CODE
   return RESERVED.has(lang.toLowerCase()) ? `${lang}-${CODE}` : lang
 }
 
 function bodyOf(block: Block): string {
+  if (block.kind === 'quote') return quoteText(block)
   return block.kind === 'table' ? block.source.trimEnd() : (block.text ?? '')
 }
 
 function whatOf(block: Block, base: string): string {
   if (block.kind === 'table') return TABLE
+  if (block.kind === 'quote') return `${base} as markdown`
   return base === CODE ? 'code block' : `${base} block`
+}
+
+function kindOf(block: Block): TargetKind {
+  return block.kind === 'table' || block.kind === 'quote' ? block.kind : 'code'
 }
 
 export const CALL_MARK = '#'
@@ -62,12 +70,12 @@ export function replyTarget(reply: Pick<Resolved, 'text' | 'partial'>): Target {
 }
 
 export function blockTargets(blocks: Block[]): Target[] {
-  const drawn = blocks.filter(copyable)
+  const drawn = blocks.filter(copyable(outerQuotes(blocks)))
   const names = numbered(drawn.map(baseName))
   return drawn.flatMap((block, i) => {
     const text = bodyOf(block)
     const base = baseName(block)
-    return text.trim() === '' ? [] : [target(block.kind === 'table' ? 'table' : 'code', names[i] ?? base, text, whatOf(block, base))]
+    return text.trim() === '' ? [] : [target(kindOf(block), names[i] ?? base, text, whatOf(block, base))]
   })
 }
 

@@ -138,9 +138,11 @@ export function callName(call: ToolCall, kind: ToolKind): string {
 
 const NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/g
 
-function tagged(body: string, tag: string): string | undefined {
-  const found = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(body)
-  return found?.[1]?.trim()
+const TASK_ID = /<task-id>([\s\S]*?)<\/task-id>/
+const RESULT = /<result>([\s\S]*?)<\/result>/
+
+function tagged(body: string, tag: RegExp): string | undefined {
+  return tag.exec(body)?.[1]?.trim()
 }
 
 export function backgroundReports(messages: SessionMessage[]): Map<string, string> {
@@ -148,8 +150,8 @@ export function backgroundReports(messages: SessionMessage[]): Map<string, strin
   for (const message of messages) {
     if (message.role !== 'user') continue
     for (const [, body = ''] of message.text.matchAll(NOTIFICATION)) {
-      const id = tagged(body, 'task-id')
-      const result = tagged(body, 'result')
+      const id = tagged(body, TASK_ID)
+      const result = tagged(body, RESULT)
       if (id !== undefined && result !== undefined && result !== '') reports.set(id, result)
     }
   }

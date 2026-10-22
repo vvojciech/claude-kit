@@ -21,8 +21,10 @@ Claude Code renders Claude's markdown in the terminal, so a mouse selection give
 - Every row is the same width, so the targets line up, and the whole row is the target. The list has an unpainted margin of 2 cells either side and a row above and below, and that margin reaches onto the ⧉ row, so the pointer can stray a little or travel from ⧉ to the list without closing it.
 - `⧉ reply` copies the whole reply as markdown, including text written before and after tool calls.
 - Each code block gets a chip named by its language, such as `⧉ python`. A block with no language is `⧉ code`, a table is `⧉ table`.
-- Repeated names are numbered from the top of the reply: `⧉ bash 1`, `⧉ bash 2`.
-- A block whose language clashes with a command word (`table`, `code`, `reply`, `file`, `plan`, `output`, `selection`, `help`) is renamed, for example `⧉ table-code`.
+- Each blockquote gets `⧉ quote`, which copies what's inside without the `>` markers, so a drafted Slack or PR message pastes as written. Lists, code, links and blank lines stay; a nested quote comes out one level shallower. A quote inside another quote has no chip of its own; one inside a list item does.
+- A GitHub alert (`> [!NOTE]`) is named by its type, `⧉ note`, `⧉ tip`, `⧉ important`, `⧉ warning` or `⧉ caution`, the way a code block is named by its language. It copies without the `[!NOTE]` line.
+- Repeated names are numbered from the top of the reply: `⧉ bash 1`, `⧉ bash 2`, `⧉ quote 1`, `⧉ quote 2`.
+- A block whose language clashes with a command word (`table`, `code`, `reply`, `quote`, an alert type, `file`, `plan`, `output`, `selection`, `help`) is renamed, for example `⧉ table-code`.
 - Code blocks copy without their fences. Tables copy as markdown rows.
 - Blocks inside quotes, lists and alerts, and indented code, get chips too.
 - A reply that was interrupted shows `partial` at the top of its list.
@@ -50,6 +52,7 @@ Claude Code renders Claude's markdown in the terminal, so a mouse selection give
 | `/copy-that <name>` | one block by its chip name, such as `/copy-that ruby 2`, or `/copy-that 2 ruby` for an older reply |
 | `/copy-that code` | the block with no language, or any code block when every block has one |
 | `/copy-that table` | a table |
+| `/copy-that quote [N]` | the Nth quote without its `>` markers, or `/copy-that 2 quote` for an older reply; an alert goes by its type, such as `/copy-that note` |
 | `/copy-that file [N]` | the Nth last file Claude wrote, edited or read |
 | `/copy-that plan` | the last plan |
 | `/copy-that output [N]` | the Nth last Bash, Grep, Glob, WebFetch, Agent or MCP output |

@@ -19,7 +19,7 @@
       "name": "copy-that",
       "source": "./plugins/copy-that",
       "description": "Copy what Claude wrote as raw text: reply markdown, code blocks, tables, files Claude read or wrote, plans and tool output, by hover chip or /copy-that",
-      "version": "0.5.0"
+      "version": "0.6.0"
     },
     {
       "name": "mermaid",

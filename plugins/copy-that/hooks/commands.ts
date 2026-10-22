@@ -1,4 +1,4 @@
-import { CALL_MARK, CODE, OUTPUT, REPLY, TOOL_KINDS, TOOL_WHAT, replyTargets } from './targets'
+import { CODE, OUTPUT, REPLY, TOOL_KINDS, TOOL_WHAT, replyTargets } from './targets'
 import type { Resolved, Target, ToolKind } from './targets'
 
 export type Choice = { text: string; what: string } | { error: string }
@@ -15,7 +15,7 @@ const HELP = new Set(['help', '-h', '--help', '?'])
 
 export const SELECTION = 'selection'
 
-export const ARGUMENT_HINT = `[R] [reply | <language> | code | table] [N] | file [N] | plan | output [N] | ${SELECTION} | help`
+export const ARGUMENT_HINT = `[R] [reply | <language> | code | table | quote] [N] | file [N] | plan | output [N] | ${SELECTION} | help`
 
 const PARAGRAPHS = [
   [`Usage: /copy-that ${ARGUMENT_HINT}`],
@@ -28,6 +28,11 @@ const PARAGRAPHS = [
     'blocks of one name count from the top of the reply.',
     'code is a block with no language, or any code block when none lacks one.',
     'A chip named by digits, as ⧉ 123, needs R first: /copy-that 1 123.',
+  ],
+  [
+    '/copy-that quote [N] copies the Nth quote in the reply without its > markers, ready to paste as a draft;',
+    '/copy-that 2 quote takes it from the reply before.',
+    'A GitHub alert is named by its type, as /copy-that note or /copy-that warning, and copies without its [!NOTE] line.',
   ],
   [
     '/copy-that file [N] copies the Nth last file Claude wrote, edited (the whole file after the edit) or read.',
@@ -57,7 +62,7 @@ export function badToolCount(tool: ToolKind): string {
 
 const COUNT = /^[1-9]\d*$/
 
-const CALL_ORDINAL = new RegExp(`^${CALL_MARK}\\d+$`)
+const CALL_ORDINAL = /^#\d+$/
 
 const COUNTS_BACK = '/copy-that output N or /copy-that file N counts calls back from the last'
 

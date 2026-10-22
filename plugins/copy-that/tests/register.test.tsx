@@ -530,6 +530,12 @@ describe('which reply a marker copies', () => {
     expect(await labels($, '    bundle add foo', { requestId: 'u-code' })).toEqual(['⧉ reply', '⧉ code'])
   })
 
+  test('lists a quote chip in the column with the others, in reply order', async ($, on) => {
+    const draft = 'Draft:\n\n> Hi team\n\n```sh\nls\n```\n\nSend it after lunch.'
+    fakeHost(on, { messages: [prompt('draft'), said(draft)] })
+    expect(await labels($, draft)).toEqual(['⧉ reply', '⧉ quote', '⧉ sh'])
+  })
+
   test('reads the transcript again after the session ends, as on /clear or /resume', async ($, on) => {
     const transcript: Transcript = { messages: [prompt('plan'), said(REPLY)] }
     fakeHost(on, transcript)

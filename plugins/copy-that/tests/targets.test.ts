@@ -52,8 +52,8 @@ describe('replyTargets', () => {
     expect(labels('```\n```\n\n```\nb\n```\n\n```\nc\n```')).toEqual(['⧉ reply', '⧉ code 2', '⧉ code 3'])
   })
 
-  test('offers a block lucid draws inside a quote or as indented code', async () => {
-    expect(labels('> ```sh\n> make\n> ```\n\nThen:\n\n    gzip out.sql')).toEqual(['⧉ reply', '⧉ sh', '⧉ code'])
+  test('offers a block lucid draws inside a quote or as indented code, after the quote itself', async () => {
+    expect(labels('> ```sh\n> make\n> ```\n\nThen:\n\n    gzip out.sql')).toEqual(['⧉ reply', '⧉ quote', '⧉ sh', '⧉ code'])
   })
 
   test('copies the reply text verbatim', async () => {
