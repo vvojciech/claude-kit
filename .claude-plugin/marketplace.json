@@ -1,11 +1,11 @@
 {
-  "name": "vvojciech-mods",
+  "name": "vvojciech",
   "owner": {
     "name": "Wojciech Kucha",
     "email": "672093+vvojciech@users.noreply.github.com"
   },
   "metadata": {
-    "description": "Claude Code mods by Wojciech Kucha",
+    "description": "Claude Code plugins by Wojciech Kucha: mods, skills and tools",
     "version": "1.0.0"
   },
   "plugins": [

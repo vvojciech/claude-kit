@@ -1,12 +1,12 @@
-# claude-mods
+# claude-kit
 
-Claude Code mods I use every day. Needs Claude Code 2.1.287 or later.
+Claude Code plugins I use every day. So far they are mods that change the interface, which need Claude Code 2.1.287 or later. Skills and other plugins will live here too.
 
 ```
-/plugin marketplace add vvojciech/claude-mods
-/plugin install lucid@vvojciech-mods
-/plugin install ditto@vvojciech-mods
-/plugin install mermaid@vvojciech-mods
+/plugin marketplace add vvojciech/claude-kit
+/plugin install lucid@vvojciech
+/plugin install ditto@vvojciech
+/plugin install mermaid@vvojciech
 ```
 
 ## lucid

@@ -5,8 +5,8 @@ Claude often answers with a mermaid diagram, and the terminal shows it as a code
 ## Install
 
 ```
-/plugin marketplace add vvojciech/claude-mods
-/plugin install mermaid@vvojciech-mods
+/plugin marketplace add vvojciech/claude-kit
+/plugin install mermaid@vvojciech
 ```
 
 List it after ditto and before lucid in `CLAUDE_CODE_PLUGIN_DIRS`. lucid draws the reply itself, so a mod listed after it never sees the text.

@@ -5,8 +5,8 @@ Claude Code renders Claude's markdown in the terminal, so a mouse selection give
 ## Install
 
 ```
-/plugin marketplace add vvojciech/claude-mods
-/plugin install ditto@vvojciech-mods
+/plugin marketplace add vvojciech/claude-kit
+/plugin install ditto@vvojciech
 ```
 
 ditto must load before (outside) any other mod that draws replies, such as lucid. If a mod loaded earlier draws replies first, ditto never sees them. It notices after the first settled reply and leaves a status line saying to list ditto first in `CLAUDE_CODE_PLUGIN_DIRS`. Every `/ditto` answer repeats the warning until it's fixed.

@@ -5,8 +5,8 @@ lucid redraws the Claude Code transcript: replies, your prompts and tool rows. I
 ## Install
 
 ```
-/plugin marketplace add vvojciech/claude-mods
-/plugin install lucid@vvojciech-mods
+/plugin marketplace add vvojciech/claude-kit
+/plugin install lucid@vvojciech
 ```
 
 ## Features
