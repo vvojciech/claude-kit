@@ -23,7 +23,7 @@ It works with lucid or with the stock renderer. List it first in `CLAUDE_CODE_PL
 
 ## mermaid
 
-Claude often answers with a mermaid diagram, and the terminal shows it as a code block you have to picture in your head. mermaid draws each `sequenceDiagram` block in place of its fence: participants, arrows, activations, notes, loop/alt frames, boxes, create and destroy. When a diagram is too wide or too tall for the pane, it becomes a numbered one-line-per-message list instead.
+Claude often answers with a mermaid diagram, and the terminal shows it as a code block you have to picture in your head. mermaid draws each `sequenceDiagram` block in place of its fence: participants, arrows, activations, notes, loop/alt frames, boxes, create and destroy. Long labels wrap inside the diagram. Only when the pane is too narrow to fit every participant does it become a numbered one-line-per-message list.
 
 Anything mermaid itself would reject stays as source, with the problems listed under it. Other diagram types aren't drawn yet.
 
