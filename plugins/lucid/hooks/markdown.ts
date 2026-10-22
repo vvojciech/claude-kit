@@ -45,7 +45,7 @@ export type Span = {
   href?: string
 }
 
-type Footnotes = ReadonlySet<string>
+export type Footnotes = { has(label: string): boolean; readonly size: number }
 
 type Style = { bold?: boolean; italic?: boolean; strike?: boolean; underline?: boolean; href?: string; inLink?: boolean; footnotes?: Footnotes }
 
@@ -115,11 +115,15 @@ function footnoteToken([lead, ...rest]: Token[]): Token {
 }
 
 export function codePiece(source: string, language: string, code: string): Piece {
-  return { source, blocks: [{ kind: 'code', language, source: code }], outline: [{ kind: 'code', source, depth: 0, lang: language, text: code }] }
+  return { source, blocks: [{ kind: 'code', language, source: code }], outline: [{ kind: 'code', source: withoutTrailingNewlines(source), depth: 0, lang: language, text: code }] }
+}
+
+function withoutTrailingNewlines(source: string): string {
+  return source.replace(/\n+$/, '')
 }
 
 function noted<B extends Block>(trail: Trail, block: B, source: string): B {
-  const entry: OutlineEntry = { kind: block.kind, source, depth: trail.depth }
+  const entry: OutlineEntry = { kind: block.kind, source: withoutTrailingNewlines(source), depth: trail.depth }
   if (block.kind === 'code') Object.assign(entry, { lang: block.language, text: block.source })
   trail.outline.push(entry)
   return block
@@ -260,17 +264,44 @@ export function inlineSpans(text: string, style: Style = {}): Span[] {
 
 function spansOf(tokens: Token[], style: Style = {}): Span[] {
   const spans: Span[] = []
-  const tags = tokens.map(token => (token.type === 'html' ? tagOf((token as Tokens.Tag).text) : undefined))
+  const tags = tokens.map(tagOfToken)
   const closes = closingIndexes(tags)
   for (let i = 0; i < tokens.length; i++) {
-    const token = afterBreak(tokens[i - 1], tokens[i] as Token)
+    const token = afterGap(tokens, i, spans)
     const tag = tags[i]
     const close = closes.get(i) ?? -1
     const produced = tag && close !== -1 ? taggedSpans(tag, tokens.slice(i + 1, close), style) : spansOfToken(token, style)
+    if (isBreak(token, tag)) trimLineEnd(spans)
     for (const span of produced) push(spans, span)
     if (close !== -1) i = close
   }
   return spans
+}
+
+function afterGap(tokens: Token[], i: number, spans: Span[]): Token {
+  const previous = tokens[i - 1]
+  const token = tokens[i] as Token
+  if (isBreak(previous, tagOfToken(previous))) return lineStart(token) as Token
+  return isHiddenComment(previous) && /\s$/.test(spans.at(-1)?.text ?? '') ? (lineStart(token) as Token) : token
+}
+
+function isBreak(token: Token | undefined, tag: Tag | undefined): boolean {
+  return token?.type === 'br' || tag?.role === 'break'
+}
+
+function tagOfToken(token: Token | undefined): Tag | undefined {
+  return token?.type === 'html' ? tagOf((token as Tokens.Tag).text) : undefined
+}
+
+function trimLineEnd(spans: Span[]): void {
+  const last = spans.at(-1)
+  if (!last) return
+  last.text = last.text.replace(/[ \t]+$/, '')
+  if (last.text === '') spans.pop()
+}
+
+function isHiddenComment(token: Token | undefined): boolean {
+  return token?.type === 'html' && isComment((token as Tokens.Tag).text)
 }
 
 function closingIndexes(tags: (Tag | undefined)[]): Map<number, number> {
@@ -287,10 +318,6 @@ function closingIndexes(tags: (Tag | undefined)[]): Map<number, number> {
 }
 
 const CONTINUATION_INDENT = /\n[ \t]+/g
-
-function afterBreak(previous: Token | undefined, token: Token): Token {
-  return previous?.type === 'br' ? (lineStart(token) as Token) : token
-}
 
 function lineStart(token: Token | undefined): Token | undefined {
   if (token?.type !== 'text') return token
@@ -335,7 +362,7 @@ const STYLING_ROLES = new Set<Tag['role']>(['bold', 'italic', 'strike', 'underli
 function inlineHtmlSpans(markup: string, style: Style): Span[] {
   if (isComment(markup)) return []
   const tag = tagOf(markup)
-  if (!tag || STYLING_ROLES.has(tag.role)) return [styled(markup, plainKind(style), style)]
+  if (!tag || STYLING_ROLES.has(tag.role) || tag.role === 'block') return [styled(markup, plainKind(style), style)]
   if (tag.role === 'break') return [styled('\n', plainKind(style), style)]
   if (tag.role === 'image') return [imageOf(tag.attributes.alt ?? '', tag.attributes.src ?? '', style)]
   return []

@@ -119,13 +119,24 @@ function scanLine(line: string, grammar: Grammar, carried: Open): { tokens: Code
   return { tokens, open }
 }
 
-export function highlight(language: string, lines: readonly string[]): CodeToken[][] {
+export type HighlightState = Open
+
+export type Highlighted = { tokens: CodeToken[][]; states: HighlightState[] }
+
+export function highlightFrom(language: string, lines: readonly string[], carried: HighlightState = undefined): Highlighted {
   const grammar = grammarOf(language)
-  if (!grammar) return lines.map(line => (line === '' ? [] : [{ text: line, role: 'plain' }]))
-  let open: Open
-  return lines.map(line => {
+  if (!grammar) return { tokens: lines.map(line => (line === '' ? [] : [{ text: line, role: 'plain' }])), states: lines.map(() => undefined) }
+  let open = carried
+  const states: HighlightState[] = []
+  const tokens = lines.map(line => {
     const scanned = scanLine(line, grammar, open)
     open = scanned.open
+    states.push(open)
     return scanned.tokens
   })
+  return { tokens, states }
+}
+
+export function highlight(language: string, lines: readonly string[]): CodeToken[][] {
+  return highlightFrom(language, lines).tokens
 }

@@ -289,6 +289,38 @@ describe('AssistantMessage copy', () => {
 })
 
 describe('AssistantMessage inline', () => {
+  test('underlines html ins and u text', async ($, on) => {
+    const tree = await drawDark($, on, 'Old <del>v1</del><ins>v2</ins> and <u>under</u>.')
+    expect(findText(tree, text => text === 'v2')?.element.props?.underline).toBe(true)
+    expect(findText(tree, text => text === 'under')?.element.props?.underline).toBe(true)
+    expect(findText(tree, text => text === 'v1')?.element.props?.underline).toBeUndefined()
+  })
+
+  test('hangs a footnote body under its text, past the label', async ($, on) => {
+    const tree = await drawDark($, on, 'Claim[^n] here.\n\n[^n]: First paragraph of the note\n    continues here.\n\n    Second paragraph of the note.', 40)
+    const lead = findText(tree, text => text.startsWith('First paragraph'))
+    const second = findText(tree, text => text === 'Second paragraph of the note.')
+    const label = findText(tree, text => text === '[n] ')
+    expect(shiftOf(lead)).toBe(4)
+    expect(shiftOf(second)).toBe(4)
+    expect(label?.ancestors.find(a => a.props?.position === 'absolute')?.props).toMatchObject({ left: 0, top: 0 })
+    expect(findText(tree, text => text.startsWith('Claim'))?.ancestors.some(a => a.props?.paddingLeft === 4)).toBe(false)
+  })
+
+  test('hangs every kind of footnote continuation block past the label, not only paragraphs', async ($, on) => {
+    const note = '[^n]: Lead line.\n\n    - listed one\n\n    ```\n    coded\n    ```\n\n    > quoted\n\n    | a | b |\n    |---|---|\n    | c | d |'
+    const tree = await drawDark($, on, `Ref[^n].\n\n${note}`, 40)
+    const hung = { 'listed one': 4 + 2, coded: 4, quoted: 4 + 2, 'a  b': 4 }
+    for (const [text, shift] of Object.entries(hung)) expect({ text, shift: shiftOf(findText(tree, found => found.trim() === text)) }).toEqual({ text, shift })
+  })
+
+  test('narrows a hung footnote block by its hang so it fits the room', () => {
+    const [, , listed] = parseBlocks('Ref[^n].\n\n[^n]: Lead.\n\n    - ' + 'word '.repeat(9))
+    expect(listed?.kind).toBe('list')
+    const drawn = drawnBlock({ kit: KIT, palette: dark }, listed as never, 40)
+    expect((drawn.node as Drawn).props).toMatchObject({ paddingLeft: 4 })
+  })
+
   test('draws links as hyperlinks in ink with an underline, and escapes as text', async ($, on) => {
     useTheme(on, () => 'dark')
     const ui = await draw($, SAMPLE)
@@ -401,13 +433,50 @@ describe('AssistantMessage code', () => {
     expect(head?.element.props).toMatchObject({ color: dark.muted, italic: true })
   })
 
-  test('draws a wrapped line that opens with a tab or a wide glyph whole, with no gutter', async ($, on) => {
-    useTheme(on, () => 'dark')
-    for (const line of ['\tgo build ./... && echo ok && echo more words here', '漢字 ' + 'word '.repeat(12)]) {
-      const tree = await (await draw($, '```\n' + line + '\n```', 40)).drawn()
-      expect(allTexts(tree, text => text.includes('↪'))).toEqual([])
-      expect(allTexts(tree, text => text.includes('word') || text.includes('go build')).map(textOf)).toEqual([line])
-    }
+  test('marks the continuation rows of a wrapped line that opens with a tab, lifting the first two cells of the tab stop into the gutter', async ($, on) => {
+    const line = '\tgo build ./... && echo ok && echo more words here'
+    const tree = await drawDark($, on, '```make\n' + line + '\n```', 40)
+    expect(allTexts(tree, text => /^(↪\n)*↪$/.test(text))).toHaveLength(1)
+    const wrapped = wrappedSource(tree, 'go build')
+    expect(wrapped.head).toBe('  ')
+    expect(wrapped.rest).toBe('      go build ./... && echo ok && echo more words here')
+    expect(wrapped.headBox).toMatchObject({ position: 'absolute', left: 0, top: 0, width: 2 })
+  })
+
+  test('marks the continuation rows of a wrapped line that opens with a wide glyph, the glyph alone filling the gutter', async ($, on) => {
+    const line = '漢字 ' + 'word '.repeat(12)
+    const tree = await drawDark($, on, '```\n' + line + '\n```', 40)
+    expect(allTexts(tree, text => /^(↪\n)*↪$/.test(text))).toHaveLength(1)
+    const wrapped = wrappedSource(tree, 'word')
+    expect(wrapped.head + wrapped.rest).toBe(line.replace(/\n$/, ''))
+    expect(wrapped.head).toBe('漢')
+    expect(wrapped.headBox).toMatchObject({ width: 2 })
+  })
+
+  test('widens the gutter to three cells when a narrow glyph is followed by a wide one, never splitting the wide glyph', async ($, on) => {
+    const line = 'a漢 ' + 'word '.repeat(12)
+    const tree = await drawDark($, on, '```\n' + line + '\n```', 40)
+    const wrapped = wrappedSource(tree, 'word')
+    expect(wrapped.head).toBe('a漢')
+    expect(wrapped.headBox).toMatchObject({ width: 3 })
+    const marks = findText(tree, text => /^(↪\n)*↪$/.test(text))
+    expect(marks?.ancestors.at(-2)?.props).toMatchObject({ width: 40, paddingLeft: 3 })
+  })
+
+  test('falls back to a bare soft wrap when the line opens with a zero-width mark', async ($, on) => {
+    const line = '\u0301' + 'word '.repeat(12)
+    const tree = await drawDark($, on, '```\n' + line + '\n```', 40)
+    expect(allTexts(tree, text => text.includes('↪'))).toEqual([])
+  })
+
+  test('marks the continuation rows of a wrapped line led by a letter and a combining mark, keeping the pair whole', async ($, on) => {
+    const line = 'e\u0301abc ' + 'word '.repeat(12)
+    const tree = await drawDark($, on, '```\n' + line + '\n```', 40)
+    expect(allTexts(tree, text => /^(↪\n)*↪$/.test(text))).toHaveLength(1)
+    const wrapped = wrappedSource(tree, 'word')
+    expect(wrapped.head).toBe('e\u0301a')
+    expect(wrapped.head + wrapped.rest).toBe(line)
+    expect(wrapped.headBox).toMatchObject({ width: 2 })
   })
 
   test('marks no row of a code line that fits the width exactly', async ($, on) => {
@@ -570,11 +639,17 @@ describe('AssistantMessage quotes', () => {
     expect(textOf(findText(tree, text => text.startsWith('echo') && text.endsWith('quoted'))?.element)).toBe('echo quoted')
   })
 
-  test('indents the language label of list code to the item, as padding rather than text', async ($, on) => {
+  test('draws the language label of list code in the same column as its source, with no space text', async ($, on) => {
     const tree = await drawDark($, on, '- item\n\n  ```sh\n  echo listed\n  ```', 40)
     const labelled = findText(tree, text => text === 'sh')
-    expect(labelled?.ancestors.at(-1)?.props?.paddingLeft).toBe(2)
+    const source = findText(tree, text => text.startsWith('echo') && text.endsWith('listed'))
+    expect(shiftOf(labelled)).toBe(shiftOf(source))
     expect(allTexts(tree, text => text.trim() === '' && text.length > 0 && text !== ' ')).toEqual([])
+  })
+
+  test('draws the label and source of code three list levels deep in one column', async ($, on) => {
+    const tree = await drawDark($, on, '1. first\n   - nested\n     1. deep\n        ```py\n        print(1)\n        ```', 40)
+    expect(shiftOf(findText(tree, text => text === 'py'))).toBe(shiftOf(findText(tree, text => text === 'print(1)')))
   })
 
   test('counts nothing for an empty quote but its alert label', () => {
@@ -684,6 +759,19 @@ describe('AssistantMessage size', () => {
     }
     expect(allTexts(tree, text => /^- level/.test(text))).toEqual([])
     expect(allTexts(tree, text => text === '-').length).toBe(12)
+  })
+
+  test('clamps a quote nested past eight levels at the eighth bar, its prose muted with no literal marker', async ($, on) => {
+    useTheme(on, () => 'dark')
+    const nested = (levels: number) => Array.from({ length: levels }, (_, i) => `${'> '.repeat(i + 1)}q${i + 1} deep quoted text`).join('\n')
+    for (const levels of [9, 12]) {
+      const tree = await (await draw($, nested(levels), 60)).drawn()
+      const found = findText(tree, text => text.startsWith('q9 deep quoted text'))
+      expect(found?.element.props?.color).toBe(dark.muted)
+      expect(barColumns(found)).toHaveLength(8)
+      expect(textOf(found?.element)).toBe(Array.from({ length: levels - 8 }, (_, i) => `q${i + 9} deep quoted text`).join('\n\n'))
+      expect(textOf(tree)).not.toContain('> q')
+    }
   })
 
   test('draws a deeply nested list within the depth limit', async $ => {

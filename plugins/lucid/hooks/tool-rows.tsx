@@ -18,13 +18,14 @@ const STATE_LOOK: Record<ToolState, { glyph: string; role: keyof Palette; name: 
   failed: { glyph: '✗', role: 'error', name: 'strong', label: 'error' },
   rejected: { glyph: '⊘', role: 'muted', name: 'muted', label: 'muted' },
   interrupted: { glyph: '⊘', role: 'muted', name: 'muted', label: 'muted' },
+  cancelled: { glyph: '⊘', role: 'muted', name: 'muted', label: 'muted' },
 }
 
 const BRANCH = '  ⎿  '
 
 const NOTE_GAP = '  '
 
-const QUIET_STATES = new Set<ToolState>(['rejected', 'interrupted'])
+const QUIET_STATES = new Set<ToolState>(['rejected', 'interrupted', 'cancelled'])
 
 const PREVIEW_LINES = 10
 
@@ -67,13 +68,14 @@ function toolText(draw: Draw, label: RenderNode, detail: Span[], note: string | 
 
 function branch(draw: Draw, first: boolean, line: ToolLine, columns: number): RenderNode {
   const { Box, Text } = draw.kit
-  const label = <Text color={draw.palette[STATE_LOOK[line.state ?? 'done'].label]}>{line.label}</Text>
+  const state = line.state ?? 'done'
+  const label = <Text color={draw.palette[STATE_LOOK[state].label]}>{line.label}</Text>
   return (
     <Box flexDirection="row">
       <Box width={BRANCH.length} flexShrink={0}>
         <Text color={draw.palette.muted}>{first ? BRANCH : ' '.repeat(BRANCH.length)}</Text>
       </Box>
-      {toolText(draw, label, line.detail, line.note, detailRoom(columns, BRANCH.length, line.label, line.note))}
+      {toolText(draw, label, line.detail, line.note, detailRoom(columns, BRANCH.length, line.label, line.note), QUIET_STATES.has(state))}
     </Box>
   )
 }

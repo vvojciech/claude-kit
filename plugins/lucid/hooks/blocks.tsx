@@ -2,7 +2,7 @@ import type { RenderElement, RenderNode } from 'claude-code'
 
 import { code, codeLines } from './code'
 import { heading } from './headings'
-import type { AlertKind, Block, ListItem } from './markdown'
+import type { AlertKind, Block, ListItem, Span } from './markdown'
 import { parseBlocks } from './message'
 import type { Palette } from './palette'
 import { drawRuns, gapRows, paragraph, spansText, wrappedRows } from './runs'
@@ -150,11 +150,15 @@ function listRows(b: Extract<Block, { kind: 'list' }>, width: number): number {
 }
 
 export function blockRows(b: Block, width: number): number {
+  return b.kind === 'paragraph' ? ownRows(b, width) : ownRows(b, Math.max(1, width - hangOf(b)))
+}
+
+function ownRows(b: Block, width: number): number {
   switch (b.kind) {
     case 'heading':
       return wrappedRows(spansText(b.spans), width) + (b.level === 1 ? 1 : 0)
     case 'paragraph':
-      return wrappedRows(spansText(b.spans), width)
+      return wrappedRows(spansText(b.spans), width - hangOf(b))
     case 'list':
       return listRows(b, width)
     case 'code':
@@ -238,7 +242,6 @@ function quoteProse(draw: Draw, blocks: Block[], label: RenderNode | null, width
   )
 }
 
-
 function quoteHoldingCode(draw: Draw, blocks: Block[], width: number, top: number, context: Context): RenderNode {
   const inner = Math.max(1, width - QUOTE_INDENT)
   return (
@@ -290,16 +293,88 @@ function levelled(b: Extract<Block, { kind: 'list' }>): Extract<Block, { kind: '
   return { ...b, items: b.items.flatMap(levelledItems) }
 }
 
-function flattened(draw: Draw, b: Block): RenderNode {
-  return <draw.kit.Text color={draw.palette.text}>{plainText(b)}</draw.kit.Text>
+function levelledBlocks(blocks: Block[]): Block[] {
+  return blocks.flatMap(child => (child.kind === 'quote' ? levelledBlocks(child.blocks) : [child]))
+}
+
+type Paragraph = Extract<Block, { kind: 'paragraph' }>
+
+const PARAGRAPH_BREAK: Span = { text: '\n\n', kind: 'plain' }
+
+function mergedParagraphs(blocks: Block[]): Block[] {
+  return blocks.reduce<Block[]>((merged, child) => {
+    const last = merged.at(-1)
+    if (last?.kind === 'paragraph' && child.kind === 'paragraph') merged[merged.length - 1] = { ...last, spans: [...last.spans, PARAGRAPH_BREAK, ...child.spans] } as Paragraph
+    else merged.push(child)
+    return merged
+  }, [])
+}
+
+function levelledQuote(draw: Draw, b: Extract<Block, { kind: 'quote' }>, width: number, context: Context): RenderNode {
+  const { Box } = draw.kit
+  const label = alertLabel(draw, b)
+  const parts = mergedParagraphs(levelledBlocks(b.blocks))
+  const [only] = parts
+  if (label === null && parts.length === 1 && only) return quoteChild(draw, only, width, context)
+  return (
+    <Box flexDirection="column">
+      {label}
+      {parts.map((child, i) => (
+        <Box flexDirection="column" marginTop={i > 0 ? 1 : 0}>
+          {quoteChild(draw, child, width, context)}
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+const FOOTNOTE_LEAD = /^\[[^\]]+\] $/
+
+function footnoteLead(b: Paragraph): Span | undefined {
+  const [first] = b.spans
+  return first?.kind === 'footnote' && FOOTNOTE_LEAD.test(first.text) ? first : undefined
+}
+
+function hangOf(b: Block): number {
+  if (b.kind !== 'paragraph') return b.hang ?? 0
+  const lead = footnoteLead(b)
+  return lead === undefined ? (b.hang ?? 0) : cellWidth(lead.text)
+}
+
+function hungParagraph(draw: Draw, b: Paragraph, color: string): RenderNode {
+  const { Box } = draw.kit
+  const hang = hangOf(b)
+  if (hang === 0) return paragraph(draw, b.spans, color)
+  const lead = footnoteLead(b)
+  const body = lead === undefined ? b.spans : b.spans.slice(1)
+  return (
+    <Box flexDirection="column" paddingLeft={hang}>
+      {paragraph(draw, body, color)}
+      {lead === undefined ? null : (
+        <Box position="absolute" left={0} top={0}>
+          {paragraph(draw, [lead], color)}
+        </Box>
+      )}
+    </Box>
+  )
 }
 
 function block(draw: Draw, b: Block, width: number, context: Context = TOP): RenderNode {
+  const hang = b.kind === 'paragraph' ? 0 : hangOf(b)
+  if (hang === 0) return ownBlock(draw, b, width, context)
+  return (
+    <draw.kit.Box flexDirection="column" paddingLeft={hang}>
+      {ownBlock(draw, b, Math.max(1, width - hang), context)}
+    </draw.kit.Box>
+  )
+}
+
+function ownBlock(draw: Draw, b: Block, width: number, context: Context): RenderNode {
   switch (b.kind) {
     case 'heading':
       return heading(draw, b.level, b.spans, width)
     case 'paragraph':
-      return paragraph(draw, b.spans, context.done ? draw.palette.muted : draw.palette.text)
+      return hungParagraph(draw, b, context.done ? draw.palette.muted : draw.palette.text)
     case 'list':
       return list(draw, context.nesting >= NESTING_LIMIT ? levelled(b) : b, width, context)
     case 'code':
@@ -307,7 +382,7 @@ function block(draw: Draw, b: Block, width: number, context: Context = TOP): Ren
     case 'table':
       return table(draw, b, width)
     case 'quote':
-      return context.nesting >= NESTING_LIMIT ? flattened(draw, b) : quote(draw, b, width, { ...context, nesting: context.nesting + 1 })
+      return context.nesting >= NESTING_LIMIT ? levelledQuote(draw, b, width, context) : quote(draw, b, width, { ...context, nesting: context.nesting + 1 })
     case 'rule':
       return <draw.kit.Text color={draw.palette.faint}>{THEMATIC_BREAK.repeat(Math.min(width, RULE_CELLS))}</draw.kit.Text>
   }
@@ -347,17 +422,30 @@ export function plainText(b: Block): string {
   }
 }
 
-export function treeSize(node: RenderNode | null | undefined, depth = 1): Size {
-  if (node === null || node === undefined) return { nodes: 0, depth: depth - 1 }
-  if (typeof node === 'string') return { nodes: 1, depth }
+type Extent = { nodes: number; height: number }
+
+const extents = new WeakMap<object, Extent>()
+
+function extentOf(node: RenderNode | null | undefined): Extent {
+  if (node === null || node === undefined) return { nodes: 0, height: 0 }
+  if (typeof node !== 'object') return { nodes: 1, height: 1 }
+  const known = extents.get(node)
+  if (known) return known
   const children = (node as { children?: RenderNode[] }).children ?? []
-  return children.reduce(
-    (size, child) => {
-      const inner = treeSize(child, depth + 1)
-      return { nodes: size.nodes + inner.nodes, depth: Math.max(size.depth, inner.depth) }
+  const extent = children.reduce<Extent>(
+    (sum, child) => {
+      const inner = extentOf(child)
+      return { nodes: sum.nodes + inner.nodes, height: Math.max(sum.height, inner.height + 1) }
     },
-    { nodes: 1, depth },
+    { nodes: 1, height: 1 },
   )
+  extents.set(node, extent)
+  return extent
+}
+
+export function treeSize(node: RenderNode | null | undefined, depth = 1): Size {
+  const { nodes, height } = extentOf(node)
+  return { nodes, depth: depth - 1 + height }
 }
 
 const drawnBlocks = new WeakMap<Block, Map<string, DrawnBlock>>()

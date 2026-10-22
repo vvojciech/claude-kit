@@ -4,13 +4,26 @@ import type { SessionMessage } from 'claude-code'
 
 import { FIRST_RUN, NOT_OUTERMOST, NO_FULLSCREEN, NO_SELECTION, SELECTION_ELSEWHERE, selectionRepeats } from '../hooks/notices'
 import { hinted } from '../hooks/session'
-import { USAGE } from '../hooks/commands'
+import { USAGE, noGroupCall } from '../hooks/commands'
 import { dark, light } from '../hooks/palette'
-import { headerRow } from '../hooks/row'
+import { COMPACT_KEY, COPIED, COVER_KEY, MARKER_ROOM, NOT_COPIED, STRIP_LEAD, headWidth, headerRow } from '../hooks/row'
+import { rowWidth } from '../hooks/targets'
 
 type On = Parameters<TestBody>[1]
 type Transcript = { messages: SessionMessage[] }
-type Host = { os?: string; pbcopyExit?: number; theme?: string; colorFgBg?: string; ssh?: boolean; terminalCopies?: boolean; selection?: { text: string; requestId?: string }; agents?: Record<string, SessionMessage[]> }
+type Host = {
+  os?: string
+  pbcopyExit?: number
+  theme?: string
+  colorFgBg?: string
+  ssh?: boolean
+  terminalCopies?: boolean
+  selection?: { text: string; requestId?: string }
+  agents?: Record<string, SessionMessage[]>
+  label?: string
+  detail?: string
+  engine?: boolean
+}
 
 const HINTS = [FIRST_RUN, NO_FULLSCREEN]
 
@@ -85,8 +98,21 @@ function fakeHost(on: On, transcript: Transcript, host: Host = {}) {
   on('turn.start', () => ({ turnId: 't' }) as never)
   on('session.end', () => ({ sessionId: 's' }))
   on('session.start', () => ({ cwd: '/w' }))
-  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: ['beneath'] }))
+  on('ui.render', ($, e) => drawnRow($.ui.resolve(e), host))
   return { copied, toasts, hints, statuses, terminal, surfaces }
+}
+
+type RowKit = { Box: (props: object) => unknown; Text: (props: object) => unknown }
+
+function drawnRow(kit: RowKit, host: Host) {
+  if (host.engine) return { type: 'engine', ref: 1 } as never
+  return host.label === undefined ? kit.Text({ children: ['beneath'] }) : labelledRow(kit, host.label, host.detail)
+}
+
+function labelledRow({ Box, Text }: RowKit, label: string, detail = '') {
+  const gutter = Box({ width: 2, flexShrink: 0, children: [Text({ children: ['●'] })] })
+  const head = Text({ wrap: 'truncate-end', children: [Text({ bold: true, children: [label] }), detail === '' ? '' : ' ', detail] })
+  return Box({ flexDirection: 'column', marginTop: 1, children: [Box({ flexDirection: 'row', children: [gutter, head] }), Text({ children: ['  ⎿  more'] })] }) as never
 }
 
 async function write($: Engine, uuid: string, text: string, agentId?: string) {
@@ -108,9 +134,15 @@ async function mount($: Engine, text: string, view: View = {}) {
   return $.ui.mount({ plugin: 'ditto', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true }, viewport, requestId: view.requestId })
 }
 
+type Mounted = Awaited<ReturnType<Engine['ui']['mount']>>
+
+async function chipsOf(ui: Mounted) {
+  return (await ui.findAll({ type: 'Button' })).filter(b => b.props.key !== COVER_KEY)
+}
+
 async function labels($: Engine, text: string, view?: View) {
   const ui = await mount($, text, view)
-  return (await ui.findAll({ type: 'Button' })).map(b => b.props.label)
+  return (await chipsOf(ui)).map(b => b.props.label)
 }
 
 const withTools = (): Transcript => ({ messages: [prompt('check'), said(BEFORE_TOOL), called(), answered(), said(REPLY)] })
@@ -121,17 +153,18 @@ async function liveTurn($: Engine, blocks: [string, string][]) {
 }
 
 describe('the copy marker', () => {
-  test('wraps what the renderer beneath drew with a muted marker that the chips cover on hover, so the glyph never reads as a nameless chip', async ($, on) => {
+  test('wraps the drawn reply with a muted ⧉ that the chips cover on hover', async ($, on) => {
     fakeHost(on, { messages: [prompt('plan'), said(REPLY)] })
     const ui = await mount($, REPLY)
     expect(await ui.find({ type: 'Text', text: 'beneath' })).toBeDefined()
     expect((await ui.find({ type: 'Text', text: '⧉' }))?.props.color).toBe(dark.muted)
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(CHIPS)
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(CHIPS)
     const strip = (await ui.findAll({ type: 'Box' })).find(b => b.props.display === 'none')
     expect(strip?.props.position).toBe('absolute')
     expect(strip?.props.right).toBe(0)
     expect(strip?.props.top).toBe(0)
-    expect((await ui.findAll({ type: 'Text' })).filter(t => t.text.startsWith('⧉ ') && t.text.length === 2)).toHaveLength(2)
+    expect((await ui.findAll({ type: 'Text' })).filter(t => t.text.startsWith('⧉ ') && t.text.length === 2)).toHaveLength(1)
+    expect((await ui.findAll({ type: 'Button' })).filter(b => b.props.key === COVER_KEY).map(b => b.props.label)).toEqual(['⧉'])
     expect(JSON.stringify(await ui.drawn())).toContain('"hover":{"display":"flex"}')
   })
 
@@ -152,7 +185,7 @@ describe('the copy marker', () => {
     expect(boxes.every(b => b.props.left === undefined)).toBe(true)
   })
 
-  test('colours the marker muted and the chips as body text; under the pointer a chip shows bold underlined orange on the ground, its hover colours swapped so the engine inverse undoes the swap instead of filling a block', async ($, on) => {
+  test('colours ⧉ muted, chips as text, and a pointed chip bold underlined orange, its hover colours swapped for the engine inverse', async ($, on) => {
     fakeHost(on, { messages: [prompt('plan'), said(REPLY)] }, { theme: 'light' })
     const ui = await mount($, REPLY)
     expect((await ui.find({ type: 'Text', text: '⧉' }))?.props.color).toBe(light.muted)
@@ -224,22 +257,23 @@ describe('the copy marker', () => {
     expect(hints).toEqual([FIRST_RUN])
   })
 
-  test('at 40 columns says what it copied on the pressed chip itself, as the status line cut the route off and drew a warning glyph on a success', async ($, on) => {
+  test('at 40 columns confirms a pbcopy copy on the pressed chip, never on the status line', async ($, on) => {
     const { toasts, statuses } = fakeHost(on, { messages: [prompt('plan'), said(REPLY)] })
     const ui = await mount($, REPLY, { columns: 40, requestId: 'narrow' })
     await ui.press({ key: 'copy-bash' })
     expect(toasts).toEqual([])
     expect(statuses).toEqual([])
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['⧉ reply', 'copied (pbcopy)', '⧉ table'])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ reply', 'copied (pbcopy)', '⧉ table'])
     expect(await ui.find({ type: 'Text', text: 'copied (pbcopy)' })).toBeDefined()
   })
 
-  test('shows +N for the chips a narrow terminal cannot hold, reply first, and +N names them', async ($, on) => {
-    const { statuses } = fakeHost(on, { messages: [prompt('plan'), said(REPLY)] })
+  test('shows +N for the chips a narrow terminal cannot hold, and +N names them in a toast', async ($, on) => {
+    const { toasts, statuses } = fakeHost(on, { messages: [prompt('plan'), said(REPLY)] })
     const ui = await mount($, REPLY, { columns: 25 })
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['⧉ reply', '⧉ bash', '+1'])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ reply', '⧉ bash', '+1'])
     await ui.press({ key: 'copy-more' })
-    expect(statuses).toEqual(['Also in this reply: table. Copy one with /ditto <name>'])
+    expect(toasts).toEqual(['Also in this reply: table. Copy one with /ditto <name>'])
+    expect(statuses).toEqual([])
   })
 
   test('keeps only +N when not even md fits', async ($, on) => {
@@ -250,7 +284,7 @@ describe('the copy marker', () => {
   test('offers md on a one-line reply, the kind most often copied whole', async ($, on) => {
     const { copied } = fakeHost(on, { messages: [prompt('branch?'), said('feature/r4-copy')] })
     const ui = await mount($, 'feature/r4-copy')
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['⧉ reply'])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ reply'])
     await ui.press({ key: 'copy-reply' })
     expect(copied).toEqual(['feature/r4-copy'])
   })
@@ -284,7 +318,8 @@ describe('which reply a marker copies', () => {
     await ui.press({ key: 'copy-reply' })
     await ui.press({ key: 'copy-bash' })
     expect(copied).toEqual([`${BEFORE_TOOL}\n\n${REPLY}`, 'git status'])
-    expect(toasts).toEqual(['Copied reply as markdown (13 lines, pbcopy)', 'Copied bash block (1 line, pbcopy)'])
+    expect(toasts).toEqual([])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toContain('copied (pbcopy)')
   })
 
   test('copies its own reply when a later reply ends with the same block', async ($, on) => {
@@ -324,7 +359,7 @@ describe('which reply a marker copies', () => {
   test('on a resumed reply whose last block another reply shares, offers the shared blocks and says how to copy each whole', async ($, on) => {
     const { copied, toasts } = fakeHost(on, { messages: [prompt('a'), said('Looking.'), said(REPLY), prompt('b'), said(REPLY), prompt('c'), said('other')] })
     const ui = await mount($, REPLY)
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['⧉ bash', '⧉ table', 'reply: /ditto 2 or 3'])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ bash', '⧉ table', 'reply: /ditto 2 or 3'])
     await ui.press({ key: 'copy-bash' })
     await ui.press({ key: 'copy-note' })
     expect(copied).toEqual(['git status'])
@@ -345,7 +380,8 @@ describe('which reply a marker copies', () => {
     const ui = await mount($, 'Half a reply', { requestId: 'cut' })
     expect(await ui.find({ type: 'Text', text: 'partial' })).toBeDefined()
     await ui.press({ key: 'copy-reply' })
-    expect(toasts).toEqual(['Copied partial reply as markdown (1 line, pbcopy)'])
+    expect(toasts).toEqual([])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toContain('copied (pbcopy)')
   })
 
   test('owns an interrupted reply the engine never stored, from what was drawn, never the earlier reply', async ($, on) => {
@@ -405,7 +441,7 @@ describe('which reply a marker copies', () => {
     expect(await ui.findAll({ type: 'Button' })).toHaveLength(0)
     transcript.messages = [prompt('plan'), said(REPLY)]
     await liveTurn($, [['late', REPLY]])
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(CHIPS)
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(CHIPS)
   })
 })
 
@@ -446,7 +482,7 @@ describe('failures', () => {
 })
 
 describe('load order', () => {
-  test('warns once, on a status line that stays, when no reply reaches ditto because a renderer before it does not pass replies on', async ($, on) => {
+  test('warns once, on a status line that stays, when a renderer before ditto keeps replies from it', async ($, on) => {
     const { toasts, statuses } = fakeHost(on, { messages: [prompt('a'), said(REPLY)] })
     await $.session.start({ source: 'startup', isInteractive: true, cwd: '/w' } as never)
     await liveTurn($, [['one', REPLY]])
@@ -572,18 +608,76 @@ const used = (call: Call): SessionMessage => ({ role: 'assistant', text: '', too
 const WRITE: Call = { tool: 'Write', input: { file_path: '/w/notes.md', content: '# Notes\n\n```ruby\nputs 1\n```' }, output: { type: 'create', filePath: '/w/notes.md', content: '# Notes' } }
 const PLAN: Call = { tool: 'ExitPlanMode', input: { plan: '## Plan\n\n1. Do it' }, output: { plan: '## Plan\n\n1. Do it', isAgent: false } }
 const LAUNCHED: Call = { tool: 'Agent', input: { prompt: 'look' }, output: { status: 'async_launched', agentId: 'a7', description: 'look', prompt: 'look', outputFile: '/tmp/a7' } }
-const stubbed = (id: string) => prompt(`<task-notification>\n<task-id>${id}</task-id>\n<status>completed</status>\n<result>This agent's report was delivered to you as a message from "${id}" (its SubagentHandback call). Read it there; it is not repeated here.\n</result>\n</task-notification>`)
+const handbackStub = (id: string) =>
+  `This agent's report was delivered to you as a message from "${id}" (its SubagentHandback call). Read it there; it is not repeated here.`
+const stubbed = (id: string) =>
+  prompt(`<task-notification>\n<task-id>${id}</task-id>\n<status>completed</status>\n<result>${handbackStub(id)}\n</result>\n</task-notification>`)
 const BASH: Call = { tool: 'Bash', input: { command: 'ls' }, output: { stdout: '\u001b[32mok\u001b[0m\nfile.md', stderr: '', interrupted: false } }
 
 describe('tool rows', () => {
   test('wraps the tool row beneath with a ⧉ file chip that copies what Write wrote', async ($, on) => {
-    const { copied, toasts } = fakeHost(on, { messages: [] })
+    const { copied } = fakeHost(on, { messages: [] })
     const ui = await mountTool($, WRITE)
     expect(await ui.find({ type: 'Text', text: 'beneath' })).toBeDefined()
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['⧉ file'])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ file'])
     await ui.press({ key: 'copy-file' })
     expect(copied).toEqual([WRITE.input.content as string])
-    expect(toasts).toEqual(['Copied file (5 lines, pbcopy)'])
+  })
+
+  test('a pbcopy chip copy confirms on the chip alone, as a toast hid the ⧉ markers under it', async ($, on) => {
+    const { toasts, statuses } = fakeHost(on, { messages: [] })
+    const ui = await mountTool($, WRITE, { columns: 110, requestId: 'toolu_quiet' })
+    await ui.press({ key: 'copy-file' })
+    expect(toasts).toEqual([])
+    expect(statuses).toEqual([])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['copied (pbcopy)'])
+  })
+
+  test('a chip copy through OSC 52 still toasts, naming the file, since only a paste can prove the terminal took it', async ($, on) => {
+    const { toasts, terminal } = fakeHost(on, { messages: [] }, { ssh: true, terminalCopies: true })
+    const ui = await mountTool($, WRITE, { columns: 110, requestId: 'toolu_osc' })
+    await ui.press({ key: 'copy-file' })
+    expect(terminal).toEqual([WRITE.input.content as string])
+    expect(toasts).toEqual(['Copied file notes.md (5 lines, OSC 52, paste to check)'])
+  })
+
+  test('a failed chip copy still toasts the reason, which the short chip flash cannot hold', async ($, on) => {
+    const { toasts } = fakeHost(on, { messages: [] }, { pbcopyExit: 1 })
+    const ui = await mountTool($, WRITE, { columns: 110, requestId: 'toolu_fail' })
+    await ui.press({ key: 'copy-file' })
+    expect(toasts).toEqual(['Copy failed: /usr/bin/pbcopy exited 1: pasteboard busy, and the terminal did not take it either'])
+  })
+
+  test('at 40 columns a failed copy toasts its whole reason, as the status line cut it and drew ⚠', async ($, on) => {
+    const { toasts, statuses } = fakeHost(on, { messages: [] }, { pbcopyExit: 1 })
+    const ui = await mountTool($, WRITE, { columns: 40, requestId: 'toolu_fail_narrow' })
+    await ui.press({ key: 'copy-file' })
+    expect(statuses).toEqual([])
+    expect(toasts).toEqual(['Copy failed: /usr/bin/pbcopy exited 1: pasteboard busy, and the terminal did not take it either'])
+  })
+
+  test('at 40 columns an OSC 52 copy toasts "paste to check" whole, never on the status line', async ($, on) => {
+    const { toasts, statuses } = fakeHost(on, { messages: [] }, { ssh: true, terminalCopies: true })
+    const ui = await mountTool($, WRITE, { columns: 40, requestId: 'toolu_osc_narrow' })
+    await ui.press({ key: 'copy-file' })
+    expect(statuses).toEqual([])
+    expect(toasts).toEqual(['Copied file notes.md (5 lines, OSC 52, paste to check)'])
+  })
+
+  test('a tool-row flash swaps ⧉ for ✓ in place, its words only in the hover strip, so the column keeps its width', async ($, on) => {
+    fakeHost(on, { messages: [] })
+    const ui = await mountTool($, WRITE, { columns: 40, requestId: 'toolu_flash_width' })
+    const texts = async () => (await ui.findAll({ type: 'Text' })).map(t => t.text)
+    expect(await texts()).toEqual(['beneath', '⧉ ', '  ', '⧉ file', '  ', '⧉', ' '])
+    await ui.press({ key: 'copy-file' })
+    expect(await texts()).toEqual(['beneath', `${COPIED} `, '  ', 'copied (pbcopy)', '  ', COPIED, ' '])
+  })
+
+  test('a failed tool-row copy marks the glyph ✗ in place', async ($, on) => {
+    fakeHost(on, { messages: [] }, { pbcopyExit: 1 })
+    const ui = await mountTool($, WRITE, { columns: 40, requestId: 'toolu_flash_fail' })
+    await ui.press({ key: 'copy-file' })
+    expect((await ui.findAll({ type: 'Text' })).map(t => t.text).slice(0, 2)).toEqual(['beneath', `${NOT_COPIED} `])
   })
 
   test('puts the chip in cells of its own after the tool row, past a gap, so it never draws over the row text', async ($, on) => {
@@ -598,7 +692,7 @@ describe('tool rows', () => {
     await ui.press({ key: 'copy-output' })
     expect(toasts).toEqual([])
     expect(statuses).toEqual([])
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['copied (pbcopy)'])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['copied (pbcopy)'])
   })
 
   test('drops the chip past the spacer the renderer beneath tops its row with, onto the line that names the tool', async () => {
@@ -622,7 +716,7 @@ describe('tool rows', () => {
     expect(await (await mountTool($, LAUNCHED, { requestId: 'toolu_bg1' })).findAll({ type: 'Button' })).toEqual([])
     transcript.messages.push(notice)
     const ui = await mountTool($, LAUNCHED, { requestId: 'toolu_bg2' })
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['⧉ output'])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ output'])
     await ui.press({ key: 'copy-output' })
     expect(copied).toEqual(['Found 3 callers.\nDone.'])
   })
@@ -647,7 +741,7 @@ describe('tool rows', () => {
     const { copied } = fakeHost(on, transcript)
     expect((await run($, 'output')).text).toBe('No tool output to copy in this session yet')
     transcript.messages.push(notice)
-    expect((await run($, 'output')).text).toBe('Copied last tool output (2 lines, pbcopy)')
+    expect((await run($, 'output')).text).toBe('Copied last agent output (2 lines, pbcopy)')
     expect(copied).toEqual(['Found 3 callers.\nDone.'])
   })
 
@@ -655,15 +749,15 @@ describe('tool rows', () => {
     const transcript = { messages: [prompt('go'), used(LAUNCHED), stubbed('a7')] }
     const agents = { a7: [prompt('look'), { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'h', tool: 'SubagentHandback', input: { message: 'Real report.\nDone.' } }] } as SessionMessage] }
     const { copied } = fakeHost(on, transcript, { agents })
-    expect((await run($, 'output')).text).toBe('Copied last tool output (2 lines, pbcopy)')
+    expect((await run($, 'output')).text).toBe('Copied last agent output (2 lines, pbcopy)')
     transcript.messages.splice(2, 1)
-    expect((await run($, 'output')).text).toBe('Copied last tool output (2 lines, pbcopy)')
+    expect((await run($, 'output')).text).toBe('Copied last agent output (2 lines, pbcopy)')
     expect(copied).toEqual(['Real report.\nDone.', 'Real report.\nDone.'])
   })
 
   test('/ditto output says the report is not available, and copies nothing, when only the stub can be read', async ($, on) => {
     const { copied } = fakeHost(on, { messages: [prompt('go'), used(LAUNCHED), stubbed('a7')] })
-    expect((await run($, 'output')).text).toBe('Cannot copy the last tool output: the report of agent a7 reached the session as a message ditto cannot read, so nothing was copied')
+    expect((await run($, 'output')).text).toBe('Cannot copy the last agent output: the report of agent a7 reached the session as a message ditto cannot read, so nothing was copied')
     expect(copied).toEqual([])
   })
 
@@ -689,10 +783,10 @@ describe('tool rows', () => {
   test('/ditto file, plan and output copy the latest of each from the transcript, and count back with N', async ($, on) => {
     const edit: Call = { tool: 'Edit', input: { file_path: '/w/a.rb', old_string: 'old', new_string: 'new' }, output: { originalFile: 'x = old\ny = 1', oldString: 'old', newString: 'new', replaceAll: false } }
     const { copied } = fakeHost(on, { messages: [prompt('go'), used(WRITE), used(BASH), used(edit), used(PLAN)] })
-    expect((await run($, 'file')).text).toBe('Copied last file (2 lines, pbcopy)')
-    expect((await run($, 'file 2')).text).toBe('Copied file 2 back (5 lines, pbcopy)')
+    expect((await run($, 'file')).text).toBe('Copied last file a.rb (2 lines, pbcopy)')
+    expect((await run($, 'file 2')).text).toBe('Copied file notes.md, 2 back (5 lines, pbcopy)')
     expect((await run($, 'plan')).text).toBe('Copied last plan (3 lines, pbcopy)')
-    expect((await run($, 'output')).text).toBe('Copied last tool output (2 lines, pbcopy)')
+    expect((await run($, 'output')).text).toBe('Copied last bash output (2 lines, pbcopy)')
     expect(copied).toEqual(['x = new\ny = 1', WRITE.input.content, '## Plan\n\n1. Do it', 'ok\nfile.md'])
   })
 
@@ -700,6 +794,34 @@ describe('tool rows', () => {
     fakeHost(on, { messages: [prompt('go'), used(WRITE)] })
     expect((await run($, 'file 3')).text).toBe('Only 1 file so far, not 3')
     expect((await run($, 'plan')).text).toBe('No plan to copy in this session yet')
+  })
+})
+
+describe('/ditto and group chip names', () => {
+  test('/ditto palette.ts copies the file its chip names, as typing a chip name once answered that the reply had no such block', async ($, on) => {
+    const palette: Call = { ...WRITE, input: { file_path: '/w/palette.ts', content: 'export const dark = 1' } }
+    const { copied } = fakeHost(on, { messages: [prompt('go'), used(palette), used(WRITE), said('Done.')] })
+    expect((await run($, 'palette.ts')).text).toBe('Copied last file palette.ts (1 line, pbcopy)')
+    expect(copied).toEqual(['export const dark = 1'])
+    expect((await run($, '2 palette.ts')).text).toMatch(/^Only 1 reply so far$|^No "palette.ts" in reply 2 back/)
+    expect((await run($, 'theme.ts')).text).toMatch(/^No "theme.ts" in the last reply/)
+  })
+
+  test('/ditto bash copies the last Bash output a group chip ⧉ bash names, unless the last reply has a bash block', async ($, on) => {
+    const transcript = { messages: [prompt('go'), used(BASH), said('Done.')] }
+    const { copied } = fakeHost(on, transcript)
+    expect((await run($, 'bash')).text).toBe('Copied last bash output (2 lines, pbcopy)')
+    expect(copied).toEqual(['ok\nfile.md'])
+    transcript.messages.push(said('```bash\ngit status\n```'))
+    expect((await run($, 'bash')).text).toBe('Copied bash block (1 line, pbcopy)')
+    expect((await run($, 'grep')).text).toMatch(/^No "grep" in the last reply/)
+  })
+
+  test('/ditto bash #2 with no group shown says so and copies nothing, while /ditto bash 2 still copies the second bash block', async ($, on) => {
+    const { copied } = fakeHost(on, { messages: [prompt('go'), said('```bash\none\n```\n\n```bash\ntwo\n```')] })
+    expect((await run($, 'bash #2')).text).toBe(noGroupCall('bash #2'))
+    expect(copied).toEqual([])
+    expect((await run($, 'bash 2')).text).toBe('Copied bash block (1 line, pbcopy)')
   })
 })
 
@@ -711,7 +833,7 @@ describe('clipboard route', () => {
     expect(terminal).toEqual(['one line'])
   })
 
-  test('a /ditto typed at the terminal copies to the terminal it was typed in; one from the bridge leaves the surface to the engine', async ($, on) => {
+  test('a /ditto typed at the terminal copies there; one from the bridge leaves the surface to the engine', async ($, on) => {
     const { surfaces } = fakeHost(on, { messages: [prompt('a'), said('one line')] }, { ssh: true, terminalCopies: true })
     await run($, '')
     await run($, 'reply')
@@ -744,26 +866,193 @@ async function mountGroup($: Engine, calls: GroupCall[], extra: { isActive?: boo
 const READ: GroupCall = { tool: 'Read', input: { file_path: '/w/a.md' }, output: { type: 'text', file: { filePath: '/w/a.md', content: 'line 1\nline 2\n' } } }
 
 describe('grouped tool rows', () => {
-  test('give the folded line that lucid and stock draw by default a chip per call, numbered back from the last where kinds repeat', async ($, on) => {
-    const { copied } = fakeHost(on, { messages: [] })
+  test('give the folded line a chip per call, named by file or tool, numbered from the top where names repeat', async ($, on) => {
+    const { copied, toasts } = fakeHost(on, { messages: [] })
     const ui = await mountGroup($, [BASH, READ, { ...BASH, output: { stdout: 'two', stderr: '' } }])
     expect(await ui.find({ type: 'Text', text: 'beneath' })).toBeDefined()
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['⧉ output 2', '⧉ file', '⧉ output 1'])
-    await ui.press({ key: 'copy-output-1' })
-    await ui.press({ key: 'copy-file' })
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ bash #1', '⧉ a.md', '⧉ bash #2'])
+    await ui.press({ key: 'copy-bash-#2' })
+    await ui.press({ key: 'copy-a.md' })
     expect(copied).toEqual(['two', 'line 1\nline 2\n'])
+    expect(toasts).toEqual([])
   })
 
-  test('number chips as /ditto counts, so on the latest group ⧉ output N and /ditto output N copy the same call', async ($, on) => {
+  test('no group chip reads as a /ditto output or file count, which later calls would shift', async ($, on) => {
     const later: GroupCall = { ...BASH, output: { stdout: 'two', stderr: '' } }
-    const { copied } = fakeHost(on, { messages: [prompt('go'), used(BASH), used(later)] })
-    const ui = await mountGroup($, [BASH, later])
-    for (const n of [1, 2]) {
-      await ui.press({ key: `copy-output-${n}` })
-      await run($, `output ${n}`)
+    fakeHost(on, { messages: [] })
+    const ui = await mountGroup($, [BASH, later, READ, { ...READ, input: { file_path: '/w/b.md' } }])
+    const labels = (await chipsOf(ui)).map(b => b.props.label)
+    expect(labels).toEqual(['⧉ bash #1', '⧉ bash #2', '⧉ a.md', '⧉ b.md'])
+    expect(labels.some(label => /^⧉ (output|file)( \d+)?$/.test(String(label)))).toBe(false)
+    expect(USAGE).toContain('Chips on a group with more name each call instead')
+  })
+
+  test('a group the engine draws for one Bash call offers ⧉ output, the name /ditto output answers to, and copies that call', async ($, on) => {
+    const { copied } = fakeHost(on, { messages: [] })
+    const ui = await mountGroup($, [BASH])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ output'])
+    await ui.press({ key: 'copy-output' })
+    expect(copied).toEqual(['ok\nfile.md'])
+  })
+
+  test('a copy confirmation on a narrow group keeps the strip inside the pane', async ($, on) => {
+    fakeHost(on, { messages: [] })
+    const later = (stdout: string): GroupCall => ({ ...BASH, output: { stdout, stderr: '' } })
+    const ui = await mountGroup($, [BASH, later('two'), READ, later('three')], {}, { columns: 57, requestId: 'gflash' })
+    await ui.press({ key: 'copy-bash-#3' })
+    const labels = (await chipsOf(ui)).map(b => String(b.props.label))
+    expect(rowWidth(labels)).toBeLessThanOrEqual(57 - MARKER_ROOM - STRIP_LEAD - 'beneath'.length)
+    expect(labels).toEqual(['⧉ bash #1', '⧉ bash #2', '⧉ a.md', '+1'])
+  })
+
+  test('on a narrow group the strip leaves the label and a ground-coloured gap clear', async ($, on) => {
+    const label = 'Ran 2 commands'
+    fakeHost(on, { messages: [] }, { label })
+    const ui = await mountGroup($, [BASH, { ...BASH, output: { stdout: 'two', stderr: '' } }], {}, { columns: 40, requestId: 'glabel' })
+    const labels = (await chipsOf(ui)).map(b => String(b.props.label))
+    expect(labels).toEqual(['⧉ bash #1', '+1'])
+    expect(2 + label.length + STRIP_LEAD + rowWidth(labels) + MARKER_ROOM).toBeLessThanOrEqual(40)
+    const grounded = (await ui.findAll({ type: 'Text' })).filter(t => t.props.backgroundColor === dark.background)
+    expect(grounded.map(t => t.text)).toEqual([' '.repeat(STRIP_LEAD)])
+  })
+
+  test('a label too long for its one chip keeps a ⧉ that copies the call, as a lone +1 once toasted instead', async ($, on) => {
+    const label = 'Listed 1 directory, ran 1 cmd'
+    const { copied, toasts } = fakeHost(on, { messages: [] }, { label })
+    const ui = await mountTool($, BASH, { columns: 40, requestId: 'toolu_long_label' })
+    expect((await chipsOf(ui)).map(b => String(b.props.label))).toEqual(['⧉ output'])
+    expect((await ui.findAll({ type: 'Box' })).filter(b => b.props.position === 'absolute')).toEqual([])
+    await ui.press({ key: COMPACT_KEY })
+    expect(copied).toEqual(['ok\nfile.md'])
+    expect(toasts).toEqual([])
+  })
+
+  test('a label that leaves no room even for +1 keeps a ⧉ that copies the call, as the row once lost its marker', async ($, on) => {
+    const { copied } = fakeHost(on, { messages: [] }, { label: 'Listed 1 directory, ran 1 shell command' })
+    const ui = await mountTool($, BASH, { columns: 40, requestId: 'toolu_full_label' })
+    expect((await chipsOf(ui)).map(b => String(b.props.label))).toEqual(['⧉ output'])
+    expect((await ui.findAll({ type: 'Box' })).filter(b => b.props.position === 'absolute')).toEqual([])
+    await ui.press({ key: COMPACT_KEY })
+    expect(copied).toEqual(['ok\nfile.md'])
+    expect(await ui.find({ type: 'Text', text: COPIED })).toBeDefined()
+  })
+
+  test('a lucid row whose argument fills the row keeps the argument clear: only ⧉, never a strip over the path', async ($, on) => {
+    fakeHost(on, { messages: [] }, { label: 'Read', detail: 'hooks/palette.ts and a long tail' })
+    const ui = await mountTool($, WRITE, { columns: 40, requestId: 'toolu_lucid_path' })
+    const absolute = (await ui.findAll({ type: 'Box' })).filter(b => b.props.position === 'absolute')
+    expect(absolute).toEqual([])
+    expect((await chipsOf(ui)).map(b => String(b.props.label))).toEqual(['⧉ file'])
+  })
+
+  test('a lucid row with a short argument counts the argument before placing the strip', async ($, on) => {
+    const label = 'Read'
+    const detail = 'a.md'
+    fakeHost(on, { messages: [] }, { label, detail })
+    const ui = await mountTool($, WRITE, { columns: 40, requestId: 'toolu_lucid_short' })
+    const labels = (await chipsOf(ui)).map(b => String(b.props.label))
+    expect(labels).toEqual(['⧉ file'])
+    expect(2 + label.length + 1 + detail.length + STRIP_LEAD + rowWidth(labels) + MARKER_ROOM).toBeLessThanOrEqual(40)
+  })
+
+  test('a row the engine draws, which ditto cannot measure, gets only ⧉ at any width, so nothing covers its label', async ($, on) => {
+    const { copied } = fakeHost(on, { messages: [] }, { engine: true })
+    for (const columns of [40, 110]) {
+      const ui = await mountTool($, BASH, { columns, requestId: `toolu_engine_${columns}` })
+      const absolute = (await ui.findAll({ type: 'Box' })).filter(b => b.props.position === 'absolute')
+      expect(absolute).toEqual([])
+      await ui.press({ key: COMPACT_KEY })
     }
-    expect(copied).toEqual(['two', 'two', 'ok\nfile.md', 'ok\nfile.md'])
-    expect(USAGE).toContain('⧉ output 2 is /ditto output 2 only while that group holds the last tool call')
+    expect(copied).toEqual(['ok\nfile.md', 'ok\nfile.md'])
+  })
+
+  test('an engine-drawn group of several calls names them and the commands on ⧉, copying nothing it would have to guess', async ($, on) => {
+    const { copied, toasts } = fakeHost(on, { messages: [] }, { engine: true })
+    const ui = await mountGroup($, [BASH, READ, { ...BASH, output: { stdout: 'two', stderr: '' } }], {}, { columns: 110, requestId: 'gengine' })
+    expect((await chipsOf(ui)).map(b => String(b.props.label))).toEqual(['⧉ +3'])
+    await ui.press({ key: COMPACT_KEY })
+    expect(copied).toEqual([])
+    expect(toasts.at(-1)).toBe('Copy with /ditto <name>: bash #1, a.md, bash #2')
+    expect(toasts.at(-1)).not.toMatch(/widen|click/i)
+  })
+
+  test('/ditto bash #2 copies the call the stock group toast names, from the latest group shown', async ($, on) => {
+    const BASH_ID = { ...BASH, tool_use_id: 'b1' }
+    const early: GroupCall = { ...BASH, tool_use_id: 'b2', output: { stdout: 'early', stderr: '' } }
+    const late: GroupCall = { ...BASH, tool_use_id: 'b4', output: { stdout: 'late', stderr: '' } }
+    const use = (id: string) => ({ tool_use_id: id, tool: 'Bash', input: {} })
+    const transcript = { messages: [prompt('go'), { ...called(), toolUses: ['b1', 'b2', 'b3', 'b4'].map(use) }] }
+    const { copied, toasts } = fakeHost(on, transcript, { engine: true })
+    const ui = await mountGroup($, [BASH_ID, early], {}, { columns: 110, requestId: 'gearly' })
+    await mountGroup($, [{ ...BASH, tool_use_id: 'b3' }, late], {}, { columns: 110, requestId: 'glate' })
+    await ui.press({ key: COMPACT_KEY })
+    expect(toasts.at(-1)).toBe('Copy with /ditto <name>: bash #1, bash #2')
+    expect((await run($, 'bash #2')).text).toBe('Copied bash output #2 (1 line, pbcopy)')
+    expect(copied).toEqual(['late'])
+    expect((await run($, 'bash #3')).text).toBe(noGroupCall('bash #3'))
+    expect(copied).toEqual(['late'])
+  })
+
+  test('the ⧉ closing a strip is a control, so a click on it never falls through to expand the row', async ($, on) => {
+    const { copied, toasts } = fakeHost(on, { messages: [] }, { label: 'Ran 2 commands' })
+    const ui = await mountGroup($, [BASH, { ...BASH, output: { stdout: 'two', stderr: '' } }], {}, { columns: 110, requestId: 'gcover' })
+    const cover = (await ui.findAll({ type: 'Button' })).filter(b => b.props.key === COVER_KEY)
+    expect(cover.map(b => String(b.props.label))).toEqual(['⧉'])
+    await ui.press({ key: COVER_KEY })
+    expect(copied).toEqual([])
+    expect(toasts).toEqual([])
+  })
+
+  test('the ⧉ closing a one-call strip copies that call, as the compact ⧉ does', async ($, on) => {
+    const { copied } = fakeHost(on, { messages: [] }, { label: 'Ran 1 command' })
+    const ui = await mountTool($, BASH, { columns: 110, requestId: 'toolu_cover' })
+    await ui.press({ key: COVER_KEY })
+    expect(copied).toEqual(['ok\nfile.md'])
+    expect(await ui.find({ type: 'Text', text: COPIED })).toBeDefined()
+  })
+
+  test('a group label that fills the row still shows ⧉, as the marker once vanished there', async ($, on) => {
+    fakeHost(on, { messages: [] }, { label: "Ran 2 commands, couldn't read 1 file" })
+    const ui = await mountGroup($, [BASH, { ...BASH, output: { stdout: 'two', stderr: '' } }], {}, { columns: 40, requestId: 'gfull' })
+    expect((await chipsOf(ui)).map(b => String(b.props.label))).toEqual(['⧉ +2'])
+  })
+
+  test('a lucid group too narrow for chips says widening brings them, as a wider pane does', async ($, on) => {
+    const { toasts } = fakeHost(on, { messages: [] }, { label: "Ran 2 commands, couldn't read 1 file" })
+    const ui = await mountGroup($, [BASH, { ...BASH, output: { stdout: 'two', stderr: '' } }], {}, { columns: 40, requestId: 'gwiden' })
+    await ui.press({ key: COMPACT_KEY })
+    expect(toasts.at(-1)).toBe('Widen for chips, or /ditto <name>: bash #1, bash #2')
+  })
+
+  test('while a narrow group flashes, its chips stay beside the label, as the flash once moved them over it', async ($, on) => {
+    const label = 'Ran 2 commands'
+    fakeHost(on, { messages: [] }, { label })
+    const calls = [BASH, { ...BASH, output: { stdout: 'two', stderr: '' } }]
+    const ui = await mountGroup($, calls, {}, { columns: 40, requestId: 'gflash' })
+    await ui.press({ key: 'copy-bash-#1' })
+    const labels = (await chipsOf(ui)).map(b => String(b.props.label))
+    expect(labels.length).toBeGreaterThan(0)
+    expect(2 + label.length + STRIP_LEAD + rowWidth(labels) + MARKER_ROOM).toBeLessThanOrEqual(40)
+    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+    expect([texts.filter(t => t === `${COPIED} `), texts.filter(t => t === COPIED)]).toEqual([[`${COPIED} `], [COPIED]])
+  })
+
+  test('headWidth counts the whole head line, the argument after the bold name included, and nothing it cannot read', async () => {
+    const text = (children: unknown[], props: object = {}) => ({ type: 'Text', props, children })
+    const box = (children: unknown[], props: object = {}) => ({ type: 'Box', props, children })
+    const row = box([box([box([text(['●'])], { width: 2 }), text([text(['Read'], { bold: true }), ' hooks/palette.ts'])]), text(['next line'])], { flexDirection: 'column' })
+    expect(headWidth(row as never)).toBe(2 + 'Read hooks/palette.ts'.length)
+    expect(headWidth(text(['no name']) as never)).toBe(7)
+    expect(headWidth({ type: 'engine', ref: 1 } as never)).toBeUndefined()
+    expect(headWidth(box([text(['a']), { type: 'engine', ref: 2 }]) as never)).toBeUndefined()
+    expect(headWidth(box([]) as never)).toBe(0)
+  })
+
+  test('the +N on a group names the hidden calls as group calls, not reply blocks, and says how to reach them', async ($, on) => {
+    const { toasts } = fakeHost(on, { messages: [] })
+    const ui = await mountGroup($, [BASH, READ, BASH, READ], {}, { columns: 30 })
+    await ui.press({ key: 'copy-more' })
+    expect(toasts.at(-1)).toMatch(/^Widen for chips, or \/ditto <name>: .*a\.md/)
   })
 
   test('put the chip after the folded line in cells of its own, on the same row a single tool uses', async ($, on) => {
@@ -772,7 +1061,7 @@ describe('grouped tool rows', () => {
     expectBesideRow(await ui.findAll({ type: 'Box' }), 'ditto-group-g1')
   })
 
-  test('draw no chip while the group is live, once it unfolds into rows of their own, outside fullscreen, or on calls that failed or ran', async ($, on) => {
+  test('draw no chip on a live, unfolded, non-fullscreen or failed group', async ($, on) => {
     fakeHost(on, { messages: [] })
     const buttons = async (calls: GroupCall[], extra = {}, view?: View) => (await (await mountGroup($, calls, extra, view)).findAll({ type: 'Button' })).length
     expect(await buttons([BASH], { isActive: true })).toBe(0)
@@ -785,7 +1074,7 @@ describe('grouped tool rows', () => {
   test('folds what does not fit at 40 columns into +N', async ($, on) => {
     fakeHost(on, { messages: [] })
     const ui = await mountGroup($, [BASH, READ, BASH, READ], {}, { columns: 40 })
-    const shown = (await ui.findAll({ type: 'Button' })).map(b => b.props.label)
+    const shown = (await chipsOf(ui)).map(b => b.props.label)
     expect(shown.at(-1)).toMatch(/^\+\d$/)
   })
 })

@@ -49,4 +49,12 @@ declare module 'claude-code' {
   interface EngineInterface {
     lucid: Lucid
   }
+  interface PluginState {
+    lucid: {
+      ranCalls: StateFamily<true>
+      refusedCalls: StateFamily<true>
+      launchedTasks: StateFamily<true>
+      endedTasks: StateFamily<string>
+    }
+  }
 }

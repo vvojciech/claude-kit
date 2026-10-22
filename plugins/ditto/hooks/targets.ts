@@ -5,7 +5,7 @@ export type TargetKind = 'reply' | 'code' | 'table' | ToolKind
 
 export type ToolKind = 'file' | 'plan' | 'output'
 
-export type Target = { kind: TargetKind; name: string; label: string; text: string; what: string; unavailable?: string }
+export type Target = { kind: TargetKind; name: string; label: string; text: string; what: string; unavailable?: string; callId?: string }
 
 export type Row = { shown: Target[]; hidden: Target[] }
 
@@ -14,6 +14,8 @@ export type Resolved = { text: string; partial: boolean; blocks: Block[] }
 export const GLYPH = '⧉'
 export const REPLY = 'reply'
 export const TOOL_KINDS: readonly ToolKind[] = ['file', 'plan', 'output']
+export const OUTPUT = 'output'
+export const TOOL_WHAT: Record<ToolKind, string> = { file: 'file', plan: 'plan', output: `tool ${OUTPUT}` }
 export const GAP = 2
 export const CODE = 'code'
 const TABLE = 'table'
@@ -39,14 +41,16 @@ function whatOf(block: Block, base: string): string {
   return base === CODE ? 'code block' : `${base} block`
 }
 
-export function numbered(names: string[]): string[] {
+export const CALL_MARK = '#'
+
+export function numbered(names: string[], mark = ''): string[] {
   const totals = new Map<string, number>()
   for (const name of names) totals.set(name, (totals.get(name) ?? 0) + 1)
   const seen = new Map<string, number>()
   return names.map(name => {
     const index = (seen.get(name) ?? 0) + 1
     seen.set(name, index)
-    return (totals.get(name) ?? 0) < 2 ? name : `${name} ${index}`
+    return (totals.get(name) ?? 0) < 2 ? name : `${name} ${mark}${index}`
   })
 }
 
@@ -63,7 +67,8 @@ export function blockTargets(blocks: Block[]): Target[] {
   const names = numbered(drawn.map(baseName))
   return drawn.flatMap((block, i) => {
     const text = bodyOf(block)
-    return text.trim() === '' ? [] : [target(block.kind === 'table' ? 'table' : 'code', names[i] ?? baseName(block), text, whatOf(block, baseName(block)))]
+    const base = baseName(block)
+    return text.trim() === '' ? [] : [target(block.kind === 'table' ? 'table' : 'code', names[i] ?? base, text, whatOf(block, base))]
   })
 }
 

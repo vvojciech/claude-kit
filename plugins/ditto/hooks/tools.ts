@@ -1,17 +1,19 @@
 import type { SessionMessage } from 'claude-code'
 
-import { numbered, target } from './targets'
+import { CALL_MARK, OUTPUT, TOOL_WHAT, numbered, target } from './targets'
 import type { Target, ToolKind } from './targets'
 
-export type ToolCall = { tool: string; input: unknown; output: unknown }
+export type ToolCall = { tool: string; input: unknown; output?: unknown; tool_use_id?: string }
 
 type Fields = Record<string, unknown>
 
 const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g
 
-const OUTPUT_TOOLS = new Set(['Bash', 'Grep', 'Glob', 'WebFetch', 'Agent', 'Task'])
+export const OUTPUT_TOOLS = new Set(['Bash', 'Grep', 'Glob', 'WebFetch', 'Agent', 'Task'])
 
 const MCP = /^mcp__/
+
+const AGENT_TOOLS = new Set(['Agent', 'Task'])
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI, '')
@@ -40,7 +42,8 @@ function editedFile(input: Fields, output: Fields): string | undefined {
   const after = output.newString ?? input.new_string
   if (typeof after !== 'string') return undefined
   if (typeof original !== 'string' || typeof before !== 'string' || before === '' || !original.includes(before)) return text(after)
-  return output.replaceAll === true || input.replace_all === true ? original.split(before).join(after) : original.replace(before, () => after)
+  const everywhere = output.replaceAll === true || input.replace_all === true
+  return everywhere ? original.split(before).join(after) : original.replace(before, () => after)
 }
 
 function readFile(output: Fields): string | undefined {
@@ -75,7 +78,7 @@ function rawOutput(call: ToolCall): string | undefined {
   if (call.tool === 'Bash') return joined([text(output.stdout), text(output.stderr)])
   if (call.tool === 'Grep' || call.tool === 'Glob') return grepText(output)
   if (call.tool === 'WebFetch') return text(output.result)
-  if (call.tool === 'Agent' || call.tool === 'Task') return agentText(output)
+  if (AGENT_TOOLS.has(call.tool)) return agentText(output)
   return contentText(call.output) ?? contentText(output.content) ?? text(output.result) ?? text(output.stdout)
 }
 
@@ -100,14 +103,37 @@ const READERS: [ToolKind, (call: ToolCall) => string | undefined][] = [
   ['output', outputText],
 ]
 
-const WHAT: Record<ToolKind, string> = { file: 'file', plan: 'plan', output: 'tool output' }
+export function fileName(call: ToolCall): string | undefined {
+  const path = text(fields(call.input).file_path) ?? text(fields(call.output).filePath) ?? text(fields(fields(call.output).file).filePath)
+  return path?.split('/').filter(Boolean).at(-1)
+}
 
-export function toolTarget(call: ToolCall): Target | undefined {
+function whatOf(kind: ToolKind, call: ToolCall): string {
+  if (kind === 'output') return `${callName(call, kind)} ${OUTPUT}`
+  const name = kind === 'file' ? fileName(call) : undefined
+  return name === undefined ? TOOL_WHAT[kind] : `${TOOL_WHAT[kind]} ${name}`
+}
+
+type Produced = { kind: ToolKind; text: string }
+
+function produced(call: ToolCall): Produced | undefined {
   for (const [kind, read] of READERS) {
     const found = read(call)
-    if (found !== undefined) return target(kind, kind, found, WHAT[kind])
+    if (found !== undefined) return { kind, text: found }
   }
   return undefined
+}
+
+export function toolTarget(call: ToolCall): Target | undefined {
+  const found = produced(call)
+  return found === undefined ? undefined : target(found.kind, found.kind, found.text, whatOf(found.kind, call))
+}
+
+export function callName(call: ToolCall, kind: ToolKind): string {
+  if (kind === 'file') return fileName(call) ?? kind
+  if (kind === 'plan') return kind
+  if (MCP.test(call.tool)) return 'mcp'
+  return AGENT_TOOLS.has(call.tool) ? 'agent' : call.tool.toLowerCase()
 }
 
 const NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/g
@@ -150,7 +176,8 @@ export function handbackReport(messages: SessionMessage[]): string | undefined {
 
 function calls(messages: SessionMessage[]): ToolCall[] {
   const reports = backgroundReports(messages)
-  return messages.flatMap(message => message.toolUses.filter(use => use.isError !== true).map(use => withReport({ tool: use.tool, input: use.input, output: use.result ?? use.text }, reports)))
+  const uses = messages.flatMap(message => message.toolUses.filter(use => use.isError !== true))
+  return uses.map(use => withReport({ tool: use.tool, input: use.input, output: use.result ?? use.text }, reports))
 }
 
 function unreported(call: ToolCall): string | undefined {
@@ -164,11 +191,12 @@ async function handedBack(call: ToolCall, agentId: string, lookup: ReportLookup)
 }
 
 function unavailable(agentId: string): Target {
-  return { ...target('output', 'output', '', WHAT.output), unavailable: `the report of agent ${agentId} reached the session as a message ditto cannot read, so nothing was copied` }
+  const unavailable = `the report of agent ${agentId} reached the session as a message ditto cannot read, so nothing was copied`
+  return { ...target('output', 'output', '', `agent ${OUTPUT}`), unavailable }
 }
 
 async function delivered(call: ToolCall, lookup: ReportLookup): Promise<ToolCall | Target> {
-  if (call.tool !== 'Agent' && call.tool !== 'Task') return call
+  if (!AGENT_TOOLS.has(call.tool)) return call
   const waiting = unreported(call)
   if (waiting !== undefined) return handedBack(call, waiting, lookup)
   const stub = handbackStub(rawOutput(call))
@@ -177,17 +205,17 @@ async function delivered(call: ToolCall, lookup: ReportLookup): Promise<ToolCall
   return found === call ? unavailable(stub.agentId) : found
 }
 
-function numberedFromLast(names: string[]): string[] {
-  return numbered([...names].reverse()).reverse()
-}
-
 export function groupTargets(group: ToolCall[]): Target[] {
   const found = group.flatMap(call => {
-    const one = toolTarget(call)
-    return one === undefined ? [] : [one]
+    const one = produced(call)
+    return one === undefined ? [] : [{ call, ...one, name: callName(call, one.kind) }]
   })
-  const names = numberedFromLast(found.map(t => t.name))
-  return found.map((t, i) => target(t.kind, names[i] ?? t.name, t.text, t.what))
+  const names = found.length === 1 ? [found[0]?.kind ?? ''] : numbered(found.map(f => f.name), CALL_MARK)
+  return found.map((f, i) => withCallId(target(f.kind, names[i] ?? f.name, f.text, whatOf(f.kind, f.call)), f.call.tool_use_id))
+}
+
+function withCallId(found: Target, callId: string | undefined): Target {
+  return callId === undefined ? found : { ...found, callId }
 }
 
 function targetOf(found: ToolCall | Target): Target | undefined {

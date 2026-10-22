@@ -4,7 +4,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
   "frontMatter": [
     {
       "kind": "code",
-      "source": "---\ntitle: Release notes\ntags: [a, b]\n---\n",
+      "source": "---\ntitle: Release notes\ntags: [a, b]\n---",
       "depth": 0,
       "lang": "yaml",
       "text": "title: Release notes\ntags: [a, b]"
@@ -23,7 +23,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
   "frontMatterProse": [
     {
       "kind": "rule",
-      "source": "---\n",
+      "source": "---",
       "depth": 0
     },
     {
@@ -52,7 +52,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
   "tableWithRows": [
     {
       "kind": "table",
-      "source": "| a | b |\n|---|:-:|\n| 1 | 2 |\n| `x | y` | 3 |  ",
+      "source": "| a | b |\n|---|:-:|\n| 1 | 2 |\n| `x | y` | 3 |",
       "depth": 0
     },
     {
@@ -159,7 +159,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "one\n",
+      "source": "one",
       "depth": 1
     },
     {
@@ -169,7 +169,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "two\n",
+      "source": "two",
       "depth": 2
     },
     {
@@ -337,7 +337,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 0\n",
+      "source": "item 0",
       "depth": 1
     },
     {
@@ -347,7 +347,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 1\n",
+      "source": "item 1",
       "depth": 2
     },
     {
@@ -357,7 +357,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 2\n",
+      "source": "item 2",
       "depth": 3
     },
     {
@@ -367,7 +367,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 3\n",
+      "source": "item 3",
       "depth": 4
     },
     {
@@ -377,7 +377,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 4\n",
+      "source": "item 4",
       "depth": 5
     },
     {
@@ -387,7 +387,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 5\n",
+      "source": "item 5",
       "depth": 6
     },
     {
@@ -397,7 +397,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 6\n",
+      "source": "item 6",
       "depth": 7
     },
     {
@@ -407,7 +407,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 7\n",
+      "source": "item 7",
       "depth": 8
     },
     {
@@ -417,7 +417,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 8\n",
+      "source": "item 8",
       "depth": 9
     },
     {
@@ -427,7 +427,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 9\n",
+      "source": "item 9",
       "depth": 10
     },
     {
@@ -437,7 +437,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 10\n",
+      "source": "item 10",
       "depth": 11
     },
     {
@@ -447,7 +447,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 11\n",
+      "source": "item 11",
       "depth": 12
     },
     {
@@ -457,7 +457,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 12\n",
+      "source": "item 12",
       "depth": 13
     },
     {
@@ -467,7 +467,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 13\n",
+      "source": "item 13",
       "depth": 14
     },
     {
@@ -477,7 +477,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 14\n",
+      "source": "item 14",
       "depth": 15
     },
     {
@@ -487,7 +487,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 15\n",
+      "source": "item 15",
       "depth": 16
     },
     {
@@ -497,7 +497,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 16\n",
+      "source": "item 16",
       "depth": 17
     },
     {
@@ -507,7 +507,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 17\n",
+      "source": "item 17",
       "depth": 18
     },
     {
@@ -517,7 +517,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 18\n",
+      "source": "item 18",
       "depth": 19
     },
     {
@@ -527,7 +527,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 19\n",
+      "source": "item 19",
       "depth": 20
     },
     {
@@ -537,7 +537,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 20\n",
+      "source": "item 20",
       "depth": 21
     },
     {
@@ -547,7 +547,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 21\n",
+      "source": "item 21",
       "depth": 22
     },
     {
@@ -557,7 +557,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "paragraph",
-      "source": "item 22\n",
+      "source": "item 22",
       "depth": 23
     },
     {
@@ -606,7 +606,7 @@ export const LUCID_BLOCKS: Record<string, Block[]> = {
     },
     {
       "kind": "table",
-      "source": "| a |\n|---|\n| 1 |\n",
+      "source": "| a |\n|---|\n| 1 |",
       "depth": 0
     }
   ],

@@ -1,6 +1,6 @@
-export type LucidToneEntry = { ground: 'dark' | 'light'; muted: string; text: string; accent: string }
+import type { ToneEntry } from '../../dev/tones'
 
-export const LUCID_TONES: Record<string, LucidToneEntry> = {
+export const LUCID_TONES: Record<string, ToneEntry> = {
   "dark on unset": {
     "ground": "dark",
     "muted": "#a39e94",

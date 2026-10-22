@@ -2,23 +2,23 @@ import { inlineSpans, shellSpans, spansWidth } from './markdown'
 import type { Span } from './markdown'
 import { ELLIPSIS, cellWidth, clipCells, firstLine, sliceCells } from './width'
 
-export type ToolState = 'pending' | 'running' | 'started' | 'done' | 'failed' | 'rejected' | 'interrupted'
+export type ToolState = 'pending' | 'running' | 'started' | 'done' | 'failed' | 'rejected' | 'interrupted' | 'cancelled'
 
 export type ToolLine = { label: string; detail: Span[]; note?: string; state?: ToolState }
 
 export type ToolRow = { name: string; detail: Span[]; note?: string; lines?: ToolLine[] }
 
-export type ToolCall = { tool: string; input: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean; output?: unknown; hasRun?: boolean }
+export type ToolCall = { tool: string; input: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean; output?: unknown; hasRun?: boolean; refused?: boolean }
 
 export type TrackedCall = ToolCall & { taskStatus?: string }
 
 export type Roots = { cwd: string; home?: string }
 
-type Outcome = Pick<ToolCall, 'isRunning' | 'isErrored' | 'isInterrupted' | 'output' | 'hasRun'> & { tool?: string }
+type Outcome = Pick<ToolCall, 'isRunning' | 'isErrored' | 'isInterrupted' | 'output' | 'hasRun' | 'refused'> & { tool?: string }
 
 type Verb = { done: string; running: string; base: string; gerund: string }
 
-type Tally = { verb: string; noun: string; targets: (call: ToolCall, roots: Roots, index: number) => string[]; started?: string; running?: string }
+type Tally = { verb: string; base: string; running: string; noun: string; targets: (call: ToolCall, roots: Roots, index: number) => string[]; started?: string }
 
 type Detail = (input: Record<string, unknown>, roots: Roots, output?: unknown) => Span[]
 
@@ -40,9 +40,15 @@ const ERROR_TAG = /<\/?tool_use_error>/g
 
 const ERROR_PREFIX = /^Error:\s*/
 
-const REJECTION = /^(Error: )?(User rejected\b|Permission\b.*\b(was|has been) denied\b)/
+const USER_REJECTION = /^(Error: )?User rejected\b/
+
+const PERMISSION_DENIAL = /^(Error: )?Permission\b.*\b(was|has been) denied\b/
 
 const INTERRUPTION = /^(Error: )?Interrupted\b/
+
+const DIALOG_DECLINE = /^(Error: )?The user doesn't want to proceed with this tool use\b/
+
+const CUT_BEFORE_START = /^(Error: )?(The user doesn't want to take this action right now|Interrupted\b|Cancelled: )/
 
 const TASK_AT_WORK = new Set(['pending', 'running', 'waiting'])
 
@@ -56,6 +62,8 @@ const BACKGROUND_NOTE = 'background'
 
 const NOTIFICATION_STATE: Record<string, ToolState> = { completed: 'done', failed: 'failed', killed: 'interrupted' }
 
+const WAITING_ON_OWN_WORK = /\bwaiting on its own background work\b/i
+
 const DEFAULT_AGENT = 'general-purpose'
 
 const DEFAULT_GREP_MODE = 'files_with_matches'
@@ -64,11 +72,13 @@ const TEXT_KEYS = ['subject', 'description', 'query', 'skill', 'prompt']
 
 const SCALARS = new Set(['string', 'number', 'boolean'])
 
-const UNSUCCESSFUL: ReadonlyArray<ToolState> = ['failed', 'rejected', 'interrupted']
+const UNSUCCESSFUL: ReadonlyArray<ToolState> = ['failed', 'rejected', 'interrupted', 'cancelled']
 
 const OUTCOME_ORDER: ReadonlyArray<ToolState> = ['done', 'running', ...UNSUCCESSFUL]
 
-const ASIDE_WORD: Partial<Record<ToolState, string>> = { running: 'still running', failed: 'failed', rejected: 'denied', interrupted: 'stopped' }
+const BRIEF_FROM_KINDS = 3
+
+const ASIDE_WORD: Partial<Record<ToolState, string>> = { running: 'still running', failed: 'failed', rejected: 'denied', interrupted: 'stopped', cancelled: 'cancelled' }
 
 const LSP_TARGET: Record<string, string> = {
   goToDefinition: 'definition',
@@ -102,7 +112,7 @@ function trimSlash(path: string | undefined): string {
 export function relativePath(path: string, roots: Roots): string {
   const cwd = trimSlash(roots.cwd)
   const home = trimSlash(roots.home)
-  if (isUnder(path, cwd)) return path === cwd ? '.' : path.slice(cwd.length + 1)
+  if (isUnder(path, cwd)) return trimSlash(path) === cwd ? '.' : path.slice(cwd.length + 1)
   if (isUnder(path, home)) return '~' + path.slice(home.length)
   return path
 }
@@ -207,7 +217,7 @@ function searchDetail(input: Record<string, unknown>, roots: Roots): Span[] {
   const glob = str(input, 'glob')
   const type = str(input, 'type')
   const detail: Span[] = [quoted(str(input, 'pattern') ?? '')]
-  if (path) detail.push(plain(' in '), pathSpan(path, roots))
+  if (path && relativePath(path, roots) !== '.') detail.push(plain(' in '), pathSpan(path, roots))
   if (glob) detail.push(muted(` glob ${glob}`))
   if (type) detail.push(muted(` type ${type}`))
   return [...detail, ...grepFlags(input)]
@@ -280,13 +290,18 @@ function selectedFrom(loaded: string[], selected: string[] | undefined): string[
   return picked.length > 0 ? picked : loaded
 }
 
-function toolSearchDetail(input: Record<string, unknown>, _roots: Roots, output?: unknown): Span[] {
+function searchedTools(input: Record<string, unknown>, output?: unknown): string[] | undefined {
   const loaded = loadedTools('ToolSearch', output)
+  const selected = selectedNames(str(input, 'query') ?? '')
+  if (loaded !== undefined && loaded.length > 0) return selectedFrom(loaded, selected)
+  return selected
+}
+
+function toolSearchDetail(input: Record<string, unknown>, _roots: Roots, output?: unknown): Span[] {
+  const named = searchedTools(input, output)
+  if (named !== undefined) return toolNames(named)
   const query = str(input, 'query') ?? ''
-  const selected = selectedNames(query)
-  if (loaded !== undefined && loaded.length > 0) return toolNames(selectedFrom(loaded, selected))
-  if (!selected) return query ? [quoted(query)] : []
-  return toolNames(selected)
+  return query ? [quoted(query)] : []
 }
 
 function cronDetail(input: Record<string, unknown>): Span[] {
@@ -406,8 +421,27 @@ function loadedNothing(call: Outcome): boolean {
   return loadedTools(call.tool, call.output)?.length === 0
 }
 
+function isRejection(line: string): boolean {
+  return USER_REJECTION.test(line) || PERMISSION_DENIAL.test(line)
+}
+
+export type CallEnd = 'ran' | 'declined'
+
+export function callEnd(answer: { result?: unknown; isError?: boolean }): CallEnd | undefined {
+  if (answer.isError !== true) return undefined
+  const line = outputLine(answer.result)
+  if (DIALOG_DECLINE.test(line) || isRejection(line)) return 'declined'
+  return CUT_BEFORE_START.test(line) ? undefined : 'ran'
+}
+
+function rejectionState(call: Outcome, line: string): ToolState {
+  if (call.hasRun === true) return 'interrupted'
+  return call.refused === true || PERMISSION_DENIAL.test(line) ? 'rejected' : 'cancelled'
+}
+
 export function stateOf(call: Outcome, taskStatus?: string): ToolState {
-  if ((call.isErrored || call.isInterrupted) && REJECTION.test(outputLine(call.output))) return call.hasRun === true ? 'interrupted' : 'rejected'
+  const line = outputLine(call.output)
+  if ((call.isErrored || call.isInterrupted) && isRejection(line)) return rejectionState(call, line)
   if (call.isInterrupted) return 'interrupted'
   if (call.isErrored || loadedNothing(call)) return 'failed'
   if (call.isRunning) return 'running'
@@ -481,8 +515,16 @@ function fallbackVerb(tool: string): Verb {
   return { done: name, running: name, base: `use ${name}`, gerund: `using ${name}` }
 }
 
-function verbOf(tool: string, raw?: unknown): Verb {
+const ONE_TOOL = verb('Loaded', 'Loading', 'load')
+
+function toolSearchVerb(input: unknown, output: unknown): Verb {
+  const named = searchedTools(inputOf(input), output)
+  return named?.length === 1 ? ONE_TOOL : VERBS.ToolSearch
+}
+
+function verbOf(tool: string, raw?: unknown, output?: unknown): Verb {
   if (tool === 'Agent') return agentVerb(raw)
+  if (tool === 'ToolSearch') return toolSearchVerb(raw, output)
   return VERBS[tool] ?? fallbackVerb(tool)
 }
 
@@ -496,12 +538,13 @@ const PHRASE: Record<ToolState, (verb: Verb) => string> = {
   started: v => `Started ${v.gerund}`,
   done: v => v.done,
   failed: v => `Couldn't ${v.base}`,
-  rejected: v => `Denied ${v.base}`,
+  rejected: v => `Not allowed to ${v.base}`,
   interrupted: v => `Stopped ${v.gerund}`,
+  cancelled: v => `Cancelled ${v.gerund}`,
 }
 
-export function verbFor(tool: string, state: ToolState, input?: unknown): string {
-  return PHRASE[state](verbOf(tool, input))
+export function verbFor(tool: string, state: ToolState, input?: unknown, output?: unknown): string {
+  return PHRASE[state](verbOf(tool, input, output))
 }
 
 function joinNotes(...notes: Array<string | undefined>): string | undefined {
@@ -517,7 +560,7 @@ function backgroundNote(call: ToolCall, state: ToolState): string | undefined {
 export function describeCall(call: ToolCall, roots: Roots, taskStatus?: string): ToolRow {
   const row = summarise(call.tool, call.input, roots, call.output)
   const state = stateOf(call, taskStatus)
-  return { ...row, name: verbFor(call.tool, state, call.input), note: joinNotes(row.note, backgroundNote(call, state)) }
+  return { ...row, name: verbFor(call.tool, state, call.input, call.output), note: joinNotes(row.note, backgroundNote(call, state)) }
 }
 
 function spansKey(spans: ReadonlyArray<Span>): string {
@@ -534,8 +577,9 @@ function distinct<T>(items: ReadonlyArray<T>, key: (item: T) => string): Array<{
   return [...seen.values()]
 }
 
-function repeats(count: number): Span[] {
-  return count > 1 ? [muted(` ×${count}`)] : []
+function repeats(count: number, detail: ReadonlyArray<Span>): Span[] {
+  if (count < 2) return []
+  return [muted(`${spansKey(detail) === '' ? '' : ' '}×${count}`)]
 }
 
 function trackedState(call: TrackedCall): ToolState {
@@ -549,7 +593,7 @@ function commandLines(calls: ReadonlyArray<TrackedCall>, roots: Roots): ToolLine
   )
   return rows.map(({ item: { call, row }, count }) => ({
     label: verbFor('Bash', trackedState(call)),
-    detail: [...row.detail, ...repeats(count)],
+    detail: [...row.detail, ...repeats(count, row.detail)],
     note: joinNotes(row.note, backgroundNote(call, trackedState(call))),
     state: trackedState(call),
   }))
@@ -561,10 +605,11 @@ function targetLine(tool: string, calls: ReadonlyArray<TrackedCall>, roots: Root
     spansKey,
   )
   const separator = tool === 'ToolSearch' ? plain(NAME_SEPARATOR) : muted(SEPARATOR)
-  const detail = targets.flatMap(({ item, count }, i) => [...(i > 0 ? [separator] : []), ...item, ...repeats(count)])
+  const detail = targets.flatMap(({ item, count }, i) => [...(i > 0 ? [separator] : []), ...item, ...repeats(count, item)])
   const [first] = calls
   const state = first ? trackedState(first) : 'done'
-  return { label: verbFor(tool, state, first?.input), detail, note: first ? backgroundNote(first, state) : undefined, state }
+  const sample = calls.length === 1 || tool !== 'ToolSearch' ? first : undefined
+  return { label: verbFor(tool, state, sample?.input, sample?.output), detail, note: first ? backgroundNote(first, state) : undefined, state }
 }
 
 function byKey<T>(items: ReadonlyArray<T>, key: (item: T) => string): Map<string, T[]> {
@@ -583,8 +628,12 @@ function lineKey(call: TrackedCall): string {
   return `${call.tool}${agent}:${trackedState(call)}:${call.taskStatus ?? ''}`
 }
 
-function groupLines(calls: ReadonlyArray<TrackedCall>, roots: Roots): ToolLine[] {
+function linesOfKind(calls: ReadonlyArray<TrackedCall>, roots: Roots): ToolLine[] {
   return [...byKey(calls, lineKey)].flatMap(([key, own]) => (key === 'Bash' ? commandLines(own, roots) : [targetLine(own[0]?.tool ?? key, own, roots)]))
+}
+
+function groupLines(calls: ReadonlyArray<TrackedCall>, roots: Roots): ToolLine[] {
+  return kindsInOrder(calls).flatMap(([, own]) => linesOfKind(own, roots))
 }
 
 function targetKey(call: ToolCall, roots: Roots): string {
@@ -608,23 +657,23 @@ function byLoadedTool(call: ToolCall, roots: Roots): string[] {
   return loaded.length > 0 ? loaded : byTarget(call, roots)
 }
 
-const OTHER: Tally = { verb: 'used', noun: 'tool', targets: byCall }
+const OTHER: Tally = { verb: 'used', base: 'use', running: 'using', noun: 'tool', targets: byCall }
 
 const TALLY: Record<string, Tally> = {
-  Read: { verb: 'read', noun: 'file', targets: byTarget, running: 'reading' },
-  Edit: { verb: 'edited', noun: 'file', targets: byTarget, running: 'editing' },
-  MultiEdit: { verb: 'edited', noun: 'file', targets: byTarget, running: 'editing' },
-  NotebookEdit: { verb: 'edited', noun: 'notebook', targets: byTarget, running: 'editing' },
-  Write: { verb: 'wrote', noun: 'file', targets: byTarget, running: 'writing' },
-  Grep: { verb: 'searched for', noun: 'pattern', targets: bySearch, running: 'searching for' },
-  Glob: { verb: 'listed', noun: 'pattern', targets: bySearch, running: 'listing' },
-  Bash: { verb: 'ran', noun: 'command', targets: byCall, running: 'running' },
-  WebFetch: { verb: 'fetched', noun: 'page', targets: byTarget, running: 'fetching' },
-  WebSearch: { verb: 'searched web for', noun: 'query', targets: byTarget, running: 'searching web for' },
-  Monitor: { verb: 'watched', noun: 'command', targets: byCall, started: 'started watching', running: 'watching' },
-  Skill: { verb: 'loaded', noun: 'skill', targets: byTarget, running: 'loading' },
-  ToolSearch: { verb: 'loaded', noun: 'tool', targets: byLoadedTool, running: 'loading' },
-  Agent: { verb: 'delegated', noun: 'task', targets: byCall, running: 'delegating' },
+  Read: { verb: 'read', base: 'read', running: 'reading', noun: 'file', targets: byTarget },
+  Edit: { verb: 'edited', base: 'edit', running: 'editing', noun: 'file', targets: byTarget },
+  MultiEdit: { verb: 'edited', base: 'edit', running: 'editing', noun: 'file', targets: byTarget },
+  NotebookEdit: { verb: 'edited', base: 'edit', running: 'editing', noun: 'notebook', targets: byTarget },
+  Write: { verb: 'wrote', base: 'write', running: 'writing', noun: 'file', targets: byTarget },
+  Grep: { verb: 'searched for', base: 'search for', running: 'searching for', noun: 'pattern', targets: bySearch },
+  Glob: { verb: 'listed', base: 'list', running: 'listing', noun: 'pattern', targets: bySearch },
+  Bash: { verb: 'ran', base: 'run', running: 'running', noun: 'command', targets: byCall },
+  WebFetch: { verb: 'fetched', base: 'fetch', running: 'fetching', noun: 'page', targets: byTarget },
+  WebSearch: { verb: 'searched web for', base: 'search web for', running: 'searching web for', noun: 'query', targets: byTarget },
+  Monitor: { verb: 'watched', base: 'watch', running: 'watching', noun: 'stream', targets: byCall, started: 'started watching' },
+  Skill: { verb: 'loaded', base: 'load', running: 'loading', noun: 'skill', targets: byTarget },
+  ToolSearch: { verb: 'loaded', base: 'load', running: 'loading', noun: 'tool', targets: byLoadedTool },
+  Agent: { verb: 'delegated', base: 'delegate', running: 'delegating', noun: 'task', targets: byCall },
 }
 
 function mcpServer(tool: string): string | undefined {
@@ -642,11 +691,11 @@ function decapitalise(text: string): string {
 }
 
 function tallyOf(key: string, calls: ReadonlyArray<TrackedCall>): Tally {
-  if (key.startsWith('mcp:')) return { verb: 'called', noun: `${key.slice(4)} tool`, targets: byCall }
+  if (key.startsWith('mcp:')) return { verb: 'called', base: 'call', running: 'calling', noun: `${key.slice(4)} tool`, targets: byCall }
   const kinds = new Set(calls.map(call => call.tool))
   const [only] = kinds
   const known = only !== undefined && kinds.size === 1 ? VERBS[only] : undefined
-  return TALLY[key] ?? (known ? { verb: decapitalise(known.done), noun: '', targets: byCall } : OTHER)
+  return TALLY[key] ?? (known ? { verb: decapitalise(known.done), base: known.base, running: known.gerund, noun: '', targets: byCall } : OTHER)
 }
 
 function isUntracked(call: TrackedCall): boolean {
@@ -679,32 +728,61 @@ function amount(tally: Tally, count: number): string {
   return count > 1 ? `×${count}` : ''
 }
 
+function countOf(outcomes: ReadonlyArray<ToolState>, ...states: ToolState[]): number {
+  return outcomes.filter(outcome => states.includes(outcome)).length
+}
+
 function asides(outcomes: ReadonlyArray<ToolState>): string {
   const notes = OUTCOME_ORDER.filter(state => state !== 'done')
-    .map(state => ({ word: ASIDE_WORD[state] ?? state, count: outcomes.filter(outcome => outcome === state).length }))
+    .map(state => ({ word: ASIDE_WORD[state] ?? state, count: countOf(outcomes, state) }))
     .filter(({ count }) => count > 0)
     .map(({ word, count }) => `${count} ${word}`)
   return notes.length > 0 ? ` (${notes.join(', ')})` : ''
 }
 
-function settledPhrase(tally: Tally, calls: ReadonlyArray<TrackedCall>, roots: Roots): string {
-  const outcomes = targetOutcomes(tally, calls, roots)
-  const well = outcomes.filter(outcome => outcome === 'done').length
-  if (well === outcomes.length) return `${tally.verb} ${amount(tally, well)}`.trimEnd()
-  if (tally.running && outcomes.every(outcome => outcome === 'running')) return `${tally.running} ${amount(tally, outcomes.length)}`
-  return `${tally.verb} ${well} of ${plural(outcomes.length, tally.noun || 'call')}${asides(outcomes)}`
+function phrase(...words: string[]): string {
+  return words.filter(word => word !== '').join(' ')
+}
+
+function unsettledPhrase(tally: Tally, outcomes: ReadonlyArray<ToolState>): string {
+  const running = countOf(outcomes, 'running')
+  const failed = countOf(outcomes, 'failed')
+  const denied = countOf(outcomes, 'rejected')
+  const stopped = countOf(outcomes, 'interrupted')
+  const cancelled = countOf(outcomes, 'cancelled')
+  return [
+    running > 0 ? phrase(tally.running, amount(tally, running)) : '',
+    failed > 0 ? phrase(`couldn't ${tally.base}`, amount(tally, failed)) : '',
+    denied > 0 ? phrase(`not allowed to ${tally.base}`, amount(tally, denied)) : '',
+    stopped > 0 ? phrase(`stopped ${tally.running}`, amount(tally, stopped)) : '',
+    cancelled > 0 ? phrase(`cancelled ${tally.running}`, amount(tally, cancelled)) : '',
+  ]
+    .filter(part => part !== '')
+    .join(', ')
+}
+
+function partialPhrase(tally: Tally, outcomes: ReadonlyArray<ToolState>, brief: boolean): string {
+  const total = outcomes.length
+  const counted = tally.noun === '' ? phrase(tally.verb, amount(tally, total)) : `${tally.verb} ${countOf(outcomes, 'done')} of ${plural(total, tally.noun)}`
+  return brief ? counted : counted + asides(outcomes)
+}
+
+function settledPhrase(tally: Tally, outcomes: ReadonlyArray<ToolState>, brief: boolean): string {
+  const well = countOf(outcomes, 'done')
+  if (well === outcomes.length) return phrase(tally.verb, amount(tally, well))
+  return well === 0 ? unsettledPhrase(tally, outcomes) : partialPhrase(tally, outcomes, brief)
 }
 
 function startedPhrase(tally: Tally, calls: ReadonlyArray<TrackedCall>, roots: Roots): string {
-  return `${tally.started ?? 'started'} ${amount(tally, targetOutcomes(tally, calls, roots).length)}`.trimEnd()
+  return phrase(tally.started ?? 'started', amount(tally, targetOutcomes(tally, calls, roots).length))
 }
 
-function kindPhrase(tally: Tally, calls: ReadonlyArray<TrackedCall>, roots: Roots): string {
+function kindPhrases(tally: Tally, calls: ReadonlyArray<TrackedCall>, roots: Roots, brief: boolean): string[] {
   const untracked = calls.filter(isUntracked)
   const tracked = calls.filter(call => !isUntracked(call))
-  const settled = tracked.length > 0 ? settledPhrase(tally, tracked, roots) : undefined
-  const started = untracked.length > 0 ? startedPhrase(tally, untracked, roots) : undefined
-  return [settled, started].filter((part): part is string => part !== undefined).join(', ')
+  const settled = tracked.length > 0 ? [settledPhrase(tally, targetOutcomes(tally, tracked, roots), brief)] : []
+  const started = untracked.length > 0 ? [startedPhrase(tally, untracked, roots)] : []
+  return [...settled, ...started]
 }
 
 function kindRank(calls: ReadonlyArray<TrackedCall>): number {
@@ -712,9 +790,14 @@ function kindRank(calls: ReadonlyArray<TrackedCall>): number {
   return calls.every(isFailed) ? 2 : 1
 }
 
+function kindsInOrder(calls: ReadonlyArray<TrackedCall>): Array<[string, TrackedCall[]]> {
+  return [...byKey(calls, tallyKey)].sort(([, a], [, b]) => kindRank(a) - kindRank(b))
+}
+
 export function headline(calls: ReadonlyArray<TrackedCall>, roots: Roots): string {
-  const kinds = [...byKey(calls, tallyKey)].sort(([, a], [, b]) => kindRank(a) - kindRank(b))
-  return capitalise(kinds.map(([key, own]) => kindPhrase(tallyOf(key, own), own, roots)).join(', '))
+  const kinds = kindsInOrder(calls)
+  const brief = kinds.length >= BRIEF_FROM_KINDS
+  return capitalise(kinds.flatMap(([key, own]) => kindPhrases(tallyOf(key, own), own, roots, brief)).join(', '))
 }
 
 function groupOutcomes(calls: ReadonlyArray<TrackedCall>, roots: Roots): ToolState[] {
@@ -729,7 +812,7 @@ function settledState(calls: ReadonlyArray<TrackedCall>): ToolState {
 
 export function failureOf(output: unknown): string[] | undefined {
   const line = outputLine(output)
-  if (REJECTION.test(line) || INTERRUPTION.test(line)) return undefined
+  if (isRejection(line) || INTERRUPTION.test(line)) return undefined
   const reason = errorReason(output)
   return reason.length > 0 ? reason : undefined
 }
@@ -780,9 +863,18 @@ export function durationText(ms: number | undefined): string | undefined {
   return minutes % 60 === 0 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
+export function isInterimNotice(text: string): boolean {
+  return WAITING_ON_OWN_WORK.test(firstLine(text))
+}
+
+function noticeState(text: string, status: string | undefined): ToolState | undefined {
+  const state = NOTIFICATION_STATE[status ?? '']
+  return state === 'done' && isInterimNotice(text) ? 'started' : state
+}
+
 export function notificationRow(text: string, task: { status?: string; durationMs?: number }): { row: ToolRow; state: ToolState } | undefined {
   const name = firstLine(text)
-  const state = NOTIFICATION_STATE[task.status ?? '']
+  const state = noticeState(text, task.status)
   if (name === '' || state === undefined) return undefined
   return { row: { name, detail: [], note: durationText(task.durationMs) }, state }
 }

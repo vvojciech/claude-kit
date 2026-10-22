@@ -27,6 +27,8 @@ const MIXED_CASE_ROLES = new Set<TagRole>(['bold', 'italic', 'strike', 'underlin
 
 const VOID = new Set(['br', 'wbr', 'img', 'hr'])
 
+const BOOLEAN_ATTRIBUTES = new Set(['open', 'hidden', 'disabled', 'checked', 'selected', 'readonly', 'required', 'multiple', 'autofocus', 'controls', 'nowrap', 'compact', 'reversed', 'download', 'inert', 'itemscope', 'translate', 'contenteditable', 'draggable', 'spellcheck'])
+
 const TAG = /^<(\/?)([a-z][a-z\d]*)((?:\s+[a-zA-Z_:][\w:.-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>$/i
 
 const ATTRIBUTE = /([a-zA-Z_:][\w:.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
@@ -58,7 +60,12 @@ export function tagOf(markup: string): Tag | undefined {
   if (!match || name === undefined || role === undefined) return undefined
   const closing = match[1] === '/'
   if (closing && (match[3] !== '' || match[4] !== '')) return undefined
+  if (hasProseAttribute(match[3] ?? '')) return undefined
   return { name, role, closing, empty: VOID.has(name) || match[4] === '/', attributes: attributesOf(match[3] ?? '') }
+}
+
+function hasProseAttribute(source: string): boolean {
+  return [...source.matchAll(ATTRIBUTE)].some(([, name = '', double, single, bare]) => double === undefined && single === undefined && bare === undefined && !BOOLEAN_ATTRIBUTES.has(name.toLowerCase()))
 }
 
 function roleAsWritten(written: string, role: TagRole | undefined): TagRole | undefined {
@@ -70,11 +77,6 @@ function attributesOf(source: string): Record<string, string> {
   const attributes: Record<string, string> = {}
   for (const [, name = '', double, single, bare] of source.matchAll(ATTRIBUTE)) attributes[name.toLowerCase()] = decodeEntities(double ?? single ?? bare ?? '')
   return attributes
-}
-
-export function isTagNamePrefix(prefix: string): boolean {
-  const lower = prefix.toLowerCase()
-  return lower !== '' && Object.keys(ROLES).some(name => name.startsWith(lower))
 }
 
 export function isComment(markup: string): boolean {

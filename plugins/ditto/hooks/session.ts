@@ -1,5 +1,6 @@
 import type { Reply } from '../types'
 import type { Flash } from './row'
+import type { Target } from './targets'
 import type { Written } from './turns'
 
 const DRAWN_ROWS = 1000
@@ -9,7 +10,6 @@ export class Session {
   reached = false
   warned = false
   settledOnce = false
-  notice: string | undefined
   turn: Written[] = []
   turnOpen = false
   turnRows: string[] = []
@@ -19,6 +19,16 @@ export class Session {
   reading: Promise<Reply[]> | undefined
   readonly drawn = new Map<string, string>()
   readonly flashes = new Map<string, Flash>()
+  readonly groupCalls = new Map<string, Target>()
+
+  rememberGroup(targets: Target[]): void {
+    for (const call of targets) {
+      if (call.callId === undefined) continue
+      this.groupCalls.delete(call.callId)
+      this.groupCalls.set(call.callId, call)
+    }
+    while (this.groupCalls.size > DRAWN_ROWS) this.groupCalls.delete(this.groupCalls.keys().next().value ?? '')
+  }
 
   remember(requestId: string, text: string): void {
     this.drawn.delete(requestId)

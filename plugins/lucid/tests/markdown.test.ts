@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { decodeEntities } from '../hooks/entities'
+import { tagOf } from '../hooks/html'
 import { inlineSpans, isPath, isProsePath, shellSpans } from '../hooks/markdown'
 import { blocksOf, parseBlocks } from '../hooks/message'
 import type { Block, Span } from '../hooks/markdown'
@@ -566,12 +567,12 @@ describe('streaming', () => {
     }
   })
 
-  test('draws a table header as a table once its first cell closes', async () => {
+  test('holds a table header row until its delimiter row starts, then draws it as a table', async () => {
     const message = 'Summary\n| col a | col b |\n|---|--:|\n| 1 | 2 |'
-    const opened = message.indexOf('| col b')
-    for (let end = opened + 1; end <= message.length; end++) {
-      const blocks = streamed(message.slice(0, end))
-      expect({ end, kinds: kinds(blocks) }).toEqual({ end, kinds: ['paragraph', 'table'] })
+    const delimiter = message.indexOf('|---') + 2
+    for (let end = message.indexOf('|'); end <= message.length; end++) {
+      const kindsNow = end < delimiter ? ['paragraph'] : ['paragraph', 'table']
+      expect({ end, kinds: kinds(streamed(message.slice(0, end))) }).toEqual({ end, kinds: kindsNow })
     }
   })
 
@@ -691,5 +692,22 @@ describe('footnote continuations', () => {
 
   test('hangs nothing for a footnote with no continuation', async () => {
     expect(parseBlocks('[^n]: only').map(b => b.hang)).toEqual([undefined])
+  })
+})
+
+describe('tags with bare attributes', () => {
+  test('reads a comparison with bare words as prose, not a tag', async () => {
+    for (const markup of ['<a and j>', '<b and c>', '<i and y>', '<s and t>', '<b x>']) expect({ markup, tag: tagOf(markup) }).toEqual({ markup, tag: undefined })
+  })
+
+  test('keeps real boolean attributes and valued attributes', async () => {
+    expect(tagOf('<details open>')?.attributes).toEqual({ open: '' })
+    expect(tagOf('<a href="x" download>')?.attributes).toEqual({ href: 'x', download: '' })
+    expect(tagOf('<span class=x>')?.role).toBe('text')
+  })
+
+  test('renders a comparison before a later closer as written', async () => {
+    expect(text(inlineSpans('while i<a and j>0 the </a> closes'))).toBe('while i<a and j>0 the </a> closes')
+    expect(inlineSpans('if a<b and c>d then x</b> y').some(span => span.bold)).toBe(false)
   })
 })

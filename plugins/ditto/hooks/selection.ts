@@ -49,7 +49,15 @@ function wholeLines(source: string, from: number, to: number): string {
   return source.slice(lineStart(source, from), lineEnd(source, to))
 }
 
-const INLINE_MARKUP = [/\*\*[^*\n]+\*\*/g, /__[^_\n]+__/g, /~~[^~\n]+~~/g, /(`+)[^`\n]+?\1/g, /!?\[[^\]\n]*\]\([^)\n]*\)/g, /(?<![*\w])\*[^*\s][^*\n]*\*(?![*\w])/g, /(?<![_\w])_[^_\s][^_\n]*_(?![_\w])/g]
+const INLINE_MARKUP = [
+  /\*\*[^*\n]+\*\*/g,
+  /__[^_\n]+__/g,
+  /~~[^~\n]+~~/g,
+  /(`+)[^`\n]+?\1/g,
+  /!?\[[^\]\n]*\]\([^)\n]*\)/g,
+  /(?<![*\w])\*[^*\s][^*\n]*\*(?![*\w])/g,
+  /(?<![_\w])_[^_\s][^_\n]*_(?![_\w])/g,
+]
 
 type Cut = { from: number; to: number }
 

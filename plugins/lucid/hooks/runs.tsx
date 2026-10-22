@@ -60,7 +60,7 @@ export function spanLook(span: Span, palette: Palette, chip: boolean): Look {
   if (bold) look.bold = true
   if (span.italic) look.italic = true
   if (span.strike) look.strike = true
-  if (span.kind === 'url' || span.href !== undefined) look.underline = true
+  if (span.underline || span.kind === 'url' || span.href !== undefined) look.underline = true
   if (span.href !== undefined) look.href = span.href
   return look
 }

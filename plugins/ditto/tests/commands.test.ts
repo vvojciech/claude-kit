@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { BAD_REPLY, SELECTION_HAS_NO_REPLY, USAGE, badToolCount, chooseBlock, missingReply, numberFirst, parse } from '../hooks/commands'
+import { BAD_REPLY, SELECTION_HAS_NO_REPLY, USAGE, badToolCount, callNameAlone, chooseBlock, chooseGroupCall, chooseNamedCall, noGroupCall, missingReply, numberFirst, parse } from '../hooks/commands'
 import type { Choice } from '../hooks/commands'
-import { replyTargets } from '../hooks/targets'
+import { replyTargets, target } from '../hooks/targets'
+import { OUTPUT_TOOLS } from '../hooks/tools'
 import { resolved } from './support'
 
 const HISTORY = ['first\n```py\nold()\n```', 'second\n| a |\n|---|\n| 1 |', 'third\n```sh\nnew\n```\n\n```sh\nnewer\n```\n\n```\nplain\n```']
@@ -141,5 +142,56 @@ describe('tool counts', () => {
     expect(parse('file 00')).toEqual({ error: badToolCount('file') })
     expect(parse('output x')).toEqual({ error: USAGE })
     expect(parse('output 2')).toEqual({ kind: 'tool', tool: 'output', back: 2 })
+  })
+
+  test('the help names every tool /ditto output counts, as it once left out Glob', () => {
+    const named = [...OUTPUT_TOOLS].filter(tool => tool !== 'Task')
+    expect(named.filter(tool => !USAGE.includes(tool))).toEqual([])
+  })
+})
+
+describe('group chip names', () => {
+  test('a group call chip such as ⧉ bash #2 is never read as the second bash block, which /ditto bash 2 still means', async () => {
+    expect(parse('bash #2')).toEqual({ kind: 'call', name: 'bash #2' })
+    expect(parse('1 notes.md #3')).toEqual({ error: callNameAlone('1 notes.md #3') })
+    expect(callNameAlone('1 notes.md #3')).toBe('A call name takes nothing else: /ditto notes.md #3')
+    expect(parse('#2')).toEqual({ error: callNameAlone('#2') })
+    expect(parse('bash #2 #3')).toEqual({ error: callNameAlone('bash #2 #3') })
+    expect(USAGE).not.toMatch(/only a click|cannot point/)
+    expect(parse('bash 2')).toEqual({ kind: 'block', reply: 1, name: 'bash 2' })
+    expect(parse('#')).toEqual({ kind: 'block', reply: 1, name: '#' })
+  })
+
+  test('a numbered call name copies it from the latest group that has it, as the stock toast lists, and says so when none does', async () => {
+    const call = (name: string, text: string, callId?: string) => ({ ...target('output', name, text, 'bash output'), ...(callId ? { callId } : {}) })
+    const calls = [call('bash #2', 'later', 't4'), call('bash #2', 'early', 't2'), call('bash #1', 'one', 't1')]
+    expect(chooseGroupCall(calls, ['t1', 't2', 't3', 't4'], 'bash #2')).toEqual({ text: 'later', what: 'bash output #2' })
+    expect(chooseGroupCall(calls, ['t4', 't2'], 'bash #2')).toEqual({ text: 'early', what: 'bash output #2' })
+    expect(chooseGroupCall([call('bash #2', 'gone')], [], 'bash #2')).toEqual({ text: 'gone', what: 'bash output #2' })
+    expect(chooseGroupCall(calls, ['t1'], 'bash #3')).toEqual({ error: noGroupCall('bash #3') })
+    expect(chooseGroupCall([], [], 'bash #2')).toEqual({ error: noGroupCall('bash #2') })
+    expect(noGroupCall('bash #3')).not.toMatch(/⧉|click|widen/i)
+    const file = { ...target('file', 'README.md #2', 'doc', 'file README.md'), callId: 't9' }
+    expect(chooseGroupCall([file], ['t9'], 'readme.md #2')).toEqual({ text: 'doc', what: 'file README.md #2' })
+  })
+
+  test('a file chip name picks the last file of that name, in any case, and nothing when none was touched', async () => {
+    const file = (name: string, text: string) => target('file', 'file', text, `file ${name}`)
+    const files = [file('palette.ts', 'old'), file('notes.md', 'notes'), file('Palette.ts', 'new')]
+    expect(chooseNamedCall(files, 'palette.ts')).toEqual({ text: 'new', what: 'last file Palette.ts' })
+    expect(chooseNamedCall(files, 'theme.ts')).toBeUndefined()
+    expect(chooseNamedCall([], 'notes.md')).toBeUndefined()
+    expect(chooseNamedCall(files, 'file')).toBeUndefined()
+  })
+
+  test('a tool chip name picks the last output of that tool, and says why when its report cannot be read', async () => {
+    const output = (tool: string, text: string) => target('output', 'output', text, `${tool} output`)
+    const calls = [output('bash', 'one'), output('grep', 'hits'), output('bash', 'two')]
+    expect(chooseNamedCall(calls, 'bash')).toEqual({ text: 'two', what: 'last bash output' })
+    expect(chooseNamedCall(calls, 'grep')).toEqual({ text: 'hits', what: 'last grep output' })
+    expect(chooseNamedCall(calls, 'tool')).toBeUndefined()
+    expect(chooseNamedCall(calls, 'output')).toBeUndefined()
+    const lost = { ...output('agent', ''), unavailable: 'gone' }
+    expect(chooseNamedCall([lost], 'agent')).toEqual({ error: 'Cannot copy the last agent output: gone' })
   })
 })

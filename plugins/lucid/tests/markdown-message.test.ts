@@ -23,6 +23,10 @@ function only<K extends Block['kind']>(blocks: Block[] | undefined, kind: K): Ex
   return found as Extract<Block, { kind: K }>
 }
 
+function expectAsFinished(prefix: string): void {
+  expect({ prefix, frame: streamed(prefix) }).toEqual({ prefix, frame: parseBlocks(prefix) })
+}
+
 const ATTEMPTS = 3
 
 function elapsed(run: () => unknown): number {
@@ -63,7 +67,8 @@ describe('finished messages keep every line', () => {
 
   test('holds the same trailing markup back while the reply is still arriving', async () => {
     expect(kinds(streamed('Closing Title\n============='))).toEqual(['paragraph'])
-    expect(kinds(streamed('Summary\n| a | b |'))).toEqual(['paragraph', 'table'])
+    expect(kinds(streamed('Summary\n| a | b |'))).toEqual(['paragraph'])
+    expect(kinds(streamed('Summary\n| a | b |\n|-'))).toEqual(['paragraph', 'table'])
     expect(kinds(streamed('Done.\n-'))).toEqual(['paragraph'])
   })
 
@@ -166,6 +171,13 @@ describe('html in replies', () => {
     expect(text(inlineSpans('<Button>Save</Button>'))).toBe('<Button>Save</Button>')
   })
 
+  test('keeps a block tag named in prose as written, and still drops one that pairs', async () => {
+    for (const prose of ['Wrap it in <p> tags and use <div> for layout.', 'A <table> has <tr> rows.', 'Close with </div> at the end.', 'The <summary> element sits in <details>.', 'Rule off with <hr> here.'])
+      expect(text(parseBlocks(prose).flatMap(block => (block.kind === 'paragraph' ? block.spans : [])))).toBe(prose)
+    expect(text(inlineSpans('a <span>b</span> <div>c</div> d'))).toBe('a b c d')
+    expect(text(inlineSpans('soft<wbr>break'))).toBe('softbreak')
+  })
+
   test('styles bold, italic and code tags like their markdown', async () => {
     const spans = inlineSpans('<b>bold</b> <strong>strong</strong> <i>it</i> <em>em</em> <code>a | b</code> <kbd>Ctrl</kbd>')
     expect(spans.filter(s => s.bold).map(s => s.text)).toEqual(['bold', 'strong'])
@@ -214,7 +226,7 @@ describe('blocksOf', () => {
       { kind: 'heading', source: '# Title', depth: 0, start: 0, end: 7 },
       { kind: 'paragraph', source: 'Some **text**.', depth: 0, start: 9, end: 23 },
       { kind: 'code', source: '```Ruby extra\nputs 1\n```', depth: 0, start: 25, end: 49, lang: 'ruby', text: 'puts 1' },
-      { kind: 'table', source: '| a | b |\n|---|---|\n| `x \\| y` | 2 |\n', depth: 0, start: 51, end: message.length },
+      { kind: 'table', source: '| a | b |\n|---|---|\n| `x \\| y` | 2 |', depth: 0, start: 51, end: message.length - 1 },
     ])
   })
 
@@ -236,7 +248,7 @@ describe('blocksOf', () => {
   })
 
   test('gives front matter, pre blocks and over-deep nesting as the code blocks lucid draws', async () => {
-    expect(blocksOf('---\ntitle: x\n---\nBody')[0]).toEqual({ kind: 'code', source: '---\ntitle: x\n---\n', depth: 0, start: 0, end: 17, lang: 'yaml', text: 'title: x' })
+    expect(blocksOf('---\ntitle: x\n---\nBody')[0]).toEqual({ kind: 'code', source: '---\ntitle: x\n---', depth: 0, start: 0, end: 16, lang: 'yaml', text: 'title: x' })
     expect(blocksOf('<pre>a\n b</pre>')).toEqual([{ kind: 'code', source: '<pre>a\n b</pre>', depth: 0, start: 0, end: 15, lang: '', text: 'a\n b' }])
     const deep = blocksOf('>'.repeat(40) + ' deep')
     expect(deep.at(-1)).toMatchObject({ kind: 'code', lang: '' })
@@ -249,7 +261,7 @@ describe('blocksOf', () => {
   })
 
   test('gives a provisional streaming table the text that really arrived', async () => {
-    expect(blocksOf('Summary\n\n| a | b |', { streaming: true }).at(-1)).toEqual({ kind: 'table', source: '| a | b |', depth: 0, start: 9, end: 18 })
+    expect(blocksOf('Summary\n\n| a | b |\n|-', { streaming: true }).at(-1)).toEqual({ kind: 'table', source: '| a | b |', depth: 0, start: 9, end: 18 })
   })
 
   test('gives an alert body without the alert marker lucid hides', async () => {
@@ -261,12 +273,12 @@ describe('blocksOf', () => {
 
   test('lists each consecutive footnote definition as its own paragraph', async () => {
     const message = '[^1]: one\n[^2]: https://x.io\n'
-    expect(blocksOf(message).map(e => e.source)).toEqual(['[^1]: one\n', '[^2]: https://x.io\n'])
-    expect(blocksOf(message).map(e => e.source).join('')).toBe(message)
+    expect(blocksOf(message).map(e => e.source)).toEqual(['[^1]: one', '[^2]: https://x.io'])
+    expect(blocksOf(message).map(e => `${e.source}\n`).join('')).toBe(message)
   })
 
   test('lists the indented paragraphs of a footnote after its lead, without the indent', async () => {
-    expect(blocksOf('[^n]: Lead\n\n    More.\n').map(e => `${e.depth}:${e.kind}:${e.source}`)).toEqual(['0:paragraph:[^n]: Lead', '1:paragraph:More.\n'])
+    expect(blocksOf('[^n]: Lead\n\n    More.\n').map(e => `${e.depth}:${e.kind}:${e.source}`)).toEqual(['0:paragraph:[^n]: Lead', '1:paragraph:More.'])
   })
 
   test('locates every block in the text as given, nested and CRLF ones included', async () => {
@@ -278,7 +290,7 @@ describe('blocksOf', () => {
       [1, 'paragraph', 'item one'],
       [1, 'list', '- child **x**'],
       [2, 'paragraph', 'child **x**'],
-      [0, 'quote', '> quoted\r\n> more\r\n'],
+      [0, 'quote', '> quoted\r\n> more'],
       [1, 'paragraph', 'quoted\r\n> more'],
     ])
   })
@@ -294,11 +306,23 @@ describe('blocksOf', () => {
 
   test('locates a nested block at its own content, never on a container marker with the same text', async () => {
     for (const [message, expected] of [
-      ['1. 1\n2. 2\n', [[0, 0, 10], [1, 3, 4], [1, 8, 9]]],
-      ['- 1. 1\n', [[0, 0, 7], [1, 2, 6], [2, 5, 6]]],
-      ['1) 1)\n', [[0, 0, 6], [1, 3, 5]]],
-      ['- - x\n', [[0, 0, 6], [1, 2, 5], [2, 4, 5]]],
+      ['1. 1\n2. 2\n', [[0, 0, 9], [1, 3, 4], [1, 8, 9]]],
+      ['- 1. 1\n', [[0, 0, 6], [1, 2, 6], [2, 5, 6]]],
+      ['1) 1)\n', [[0, 0, 5], [1, 3, 5]]],
+      ['- - x\n', [[0, 0, 5], [1, 2, 5], [2, 4, 5]]],
     ] as const) expect({ message, at: blocksOf(message).map(e => [e.depth, e.start, e.end]) }).toEqual({ message, at: expected.map(entry => [...entry]) })
+  })
+
+  test('reads a first-line heading after a byte order mark and locates it past the mark', async () => {
+    const message = '\uFEFF# bom\n\ntext'
+    expect(kinds(parseBlocks(message))).toEqual(['heading', 'paragraph'])
+    expect(blocksOf(message).map(e => message.slice(e.start, e.end))).toEqual(['# bom', 'text'])
+    expect(blocksOf('\uFEFF# a\r\n\r\nb').map(e => [e.start, e.end])).toEqual([[1, 4], [8, 9]])
+  })
+
+  test('gives every source without a trailing newline, whatever its kind', async () => {
+    const message = '- a\n- b\n\n> q\n\n```sh\nls\n```\n\n| a |\n|---|\n| 1 |\n\n[^1]: one\n\n    Two.\n'
+    expect(blocksOf(message).filter(e => e.source.endsWith('\n')).map(e => e.source)).toEqual([])
   })
 
   test('draws nothing for an empty message', async () => {
@@ -330,6 +354,15 @@ describe('ReplyStream', () => {
   })
 })
 
+function codeSources(blocks: Block[]): string[] {
+  return blocks.flatMap(block => {
+    if (block.kind === 'code') return [block.source]
+    if (block.kind === 'quote') return codeSources(block.blocks)
+    if (block.kind === 'list') return block.items.flatMap(item => codeSources(item.blocks))
+    return []
+  })
+}
+
 function shownSyntax(blocks: Block[]): string {
   return blocks
     .map(block => {
@@ -347,7 +380,7 @@ const SWEPT = [
   'x __bold_ y __bold__ and _it_',
   'a ~~strike~ b ~~strike~~',
   'Some **bold\ncontinues here** ok',
-  `see \`${'tok '.repeat(30)}\` done`,
+  `see \`${'tok '.repeat(15)}\` done`,
   'Intro\n\n```ruby\nputs 1\n```\n\nafter',
   'Intro\n\n~~~ruby\nputs 1\n~~~\n\nafter',
   'x < y and <!-- c --> and <a href="u">l</a> end',
@@ -388,17 +421,20 @@ describe('streaming shows no syntax still being typed', () => {
     expect(shownSyntax(streamed('- '))).toBe('')
   })
 
-  test('holds back an opener inside the last table row until it closes', async () => {
-    const table = only(streamed('| a | b |\n|---|---|\n| 1 | **2'), 'table')
-    expect(table.rows.map(row => row.map(text))).toEqual([['1', '']])
+  test('shows an unclosed opener in the last table row as written, inside its own cell, until it closes', async () => {
+    expect(only(streamed('| a | b |\n|---|---|\n| 1 | **2'), 'table').rows.map(row => row.map(text))).toEqual([['1', '**2']])
+    expect(only(streamed('| a | b |\n|---|---|\n| _id | x'), 'table').rows.map(row => row.map(text))).toEqual([['_id', 'x']])
+    const closed = only(streamed('| a | b |\n|---|---|\n| 1 | **2**'), 'table')
+    expect(closed.rows[0]?.[1]?.[0]).toMatchObject({ text: '2', bold: true })
   })
 
-  test('never shows a frame whose text the finished reply does not contain in order', async () => {
+  test('never shows a frame whose text the same prefix finished, or the finished reply, does not contain in order', async () => {
     for (const message of SWEPT) {
       const final = shownSyntax(parseBlocks(message)).replace(/\s+/g, '')
       for (let end = 1; end <= message.length; end++) {
         const prefix = message.slice(0, end)
-        expect({ prefix, inOrder: isInOrder(shownSyntax(streamed(prefix)).replace(/\s+/g, ''), final) }).toEqual({ prefix, inOrder: true })
+        const finished = shownSyntax(parseBlocks(prefix)).replace(/\s+/g, '')
+        expect({ prefix, inOrder: isInOrder(shownSyntax(streamed(prefix)).replace(/\s+/g, ''), finished) || isInOrder(shownSyntax(streamed(prefix)).replace(/\s+/g, ''), final) }).toEqual({ prefix, inOrder: true })
       }
     }
   })
@@ -409,44 +445,134 @@ describe('streaming shows no syntax still being typed', () => {
     expect(shownSyntax(streamed('1. one\n2. two'))).toBe('number(one) number(two)')
   })
 
-  test('holds back an inline opener until its closer arrives', async () => {
+  test('holds back only a line-start marker that could still become a block', async () => {
     for (const [prefix, shown] of [
-      ['Some **bol', 'Some'],
-      ['Some *it', 'Some'],
-      ['a ~~gone', 'a'],
-      ['run `npm', 'run'],
-      ['see [docs', 'see'],
-      ['see [docs]', 'see'],
-      ['see [docs](https://e.c', 'see'],
-      ['see ![logo](a.png', 'see'],
-      ['x <b>bo', 'x'],
-      ['x <b', 'x'],
-      ['x </b', 'x'],
-      ['x <a href="https://e', 'x'],
-      ['- see **bol', 'bullet(see)'],
-      ['> see **bol', 'quote(see)'],
-      ['## Title **bo', 'Title'],
-      ['Done **bold** and `x` then **mo', 'Done bold and x then'],
-      ['Some **bold*', 'Some'],
-      ['x __bold_', 'x'],
-      ['a ~~strike~', 'a'],
-      ['Some **bold\ncontinues here', 'Some'],
-      ['- item **one\n  two', 'bullet(item)'],
-      [`see \`${'tok '.repeat(30)}`, 'see'],
-      [`a **${'word '.repeat(30)}`, 'a'],
-      ['x <', 'x'],
-      ['x <!', 'x'],
-      ['x <!-', 'x'],
-      ['x <!-- note', 'x'],
-      ['a <a h', 'a'],
-      ['a <a ', 'a'],
-      ['a <a href="u" t', 'a'],
-      ['see [ref][', 'see'],
-      ['see [ref][x', 'see'],
-      ['an image !', 'an image'],
+      ['* *', ''],
+      ['- 1.', ''],
+      ['Intro\n\n>', 'Intro'],
+      ['Intro\n\n- ', 'Intro'],
     ] as const) expect({ prefix, shown: shownSyntax(streamed(prefix)) }).toEqual({ prefix, shown })
-    expect(shownSyntax(streamed('<details>\n<sum'))).toBe('')
+  })
+
+  test('shows an unfinished link, tag, entity or inline marker exactly as the same text finished', async () => {
+    for (const prefix of ['Some **', 'Some *', 'a ~~', 'run `', 'run ``', 'x <b>', 'see [docs', 'see [docs]', 'see [docs](https://e.c', 'see ![logo](a.png', 'x <b', 'x </b', 'x <a href="https://e', '- see **', 'x <', 'x <!', 'x <!-- note', 'a <a h', 'see [ref][x', 'an image !']) expectAsFinished(prefix)
     expect(shownSyntax(streamed('see [docs](https://e.com)'))).toBe('see docs')
+  })
+
+  test('shows an unclosed opener as written while its closer streams, then restyles the span', async () => {
+    for (const prefix of ['Some **bol', 'Some *it', 'a ~~gone', 'run `npm', 'x <b>bo', '## Title **bo', 'Done **bold** and `x` then **mo', 'Some **bold*', 'a **bold *it', '- item **one\n  two', '> see **bol']) expectAsFinished(prefix)
+    expect(shownSyntax(streamed('Some **bol'))).toBe('Some **bol')
+    for (const [prefix, style] of [
+      ['Some **bold**', 'bold'],
+      ['Some *it*', 'italic'],
+      ['a ~~gone~~', 'strike'],
+      ['x <u>un</u>', 'underline'],
+    ] as const) expect({ prefix, styled: only(streamed(prefix), 'paragraph').spans.at(-1)?.[style] }).toEqual({ prefix, styled: true })
+  })
+
+  test('shows an opener that never closes as written once the reply is finished', async () => {
+    for (const message of ['Some **bol', 'run `npm', 'x <b>bo', 'a ~~gone']) expect(shownSyntax(parseBlocks(message))).toBe(message)
+  })
+
+  test('shows a both-flanking star, a lone tilde or a lone backtick as written on every frame', async () => {
+    for (const head of ['3*4 = 12', '~5 minutes', 'a*b']) {
+      const message = `${head} and then the sentence keeps going with ordinary words for a long while`
+      expect(shownSyntax(streamed(message))).toBe(message)
+    }
+    expect(shownSyntax(streamed('2*3*4'))).toBe(shownSyntax(parseBlocks('2*3*4')))
+    expect(shownSyntax(streamed('Press the ` key\nthen go on'))).toBe('Press the ` key\nthen go on')
+  })
+
+  test('never lags a single-line paragraph behind an inline opener that never closes', async () => {
+    const tail = ' and then the sentence keeps going with ordinary words for quite a long while, until it finally stops here.'
+    for (const head of ['Use <b>bold', 'Use <u>under', 'Use <ins>v2', 'Use <em>x', 'Use <span>x', 'Use <kbd>Ctrl', 'Use <a href="x">link', 'Type `foo', 'The `x key', 'Type ``code', 'f(*args, **kwargs)', 'Call __dunder', 'Was ~~old', 'About ~5 minutes', '3*4 = 12']) {
+      const message = `${head}${tail}`
+      for (let end = head.indexOf(' ') + 1; end <= message.length; end++) {
+        const prefix = message.slice(0, end)
+        expect({ prefix, shown: shownSyntax(streamed(prefix)) }).toEqual({ prefix, shown: shownSyntax(parseBlocks(prefix)) })
+      }
+    }
+  })
+
+  test('outlines a block with an unclosed opener by the text that really arrived', async () => {
+    for (const prefix of ['Some **bol', 'x\n\nrun `npm', '- item <b>bo']) {
+      const entries = blocksOf(prefix, { streaming: true })
+      for (const entry of entries) expect({ prefix, at: prefix.slice(entry.start, entry.end), source: entry.source.includes('**bol**') || entry.source.endsWith('`') || entry.source.endsWith('</b>') }).toEqual({ prefix, at: entry.source, source: false })
+    }
+  })
+
+  test('shows a footnote reference as written until its definition arrives', async () => {
+    const reply = 'Claim[^1] and more[^note].\n\n[^1]: First.\n[^note]: Second.'
+    const head = reply.slice(0, reply.indexOf('\n'))
+    expect(shownSyntax(streamed(head))).toBe(head)
+    expect(only(streamed(head), 'paragraph').spans.some(span => span.kind === 'footnote')).toBe(false)
+    expect(only(streamed(`${head}\n\n[^1]: First.\n`), 'paragraph').spans.filter(span => span.kind === 'footnote').map(span => span.text)).toEqual(['[1]'])
+    expect(only(parseBlocks(reply), 'paragraph').spans.filter(span => span.kind === 'footnote').map(span => span.text)).toEqual(['[1]', '[note]'])
+    expect(shownSyntax(parseBlocks('Claim[^1] with no definition'))).toBe('Claim[^1] with no definition')
+  })
+
+  test('shows a full reference link as written until its definition arrives', async () => {
+    const head = 'See [the docs][d] and [Other][ X  Y ] here'
+    expect(shownSyntax(streamed(head))).toBe(head)
+    const spans = only(streamed(`${head}\n\n[d]: https://e.com/d\n`), 'paragraph').spans
+    expect(spans.find(span => span.text === 'the docs')?.href).toBe('https://e.com/d')
+    expect(shownSyntax(parseBlocks(head))).toBe(head)
+    expect(shownSyntax(streamed('a [x] b [] c'))).toBe('a [x] b [] c')
+    expect(shownSyntax(streamed('See [the docs][d] now.\n\n[d]:'))).toBe('See [the docs][d] now.')
+    for (const end of ['h', 'https:', 'https://e.co']) {
+      const prefix = `See [the docs][d] now.\n\n[d]: ${end}`
+      expect({ end, shown: streamed(prefix) }).toEqual({ end, shown: parseBlocks(prefix) })
+    }
+  })
+
+  test('shows bracketed indexes and nested params as written on every frame', async () => {
+    for (const message of ['Use params[:user][:name] in the controller', 'Index matrix[i][j] and more', 'Read a[0][1] and b[x][y].', 'Array syntax arr[^1] here.']) {
+      for (let end = 1; end <= message.length; end++) {
+        const prefix = message.slice(0, end)
+        expect({ prefix, shown: shownSyntax(streamed(prefix)) }).toEqual({ prefix, shown: prefix })
+      }
+    }
+  })
+
+  test('keeps a finished reply apart from the streamed frames it grew from', async () => {
+    const head = 'Claim[^1] and [the docs][d] here.'
+    streamed(head)
+    expect(parseBlocks(head)).toEqual(parseAfresh(head).blocks)
+  })
+
+  test('closes the gap an inline comment leaves between two words', async () => {
+    for (const [source, shown] of [
+      ['a <!-- hidden --> b', 'a b'],
+      ['a<!-- hidden --> b', 'a b'],
+      ['a <!-- hidden -->b', 'a b'],
+      ['<!-- hidden --> lead', ' lead'],
+    ] as const) expect({ source, shown: text(inlineSpans(source)) }).toEqual({ source, shown })
+  })
+
+  test('shows an unfinished link destination as written until it closes', async () => {
+    for (const prefix of [`See [x](https://e.com/${'a'.repeat(120)} and more`, `See [x](https://e.com/${'a'.repeat(120)}`]) expectAsFinished(prefix)
+    expect(shownSyntax(streamed(`See [x](https://e.com/${'a'.repeat(120)})`))).toBe('See x')
+  })
+
+  test('holds a pre closing tag back like a closing fence, and shows a partial autolink as written', async () => {
+    for (const close of ['<', '</', '</pr', '</pre']) expect({ close, code: only(streamed(`Text\n\n<pre lang="rb">\nputs 1\n${close}`), 'code').source }).toEqual({ close, code: 'puts 1' })
+    for (const prefix of ['Go <https://e.com/x', 'Go <h', 'Mail <me@exampl', 'Go <https://e.com/x and on']) expectAsFinished(prefix)
+    expect(shownSyntax(streamed('Go <https://e.com/x> now'))).toBe('Go https://e.com/x now')
+  })
+
+  test('holds a closing fence still streaming inside a quote', async () => {
+    for (const prefix of ['> ```sh\n> ls\n> `', '> ```sh\n> ls\n> ``', '> - s\n>   ```sh\n>   ls\n>   `', '> > ~~~sh\n> > ls\n> > ~']) expect({ prefix, code: codeSources(streamed(prefix)) }).toEqual({ prefix, code: ['ls'] })
+    expect(codeSources(streamed('> ```sh\n> ls\n> ```'))).toEqual(['ls'])
+  })
+
+  test('shows a self-closing tag as written until its bracket arrives', async () => {
+    for (const prefix of ['x <br/', 'x <br /', 'See <img src="a"/', 'x <hr/', 'a/b <c/d']) expectAsFinished(prefix)
+    expect(only(streamed('x <br/> y'), 'paragraph').spans.map(span => span.text).join('')).toBe('x\ny')
+  })
+
+  test('shows a trailing partial entity as written until it completes', async () => {
+    for (const prefix of ['AT&amp', 'x &lt', 'x &#16', 'x &', '<pre><code>x &l']) expectAsFinished(prefix)
+    for (const done of ['AT&T rocks', 'R&D team', 'a && b', 'x &amp; y']) expect(shownSyntax(streamed(done))).toBe(shownSyntax(parseBlocks(done)))
   })
 
   test('shows finished inline text whole, closed or never meant to close', async () => {
@@ -470,5 +596,82 @@ describe('streaming shows no syntax still being typed', () => {
     for (const message of ['Great!', 'Some **bol', 'see [docs](https://e.c', 'x <b>bo', 'Intro\n\n```s', '1. one\n2', 'Intro\n\n>']) expect(parseBlocks(message)).toEqual(parseAfresh(message).blocks)
     expect(shownSyntax(parseBlocks('Some **bol'))).toBe('Some **bol')
     expect(shownSyntax(parseBlocks('x <b>bo'))).toBe('x <b>bo')
+  })
+  test('streams a URL, autolink or path holding _ * ~ without cutting it at the delimiter', async () => {
+    for (const [message, final] of [
+      ['see https://e.com/a_(b) and the sentence goes on for a while', 'see https://e.com/a_(b) and the sentence goes on for a while'],
+      ['see https://e.com/~user and the sentence goes on for a while', 'see https://e.com/~user and the sentence goes on for a while'],
+      ['See https://en.wikipedia.org/wiki/Foo_(bar) for the background on it', 'See https://en.wikipedia.org/wiki/Foo_(bar) for the background on it'],
+      ['open <https://e.com/x*y> and the sentence goes on for a while', 'open https://e.com/x*y and the sentence goes on for a while'],
+      ['open <https://example.com/a_(b)> and the sentence goes on', 'open https://example.com/a_(b) and the sentence goes on'],
+      ['path src/_build/x and the sentence goes on for a while', 'path src/_build/x and the sentence goes on for a while'],
+      ['glob **/*.ts and the sentence goes on for a while', 'glob **/*.ts and the sentence goes on for a while'],
+      ['see www.e.com/a_b and the sentence goes on for a while', 'see www.e.com/a_b and the sentence goes on for a while'],
+    ] as const) {
+      const angles = message.length - final.length
+      for (let end = message.indexOf(' ', message.indexOf('/')) + 1; end <= message.length; end++) {
+        const shown = shownSyntax(streamed(message.slice(0, end)))
+        expect({ message, end, prefix: final.startsWith(shown), lag: end - angles - shown.length <= 2 }).toEqual({ message, end, prefix: true, lag: true })
+      }
+    }
+  })
+
+  test('streams emphasis after a slash or around a path exactly as the same text finished', async () => {
+    for (const message of ['Pick **Note**/**Warning** to go on', 'say yes/_no_ then', 'Edit _src/main.rs_ now', 'Edit __lib/a.ts__ now', 'see (_src/a.rs_) now', 'ratio 1/*x* now', 'path src/_build/x and on']) {
+      for (let end = 1; end <= message.length; end++) expectAsFinished(message.slice(0, end))
+    }
+  })
+
+  test('styles emphasis that closes after a slash once the closer arrives', async () => {
+    expect(only(streamed('say yes/_no_'), 'paragraph').spans.at(-1)).toMatchObject({ text: 'no', italic: true })
+    expect(only(streamed('Pick **Note**/**Warning**'), 'paragraph').spans.at(-1)).toMatchObject({ text: 'Warning', bold: true })
+  })
+
+  test('streams an angle autolink exactly as the same text finished, with no lag', async () => {
+    const message = 'Read <https://example.com/very/long/path/that/goes/on/x_y> now'
+    for (let end = 1; end <= message.length; end++) expectAsFinished(message.slice(0, end))
+    expect(shownSyntax(parseBlocks(message))).toBe('Read https://example.com/very/long/path/that/goes/on/x_y now')
+  })
+
+  test('drops the brackets of an angle email link once it closes', async () => {
+    const message = 'Mail <first.last@example.co.uk> now'
+    for (let end = 1; end <= message.length; end++) expectAsFinished(message.slice(0, end))
+    expect(shownSyntax(streamed(message))).toBe('Mail first.last@example.co.uk now')
+  })
+
+  test('ends a bare link before an unbalanced closing parenthesis', async () => {
+    expect(only(streamed('see (https://e.com/a_b) now'), 'paragraph').spans.find(span => span.href !== undefined)?.href).toBe('https://e.com/a_b')
+    expect(shownSyntax(streamed('see (_src/a.rs_)'))).toBe('see (src/a.rs)')
+  })
+
+  test('still opens emphasis right after a URL', async () => {
+    expect(only(streamed('see https://e.com/a and *then*'), 'paragraph').spans.at(-1)).toMatchObject({ text: 'then', italic: true })
+    expect(shownSyntax(streamed('see *https://e.com/a_b*'))).toBe('see https://e.com/a_b')
+    expect(shownSyntax(streamed('see [https://e.com/a_b](https://e.com/a_b) and *then*'))).toBe('see https://e.com/a_b and then')
+  })
+
+  test('lags a lone backtick or literal tag followed by a space by no more than a literal opener is held', async () => {
+    for (const message of ['Type ` to start the inline editor and keep typing until the line ends, which is long', 'Use the <b> tag sparingly in prose, it rarely survives a terminal render anyway']) {
+      for (let end = 1; end <= message.length; end++) {
+        const prefix = message.slice(0, end)
+        const lag = prefix.length - shownSyntax(streamed(prefix)).length
+        expect({ prefix, short: lag <= 1 }).toEqual({ prefix, short: true })
+      }
+    }
+  })
+
+  test('shows a trailing backslash as written until the next line makes it a hard break', async () => {
+    for (const prefix of ['line one\\', 'line one\\\n']) expectAsFinished(prefix)
+    expect(shownSyntax(streamed('line one\\\nline two'))).toBe('line one\nline two')
+  })
+
+  test('balances parentheses in a link destination', async () => {
+    const message = 'See [docs](https://e.com/a_(b)) and more words follow'
+    for (let end = 1; end <= message.length; end++) expectAsFinished(message.slice(0, end))
+    expect(only(streamed(message), 'paragraph').spans.find(span => span.href !== undefined)?.href).toBe('https://e.com/a_(b)')
+  })
+
+  test('drops the spaces around a break tag', async () => {
+    for (const source of ['and <br> for', 'and<br/>  for', 'and <br />for']) expect({ source, shown: text(inlineSpans(source)) }).toEqual({ source, shown: 'and\nfor' })
   })
 })

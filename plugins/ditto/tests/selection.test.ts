@@ -49,7 +49,8 @@ describe('sourceBehind', () => {
   })
 
   test('gives a table back as markdown rows from its padded drawing', async () => {
-    expect(sourceBehind(SOURCE, 'file  purpose\n────  ────────\na.ts  parses x | y')).toEqual({ text: '| file | purpose |\n|---|---|\n| a.ts | parses x \\| y |' })
+    const drawn = 'file  purpose\n────  ────────\na.ts  parses x | y'
+    expect(sourceBehind(SOURCE, drawn)).toEqual({ text: '| file | purpose |\n|---|---|\n| a.ts | parses x \\| y |' })
   })
 
   test('anchors a selection on its first and last lines when the rows between were drawn differently', async () => {

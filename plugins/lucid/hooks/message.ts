@@ -1,14 +1,15 @@
 import type { Token } from './vendor/marked.js'
 
-import { settledText, settledTokens, withoutPendingInline } from './holdback'
+import { settledText, settledTokens, withoutPendingPreClose } from './holdback'
 import { lexBlocks } from './lexer'
 import { codePiece, footnoteLabels, pieceOf, withFootnoteBodies } from './markdown'
-import type { Block, OutlineEntry, Piece } from './markdown'
+import type { Block, Footnotes, OutlineEntry, Piece } from './markdown'
 
 export type ParseOptions = { streaming?: boolean }
 
 type Parse = {
   text: string
+  streaming: boolean
   bodyStart: number
   stable: Piece[]
   stableEnd: number
@@ -118,10 +119,11 @@ function isLineContent(text: string, at: number, length: number): boolean {
 }
 
 function originalOffsets(original: string): (offset: number) => number {
-  if (!original.includes('\r')) return offset => offset
+  const mark = original.startsWith(BYTE_ORDER_MARK) ? BYTE_ORDER_MARK.length : 0
+  if (!original.includes('\r')) return offset => offset + mark
   const removed: number[] = []
   for (const match of original.matchAll(/\r\n/g)) removed.push((match.index ?? 0) - removed.length)
-  return offset => offset + countBelow(removed, offset)
+  return offset => offset + mark + countBelow(removed, offset + mark)
 }
 
 function countBelow(sorted: number[], value: number): number {
@@ -135,8 +137,11 @@ function countBelow(sorted: number[], value: number): number {
   return low
 }
 
+const BYTE_ORDER_MARK = '\uFEFF'
+
 function normalised(text: string): string {
-  return text.includes('\r') ? text.replace(/\r\n?/g, '\n') : text
+  const unmarked = text.startsWith(BYTE_ORDER_MARK) ? text.slice(BYTE_ORDER_MARK.length) : text
+  return unmarked.includes('\r') ? unmarked.replace(/\r\n?/g, '\n') : unmarked
 }
 
 function parsed(text: string, streaming: boolean): Parse {
@@ -147,7 +152,7 @@ function parsed(text: string, streaming: boolean): Parse {
     cache.set(key, hit)
     return hit
   }
-  const parse = parseMessage(normalised(text), streaming, baseFor)
+  const parse = parseMessage(normalised(text), streaming, (body, bodyStart) => baseFor(body, bodyStart, streaming))
   remember(key, parse)
   return parse
 }
@@ -164,10 +169,10 @@ function remember(key: string, parse: Parse): void {
   recent = [parse, ...recent.filter(other => other !== parse)].slice(0, RECENT)
 }
 
-function baseFor(text: string, bodyStart: number): Parse | undefined {
+function baseFor(text: string, bodyStart: number, streaming: boolean): Parse | undefined {
   let best: Parse | undefined
   for (const candidate of recent) {
-    if (candidate.bodyStart !== bodyStart || candidate.text.length > text.length || !text.startsWith(candidate.text)) continue
+    if (candidate.streaming !== streaming || candidate.bodyStart !== bodyStart || candidate.text.length > text.length || !text.startsWith(candidate.text)) continue
     if (!best || candidate.stableEnd > best.stableEnd) best = candidate
   }
   return best
@@ -183,12 +188,16 @@ function parseMessage(text: string, streaming: boolean, findBase: (text: string,
   const from = hasDefinitions ? 0 : resumeAt
   const tokens = lexBlocks(body.slice(from))
   const split = hasDefinitions ? { settled: [], rest: tokens, length: 0 } : splitSettled(tokens, body.length - from)
-  const pieces = new Pieces(hasDefinitions ? undefined : base?.open, hasDefinitions ? footnoteLabels(body) : undefined)
+  const pieces = new Pieces(hasDefinitions ? undefined : base?.open, footnotesOf(body, hasDefinitions))
   const stable = [...(from === 0 ? [] : (base?.stable ?? [])), ...pieces.of(split.settled, from)]
   const stableEnd = from + split.length
   const tail = streaming ? shownPieces(body, stableEnd, pieces) : pieces.of(split.rest, stableEnd)
   const all = [...(front ? [front.piece] : []), ...stable, ...tail]
-  return { text, bodyStart, stable, stableEnd, hasDefinitions, open: pieces.made, pieces: all, blocks: all.flatMap(piece => piece.blocks) }
+  return { text, streaming, bodyStart, stable, stableEnd, hasDefinitions, open: pieces.made, pieces: all, blocks: all.flatMap(piece => piece.blocks) }
+}
+
+function footnotesOf(body: string, hasDefinitions: boolean): Footnotes | undefined {
+  return hasDefinitions ? footnoteLabels(body) : undefined
 }
 
 class Pieces {
@@ -196,7 +205,7 @@ class Pieces {
 
   constructor(
     private readonly known: Map<number, Piece> | undefined,
-    private readonly footnotes: ReadonlySet<string> | undefined,
+    private readonly footnotes: Footnotes | undefined,
   ) {}
 
   of(tokens: Token[], start: number): Piece[] {
@@ -235,10 +244,8 @@ function shownPieces(body: string, stableEnd: number, pieces: Pieces): Piece[] {
 
 function shownTail(settled: string): { shown: string; tokens: Token[] } {
   const tokens = settledTokens(settled)
-  const inline = withoutPendingInline(settled, tokens)
-  if (inline === settled) return { shown: settled, tokens }
-  const shown = settledText(inline)
-  return { shown, tokens: settledTokens(shown) }
+  const shown = withoutPendingPreClose(settled, tokens)
+  return shown === settled ? { shown, tokens } : { shown, tokens: settledTokens(shown) }
 }
 
 function trimmedTo(shown: string): (piece: Piece, index: number, pieces: Piece[]) => Piece {

@@ -20,8 +20,14 @@ async function lucidBlocks($: EngineInterface, text: string): Promise<unknown> {
   }
 }
 
+function isBlock(value: unknown): value is Block {
+  if (typeof value !== 'object' || value === null) return false
+  const { kind, source } = value as Partial<Block>
+  return typeof kind === 'string' && typeof source === 'string'
+}
+
 function wellFormed(blocks: unknown): blocks is Block[] {
-  return Array.isArray(blocks) && blocks.every(b => typeof b === 'object' && b !== null && typeof (b as Block).kind === 'string' && typeof (b as Block).source === 'string')
+  return Array.isArray(blocks) && blocks.every(isBlock)
 }
 
 export async function drawnBlocks($: EngineInterface, text: string): Promise<Block[]> {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { backgroundReports, handbackReport, handbackStub, stripAnsi, toolTarget } from '../hooks/tools'
+import { backgroundReports, callName, groupTargets, handbackReport, handbackStub, stripAnsi, toolTarget } from '../hooks/tools'
 import { confirmation, lineCount } from '../hooks/notices'
 
 const copied = (tool: string, input: unknown, output?: unknown) => toolTarget({ tool, input, output })
@@ -98,5 +98,47 @@ describe('lineCount', () => {
   test('counts a file read with its closing newline as the lines it holds in the copy confirmation', async () => {
     expect(confirmation({ ok: true, via: 'pbcopy' }, 'file', 'line 1\nline 2\n')).toBe('Copied file (2 lines, pbcopy)')
     expect(confirmation({ ok: true, via: 'pbcopy' }, 'file', 'one\n')).toBe('Copied file (1 line, pbcopy)')
+  })
+})
+
+describe('naming the call a copy came from', () => {
+  test('a file copy names the file it came from, from the input path or what Read reported', async () => {
+    expect(copied('Write', { file_path: '/w/notes.md', content: 'x' })?.what).toBe('file notes.md')
+    expect(copied('Read', {}, { type: 'text', file: { filePath: '/w/a.ts', content: 'x' } })?.what).toBe('file a.ts')
+    expect(copied('Edit', { old_string: 'a', new_string: 'b' }, { filePath: '/w/dir/', originalFile: 'a' })?.what).toBe('file dir')
+    expect(copied('Write', { file_path: '', content: 'x' })?.what).toBe('file')
+  })
+
+  test('an output copy names the call it came from, as "Copied tool output, 2 back" left the reader to paste and guess which', async () => {
+    expect(copied('Bash', {}, { stdout: 'x' })?.what).toBe('bash output')
+    expect(copied('Grep', {}, { content: 'x' })?.what).toBe('grep output')
+    expect(copied('WebFetch', {}, { result: 'x' })?.what).toBe('webfetch output')
+    expect(copied('Task', {}, { report: 'x' })?.what).toBe('agent output')
+    expect(copied('mcp__jira__get', {}, { result: 'x' })?.what).toBe('mcp output')
+  })
+
+  test('callName gives the file name or the tool, so group chips never read like a /ditto count', async () => {
+    expect(callName({ tool: 'Read', input: { file_path: '/a/b.md' }, output: {} }, 'file')).toBe('b.md')
+    expect(callName({ tool: 'Write', input: {}, output: {} }, 'file')).toBe('file')
+    expect(callName({ tool: 'Bash', input: {}, output: {} }, 'output')).toBe('bash')
+    expect(callName({ tool: 'WebFetch', input: {}, output: {} }, 'output')).toBe('webfetch')
+    expect(callName({ tool: 'Task', input: {}, output: {} }, 'output')).toBe('agent')
+    expect(callName({ tool: 'mcp__jira__get', input: {}, output: {} }, 'output')).toBe('mcp')
+    expect(callName({ tool: 'ExitPlanMode', input: {}, output: {} }, 'plan')).toBe('plan')
+  })
+
+  test('groupTargets numbers repeated names from the top and skips calls with nothing to copy', async () => {
+    const bash = (stdout: string) => ({ tool: 'Bash', input: {}, output: { stdout } })
+    const names = groupTargets([bash('one'), { tool: 'TodoWrite', input: {}, output: {} }, bash('two'), bash('')]).map(t => [t.name, t.text])
+    expect(names).toEqual([['bash #1', 'one'], ['bash #2', 'two']])
+    expect(groupTargets([])).toEqual([])
+  })
+
+  test('groupTargets names a lone copyable call as a single tool row does', async () => {
+    const bash = { tool: 'Bash', input: {}, output: { stdout: 'probe' } }
+    const read = { tool: 'Read', input: { file_path: '/w/a.md' }, output: { type: 'text', file: { content: 'x' } } }
+    expect(groupTargets([bash]).map(t => [t.label, t.what])).toEqual([['⧉ output', 'bash output']])
+    expect(groupTargets([read, { tool: 'TodoWrite', input: {}, output: {} }]).map(t => [t.label, t.what])).toEqual([['⧉ file', 'file a.md']])
+    expect(groupTargets([bash]).map(t => t.label)).toEqual([toolTarget(bash)?.label])
   })
 })

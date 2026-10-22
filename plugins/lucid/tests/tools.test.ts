@@ -3,7 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { collapsePastes } from '../hooks/prompt'
 import { spansWidth } from '../hooks/markdown'
 import type { Span } from '../hooks/markdown'
-import { TASK_STILL_RUNNING, TASK_UNTRACKED, backgroundTaskId, createdContent, describeCall, durationText, failureOf, notificationRow, fileHref, fitMiddle, headline, plural, relativePath, stateOf, stoppedTaskId, summarise, summariseGroup, toolName, unsuccessfulLines, unsuccessfulState, verbFor } from '../hooks/tools'
+import { TASK_STILL_RUNNING, TASK_UNTRACKED, backgroundTaskId, callEnd, createdContent, describeCall, durationText, failureOf, notificationRow, fileHref, fitMiddle, headline, plural, relativePath, stateOf, stoppedTaskId, summarise, summariseGroup, toolName, unsuccessfulLines, unsuccessfulState, verbFor } from '../hooks/tools'
 import type { ToolCall, ToolLine, TrackedCall } from '../hooks/tools'
 
 const ROOTS = { cwd: '/repo', home: '/Users/me' }
@@ -14,7 +14,9 @@ const pending = { isRunning: false, isErrored: false, isInterrupted: false }
 
 const failed = { ...done, isErrored: true }
 
-const rejected = { ...done, isErrored: true, isInterrupted: true, output: 'User rejected tool use' }
+const cut = { ...done, isErrored: true, isInterrupted: true, output: 'User rejected tool use' }
+
+const rejected = { ...cut, refused: true }
 
 const launched = { ...done, output: { status: 'async_launched', agentId: 'a1', description: 'count files', prompt: 'p', outputFile: '/tmp/o' } }
 
@@ -215,7 +217,7 @@ describe('verbFor', () => {
 
   test('never uses a success verb for a call that did not succeed', async () => {
     expect(verbFor('Bash', 'failed')).toBe("Couldn't run")
-    expect(verbFor('Write', 'rejected')).toBe('Denied write')
+    expect(verbFor('Write', 'rejected')).toBe('Not allowed to write')
     expect(verbFor('Bash', 'interrupted')).toBe('Stopped running')
   })
 
@@ -224,7 +226,7 @@ describe('verbFor', () => {
     expect(verbFor('Agent', 'running', { subagent_type: 'Explore' })).toBe('Delegating to Explore')
     expect(verbFor('Agent', 'failed', {})).toBe("Couldn't delegate")
     expect(verbFor('Agent', 'done', { subagent_type: 'general-purpose' })).toBe('Delegated')
-    expect(verbFor('Agent', 'rejected', { subagent_type: 'Plan' })).toBe('Denied delegate to Plan')
+    expect(verbFor('Agent', 'rejected', { subagent_type: 'Plan' })).toBe('Not allowed to delegate to Plan')
   })
 })
 
@@ -237,7 +239,7 @@ describe('describeCall', () => {
 
   test('leaves the refusal to the result row under a rejected write', async () => {
     const row = describeCall({ tool: 'Write', input: { file_path: '/repo/out/deny.md' }, ...rejected }, ROOTS)
-    expect(row.name).toBe('Denied write')
+    expect(row.name).toBe('Not allowed to write')
     expect(text(row.detail)).toBe('out/deny.md')
   })
 
@@ -553,13 +555,13 @@ describe('round 5 tool rows', () => {
   test('never says it loaded a tool the search did not match', async () => {
     const row = describeCall(search('select:TodoWrite', []), ROOTS)
     expect(stateOf(search('select:TodoWrite', []))).toBe('failed')
-    expect(row.name).toBe("Couldn't load tools")
+    expect(row.name).toBe("Couldn't load")
     expect(text(row.detail)).toBe('TodoWrite')
   })
 
   test('names the tools that matched, not the ones asked for', async () => {
     const row = describeCall(search('select:mcp__playwright__browser_tabs,WebFetch', ['WebFetch']), ROOTS)
-    expect(row.name).toBe('Loaded tools')
+    expect(row.name).toBe('Loaded')
     expect(text(row.detail)).toBe('WebFetch')
     expect(text(describeCall(search('todo list', ['TaskCreate']), ROOTS).detail)).toBe('TaskCreate')
   })
@@ -572,7 +574,7 @@ describe('round 5 tool rows', () => {
 
   test('tells a denied call from a stopped one in the row itself', async () => {
     const write = { tool: 'Write', input: { file_path: '/repo/x.md' } }
-    expect(describeCall({ ...write, ...rejected }, ROOTS).name).toBe('Denied write')
+    expect(describeCall({ ...write, ...rejected }, ROOTS).name).toBe('Not allowed to write')
     expect(describeCall({ ...write, ...rejected }, ROOTS).note).toBeUndefined()
     expect(describeCall({ ...bash('npm test'), isInterrupted: true }, ROOTS).name).toBe('Stopped running')
     expect(describeCall({ ...bash('npm test'), isInterrupted: true }, ROOTS).note).toBeUndefined()
@@ -623,7 +625,7 @@ describe('round 6 tool rows', () => {
   })
 
   test('says a group whose calls all failed failed, without a success verb', async () => {
-    expect(headline([{ ...read('/repo/a.ts'), ...failed }, { ...read('/repo/b.ts'), ...failed }], ROOTS)).toBe('Read 0 of 2 files (2 failed)')
+    expect(headline([{ ...read('/repo/a.ts'), ...failed }, { ...read('/repo/b.ts'), ...failed }], ROOTS)).toBe("Couldn't read 2 files")
     expect(headline([bash('ls'), { ...bash('false'), ...failed }], ROOTS)).toBe('Ran 1 of 2 commands (1 failed)')
   })
 
@@ -657,8 +659,8 @@ describe('round 6 tool rows', () => {
 
   test('uses one verb per tool kind, MCP and monitors included', async () => {
     const watch = (id: string) => ({ tool: 'Monitor', input: { description: id, command: `tail ${id}` }, ...done, output: { taskId: id }, taskStatus: 'completed' })
-    expect(headline([watch('a'), watch('b')], ROOTS)).toBe('Watched 2 commands')
-    expect(headline([{ ...watch('a'), taskStatus: TASK_UNTRACKED }, bash('ls')], ROOTS)).toBe('Started watching 1 command, ran 1 command')
+    expect(headline([watch('a'), watch('b')], ROOTS)).toBe('Watched 2 streams')
+    expect(headline([{ ...watch('a'), taskStatus: TASK_UNTRACKED }, bash('ls')], ROOTS)).toBe('Started watching 1 stream, ran 1 command')
     expect(headline([{ tool: 'WebSearch', input: { query: 'x' }, ...done }], ROOTS)).toBe('Searched web for 1 query')
     expect(describeCall({ tool: 'mcp__playwright__browser_tabs', input: { action: 'list' }, ...done }, ROOTS).name).toBe('Called playwright › browser tabs')
     expect(describeCall({ tool: 'Agent', input: { description: 'say hi' }, ...done }, ROOTS).detail.map(s => s.text)).toEqual(['"say hi"'])
@@ -671,19 +673,19 @@ describe('round 7 tool rows', () => {
 
   test('names a denied or stopped call by what happened, not as failed', async () => {
     const write = { tool: 'Write', input: { file_path: '/repo/x.md' }, ...rejected }
-    expect(headline([write, read('/repo/a.ts')], ROOTS)).toBe('Read 1 file, wrote 0 of 1 file (1 denied)')
+    expect(headline([write, read('/repo/a.ts')], ROOTS)).toBe('Read 1 file, not allowed to write 1 file')
     expect(headline([read('/repo/a.ts'), { ...read('/repo/b.ts'), ...rejected }], ROOTS)).toBe('Read 1 of 2 files (1 denied)')
     expect(headline([bash('ls'), { ...bash('npm test'), isInterrupted: true }], ROOTS)).toBe('Ran 1 of 2 commands (1 stopped)')
     expect(headline([bash('ls'), { ...bash('false'), ...failed }, { ...bash('npm test'), isInterrupted: true }], ROOTS)).toBe('Ran 1 of 3 commands (1 failed, 1 stopped)')
-    expect(headline([{ ...bash('false'), ...failed }, { ...bash('npm test'), isInterrupted: true }], ROOTS)).toBe('Ran 0 of 2 commands (1 failed, 1 stopped)')
+    expect(headline([{ ...bash('false'), ...failed }, { ...bash('npm test'), isInterrupted: true }], ROOTS)).toBe("Couldn't run 1 command, stopped running 1 command")
   })
 
   test('puts what went well before kinds where nothing did', async () => {
-    expect(headline([{ ...bash('false'), ...failed }, read('/repo/a.ts')], ROOTS)).toBe('Read 1 file, ran 0 of 1 command (1 failed)')
+    expect(headline([{ ...bash('false'), ...failed }, read('/repo/a.ts')], ROOTS)).toBe("Read 1 file, couldn't run 1 command")
     const grep = { tool: 'Grep', input: { pattern: 'x' }, ...failed }
     const glob = { tool: 'Glob', input: { pattern: '*.ts' }, ...failed }
-    expect(headline([read('/repo/a.ts'), grep, glob], ROOTS)).toBe('Read 1 file, searched for 0 of 1 pattern (1 failed), listed 0 of 1 pattern (1 failed)')
-    expect(headline([grep, { ...glob, ...rejected }], ROOTS)).toBe('Searched for 0 of 1 pattern (1 failed), listed 0 of 1 pattern (1 denied)')
+    expect(headline([read('/repo/a.ts'), grep, glob], ROOTS)).toBe("Read 1 file, couldn't search for 1 pattern, couldn't list 1 pattern")
+    expect(headline([grep, { ...glob, ...rejected }], ROOTS)).toBe("Couldn't search for 1 pattern, not allowed to list 1 pattern")
   })
 
   test('watches the command a monitor runs, not the prose describing it', async () => {
@@ -721,7 +723,7 @@ describe('round 8 group headline counts', () => {
   })
 
   test('does not say ran for work still running beside a failure', async () => {
-    expect(headline([shell('a', TASK_STILL_RUNNING), { ...bash('x'), ...failed }], ROOTS)).toBe('Ran 0 of 2 commands (1 still running, 1 failed)')
+    expect(headline([shell('a', TASK_STILL_RUNNING), { ...bash('x'), ...failed }], ROOTS)).toBe("Running 1 command, couldn't run 1 command")
   })
 
   test('counts a file a retry read as one file read, never as two files', async () => {
@@ -729,12 +731,12 @@ describe('round 8 group headline counts', () => {
     expect(headline([read('/repo/a.ts'), { ...read('/repo/b.ts'), ...failed }, { ...read('/repo/b.ts'), ...failed }], ROOTS)).toBe('Read 1 of 2 files (1 failed)')
   })
 
-  test('names web search failures by their queries, and falls back to calls for a kind with no noun', async () => {
+  test('names web search failures by their queries, and counts a kind with no noun by repeats, never as calls', async () => {
     const web = (query: string) => ({ tool: 'WebSearch', input: { query }, ...done })
     expect(headline([web('a'), { ...web('b'), ...failed }], ROOTS)).toBe('Searched web for 1 of 2 queries (1 failed)')
-    expect(headline([read('/repo/a.ts'), { ...web('b'), ...failed }, { ...web('c'), ...failed }], ROOTS)).toBe('Read 1 file, searched web for 0 of 2 queries (2 failed)')
+    expect(headline([read('/repo/a.ts'), { ...web('b'), ...failed }, { ...web('c'), ...failed }], ROOTS)).toBe("Read 1 file, couldn't search web for 2 queries")
     const task = (subject: string) => ({ tool: 'TaskCreate', input: { subject }, ...done })
-    expect(headline([task('a'), { ...task('b'), ...failed }], ROOTS)).toBe('Added task 1 of 2 calls (1 failed)')
+    expect(headline([task('a'), { ...task('b'), ...failed }], ROOTS)).toBe('Added task ×2 (1 failed)')
   })
 
   test('keeps the plain total when nothing went wrong', async () => {
@@ -750,7 +752,25 @@ describe('round 9 tool rows', () => {
     expect(stateOf(rejected)).toBe('rejected')
     expect(describeCall({ ...bash('find /'), ...rejected, hasRun: true }, ROOTS).name).toBe('Stopped running')
     expect(headline([bash('echo now'), { ...bash('find /'), ...rejected, hasRun: true }], ROOTS)).toBe('Ran 1 of 2 commands (1 stopped)')
-    expect(headline([read('/repo/a.ts'), write], ROOTS)).toBe('Read 1 file, wrote 0 of 1 file (1 denied)')
+    expect(headline([read('/repo/a.ts'), write], ROOTS)).toBe('Read 1 file, not allowed to write 1 file')
+  })
+
+  test('calls a cut call with no sign it ran or was refused cancelled, never not allowed', async () => {
+    expect(stateOf(cut)).toBe('cancelled')
+    expect(stateOf({ ...cut, hasRun: false, refused: false })).toBe('cancelled')
+    expect(describeCall({ tool: 'WebFetch', input: { url: 'https://httpbin.org/delay/40' }, ...cut }, ROOTS).name).toMatch(/^Cancelled /)
+    expect(describeCall({ ...bash('echo quick'), ...cut }, ROOTS).name).toBe('Cancelled running')
+  })
+
+  test('trusts the run signal over a refusal mark, and the denial text over a missing mark', async () => {
+    expect(stateOf({ ...cut, hasRun: true, refused: true })).toBe('interrupted')
+    expect(stateOf({ ...cut, output: 'Permission to use Bash has been denied.' })).toBe('rejected')
+  })
+
+  test('counts cancelled calls apart from denied and stopped ones in a headline', async () => {
+    expect(headline([bash('echo now'), { ...bash('echo quick'), ...cut }], ROOTS)).toBe('Ran 1 of 2 commands (1 cancelled)')
+    expect(headline([{ ...bash('a'), ...cut }, { ...bash('b'), ...rejected }, { ...bash('c'), ...cut, hasRun: true }], ROOTS)).toBe('Not allowed to run 1 command, stopped running 1 command, cancelled running 1 command')
+    expect(failureOf('User rejected tool use')).toBeUndefined()
   })
 
   test('keeps a failure that is not a rejection failed even after the call ran', async () => {
@@ -759,7 +779,7 @@ describe('round 9 tool rows', () => {
 
   test('heads every kind with its own verb and one count shape whatever the outcome', async () => {
     const shell = (id: string, taskStatus: string) => ({ ...bash(`job ${id}`), output: { stdout: '', backgroundTaskId: id }, taskStatus })
-    expect(headline([shell('a', TASK_UNTRACKED), { ...bash('x'), ...failed }], ROOTS)).toBe('Ran 0 of 1 command (1 failed), started 1 command')
+    expect(headline([shell('a', TASK_UNTRACKED), { ...bash('x'), ...failed }], ROOTS)).toBe("Couldn't run 1 command, started 1 command")
     expect(headline([shell('a', TASK_STILL_RUNNING)], ROOTS)).toBe('Running 1 command')
     expect(headline([], ROOTS)).toBe('')
   })
@@ -767,7 +787,7 @@ describe('round 9 tool rows', () => {
   test('counts a tool search that loaded nothing as one failed target beside the tools that loaded', async () => {
     const search = (query: string, matches: string[]) => ({ tool: 'ToolSearch', input: { query }, ...done, output: { matches, query } })
     expect(headline([search('select:A', ['A']), search('select:A', [])], ROOTS)).toBe('Loaded 1 tool')
-    expect(headline([search('select:Nope', [])], ROOTS)).toBe('Loaded 0 of 1 tool (1 failed)')
+    expect(headline([search('select:Nope', [])], ROOTS)).toBe("Couldn't load 1 tool")
   })
 
   test('drops a leading watch verb from a monitor description so the row does not say it twice', async () => {
@@ -789,6 +809,14 @@ describe('round 9 tool rows', () => {
     expect(notificationRow('Monitor event: "ticks"', {})).toBeUndefined()
     expect(notificationRow('Monitor event: "ticks"', { status: 'progress' })).toBeUndefined()
     expect(notificationRow('  \n', { status: 'completed' })).toBeUndefined()
+  })
+
+  test('draws an agent that completed with its own background work still running as started, never done', () => {
+    const interim = 'Agent "Run sleep and echo" is waiting on its own background work'
+    expect(notificationRow(interim, { status: 'completed', durationMs: 19000 })).toEqual({ row: { name: interim, detail: [], note: '19s' }, state: 'started' })
+    expect(notificationRow(`${interim}\nmore`, { status: 'failed' })?.state).toBe('failed')
+    expect(notificationRow('Agent "waiting room" finished', { status: 'completed' })?.state).toBe('done')
+    expect(notificationRow('Agent "x" finished\nis waiting on its own background work', { status: 'completed' })?.state).toBe('done')
   })
 
   test('says how long a task ran in the units the stock row uses', async () => {
@@ -831,9 +859,9 @@ describe('round 10 tool rows', () => {
   })
 
   test('says a kind is still at work when nothing of it has finished yet', async () => {
-    expect(headline([watch(TASK_STILL_RUNNING), bash('ls')], ROOTS)).toBe('Watching 1 command, ran 1 command')
+    expect(headline([watch(TASK_STILL_RUNNING), bash('ls')], ROOTS)).toBe('Watching 1 stream, ran 1 command')
     expect(headline([shell('a', TASK_STILL_RUNNING), shell('b', 'completed')], ROOTS)).toBe('Ran 1 of 2 commands (1 still running)')
-    expect(headline([shell('a', TASK_STILL_RUNNING), shell('b', 'failed')], ROOTS)).toBe('Ran 0 of 2 commands (1 still running, 1 failed)')
+    expect(headline([shell('a', TASK_STILL_RUNNING), shell('b', 'failed')], ROOTS)).toBe("Running 1 command, couldn't run 1 command")
   })
 
   test('quotes free-text targets the way search patterns are quoted', async () => {
@@ -842,5 +870,158 @@ describe('round 10 tool rows', () => {
     expect(text(describeCall({ tool: 'Agent', input: { prompt: 'reply hi' }, ...done }, ROOTS).detail)).toBe('reply hi')
     const { row } = group([{ tool: 'WebSearch', input: { query: 'a' }, ...failed }, { tool: 'WebSearch', input: { query: 'b' }, ...failed }])
     expect(row.lines?.map(line)).toEqual(["Couldn't search web \"a\" · \"b\""])
+  })
+})
+
+describe('round 11 tool headlines', () => {
+  const todos = { tool: 'TodoWrite', input: { todos: [] }, ...failed }
+
+  test('never says none of one: a kind with one target and no success takes the single-call phrase', async () => {
+    expect(headline([{ ...bash('false'), ...failed }], ROOTS)).not.toMatch(/\b0 of\b/)
+    expect(headline([{ ...bash('x'), ...failed }, read('/repo/a.ts')], ROOTS)).toBe("Read 1 file, couldn't run 1 command")
+    expect(headline([{ ...bash('x'), isInterrupted: true }, read('/repo/a.ts')], ROOTS)).toBe('Read 1 file, stopped running 1 command')
+    expect(headline([{ tool: 'Write', input: { file_path: '/repo/x.md' }, ...rejected }, read('/repo/a.ts')], ROOTS)).toBe('Read 1 file, not allowed to write 1 file')
+  })
+
+  test('counts a verb-only kind by repeats and never falls back to calls', async () => {
+    expect(headline([todos, todos, read('/repo/a.ts')], ROOTS)).toBe("Read 1 file, couldn't update todos ×2")
+    expect(headline([todos, read('/repo/a.ts')], ROOTS)).toBe("Read 1 file, couldn't update todos")
+    expect(headline([{ ...todos, ...done }, todos], ROOTS)).toBe('Updated todos ×2 (1 failed)')
+    expect(headline([{ ...todos, ...done }, todos], ROOTS)).not.toMatch(/calls?\b/)
+  })
+
+  test('names a monitor and a command with different nouns in one headline', async () => {
+    const watch = { tool: 'Monitor', input: { description: 'a', command: 'tail a' }, ...done, output: { taskId: 'm' }, taskStatus: TASK_UNTRACKED }
+    expect(headline([watch, bash('ls')], ROOTS)).toBe('Started watching 1 stream, ran 1 command')
+  })
+
+  test('puts a repeat count straight after the label when the target has no detail', async () => {
+    const { row } = summariseGroup([todos, todos, read('/repo/a.ts')], ROOTS)
+    const failedLine = row.lines?.find(entry => entry.state === 'failed')
+    expect(text(failedLine?.detail ?? [])).toBe('×2')
+    expect(row.lines?.map(line)).toContain("Couldn't update todos ×2")
+    expect(row.lines?.map(line).join('\n')).not.toMatch(/ {2}/)
+  })
+
+  test('puts each partial count on its own clause and leaves asides to the branches once three kinds share it', async () => {
+    const calls = [read('/repo/a.ts'), { ...read('/repo/b.ts'), ...failed }, bash('ls'), bash('pwd'), { ...bash('false'), ...failed }, { tool: 'Grep', input: { pattern: 'x' }, ...failed }]
+    expect(headline(calls, ROOTS)).toBe("Read 1 of 2 files, ran 2 of 3 commands, couldn't search for 1 pattern")
+  })
+})
+
+describe('round 12 tool headlines', () => {
+  test('gives a denial beside a partial kind one aside, never two', async () => {
+    const calls = [bash('ls'), { ...bash('false'), ...failed }, { ...read('/repo/a.ts'), ...rejected }]
+    expect(headline(calls, ROOTS)).toBe('Ran 1 of 2 commands (1 failed), not allowed to read 1 file')
+    expect(headline(calls, ROOTS)).not.toMatch(/\).*\(/)
+  })
+
+  test('counts an all-failed kind once, in its own words, beside a partial kind', async () => {
+    const calls = [read('/repo/a.ts'), { ...read('/repo/b.ts'), ...failed }, { ...bash('false'), ...failed }, { ...bash('nope'), ...failed }]
+    expect(headline(calls, ROOTS)).toBe("Read 1 of 2 files (1 failed), couldn't run 2 commands")
+  })
+
+  test('never pins a failure on a kind that went well', async () => {
+    const load = { tool: 'ToolSearch', input: { query: 'select:Monitor' }, ...done, output: { matches: ['Monitor'] } }
+    expect(headline([read('/repo/a.ts'), { ...read('/repo/b.ts'), ...failed }, load], ROOTS)).toBe('Read 1 of 2 files (1 failed), loaded 1 tool')
+  })
+
+  test('splits failed from denied in a kind where nothing went well', async () => {
+    const calls = [{ ...bash('false'), ...failed }, { ...bash('rm x'), ...rejected }, read('/repo/a.ts')]
+    expect(headline(calls, ROOTS)).toBe("Read 1 file, couldn't run 1 command, not allowed to run 1 command")
+  })
+
+  test('lists the branches in the order the headline names their kinds', async () => {
+    const calls = [{ tool: 'Grep', input: { pattern: 'x' }, ...failed }, { tool: 'Grep', input: { pattern: 'y' }, ...failed }, bash('ls'), { ...bash('false'), ...failed }]
+    const { row } = summariseGroup(calls, ROOTS)
+    expect(row.name).toBe("Ran 1 of 2 commands (1 failed), couldn't search for 2 patterns")
+    expect(row.lines?.map(entry => entry.label)).toEqual(['Ran', "Couldn't run", "Couldn't search"])
+  })
+
+  test('says what a denied call was not allowed to do, in English', async () => {
+    expect(verbFor('Bash', 'rejected')).toBe('Not allowed to run')
+    expect(verbFor('Read', 'rejected')).toBe('Not allowed to read')
+  })
+})
+
+describe('round 13 tool rows', () => {
+  test('names no directory for a search the model pointed at the session directory', async () => {
+    expect(text(summarise('Glob', { pattern: 'hooks/*.zz', path: '/repo' }, ROOTS).detail)).toBe('"hooks/*.zz"')
+    expect(text(summarise('Glob', { pattern: 'hooks/*.zz', path: '/repo/' }, ROOTS).detail)).toBe('"hooks/*.zz"')
+    expect(text(summarise('Grep', { pattern: 'x', path: '/repo/hooks' }, ROOTS).detail)).toBe('"x" in hooks')
+    expect(text(summarise('Glob', { pattern: '*.ts', path: '/elsewhere' }, ROOTS).detail)).toBe('"*.ts" in /elsewhere')
+  })
+
+  test('keeps a mixed-failure headline of four kinds to its counts so it fits the row', async () => {
+    const calls = [read('/repo/a.ts'), { ...read('/repo/b.ts'), ...failed }, bash('ls'), bash('pwd'), { ...bash('exit 3'), ...failed }, { tool: 'Grep', input: { pattern: 'zz', path: '/repo/hooks' }, ...failed }, { tool: 'Glob', input: { pattern: 'hooks/*.zz', path: '/repo' }, ...failed }]
+    const title = headline(calls, ROOTS)
+    expect(title).toBe("Read 1 of 2 files, ran 2 of 3 commands, couldn't search for 1 pattern, couldn't list 1 pattern")
+    expect(title.length).toBeLessThan(100)
+  })
+
+  test('keeps the asides while two kinds share the headline', async () => {
+    const calls = [bash('ls'), { ...bash('false'), ...failed }, read('/repo/a.ts')]
+    expect(headline(calls, ROOTS)).toBe('Ran 1 of 2 commands (1 failed), read 1 file')
+  })
+})
+
+describe('round 14 tool search verbs', () => {
+  const search = (query: string, matches: unknown) => ({ tool: 'ToolSearch', input: { query }, ...done, output: { matches, query } })
+
+  test('names one loaded tool without a plural noun, whatever the outcome', async () => {
+    expect(describeCall(search('select:Monitor', ['Monitor']), ROOTS).name).toBe('Loaded')
+    expect(describeCall(search('select:TodoWrite', []), ROOTS).name).toBe("Couldn't load")
+    expect(describeCall({ ...search('select:Monitor', undefined), output: undefined, isRunning: true }, ROOTS).name).toBe('Loading')
+  })
+
+  test('keeps the plural for two or more tools and for a keyword search with nothing named', async () => {
+    expect(describeCall(search('select:Monitor,Read', ['Monitor', 'Read']), ROOTS).name).toBe('Loaded tools')
+    expect(describeCall(search('select:A,B', []), ROOTS).name).toBe("Couldn't load tools")
+    expect(describeCall({ ...search('notebook jupyter', undefined), output: undefined, isRunning: true }, ROOTS).name).toBe('Loading tools')
+  })
+
+  test('counts the tools a search loaded, not the ones its query asked for', async () => {
+    expect(describeCall(search('select:Monitor,Read', ['Monitor']), ROOTS).name).toBe('Loaded')
+    expect(describeCall(search('slack', ['mcp__slack__post', 'mcp__slack__read']), ROOTS).name).toBe('Loaded tools')
+  })
+
+  test('heads a branch of several one-tool searches in the plural', async () => {
+    const row = summariseGroup([search('select:C', ['C']), search('select:D', ['D'])], ROOTS).row
+    expect(row.lines?.[0]?.label).toBe('Loaded tools')
+    expect(text(row.lines?.[0]?.detail ?? [])).toBe('C, D')
+  })
+})
+
+describe('how a call ended, from what its tool answered', () => {
+  const failed = (result: unknown) => ({ result, isError: true })
+
+  test('counts a command killed mid-run as run', () => {
+    expect(callEnd(failed('Error: Exit code 137\n[Request interrupted by user for tool use]'))).toBe('ran')
+  })
+
+  test('counts a fetch aborted mid-request as run', () => {
+    expect(callEnd(failed('Error: canceled'))).toBe('ran')
+  })
+
+  test('counts a No at the permission dialog as declined', () => {
+    expect(callEnd(failed("Error: The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing"))).toBe('declined')
+    expect(callEnd(failed('User rejected tool use'))).toBe('declined')
+    expect(callEnd(failed('Permission to use Bash has been denied.'))).toBe('declined')
+  })
+
+  test('leaves a call cut before it started undecided', () => {
+    expect(callEnd(failed("The user doesn't want to take this action right now. STOP what you are doing"))).toBeUndefined()
+    expect(callEnd(failed('Interrupted by user'))).toBeUndefined()
+    expect(callEnd(failed('Cancelled: parallel tool call Bash(ls) errored'))).toBeUndefined()
+  })
+
+  test('leaves a call that answered without error undecided', () => {
+    expect(callEnd({ result: 'Error: canceled' })).toBeUndefined()
+    expect(callEnd({ result: { stdout: '' }, isError: false })).toBeUndefined()
+  })
+
+  test('counts an error with no text, or a structured one, as run', () => {
+    expect(callEnd({ isError: true })).toBe('ran')
+    expect(callEnd(failed({ stderr: 'boom' }))).toBe('ran')
   })
 })
