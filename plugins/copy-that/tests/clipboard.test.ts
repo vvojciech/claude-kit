@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { clipboardCommands, missingToolHint } from '../hooks/clipboard'
-import { FIRST_RUN, NOT_OUTERMOST, NO_FULLSCREEN, TOAST_LINES, TOAST_WIDTH, callsInGroup, confirmation, failure, moreCalls, toastLines, toastWidth } from '../hooks/notices'
+import { FIRST_RUN, NOT_OUTERMOST, NO_FULLSCREEN, TOAST_LINES, TOAST_WIDTH, callsInGroup, confirmation, failure, toastLines, toastWidth } from '../hooks/notices'
 import { target } from '../hooks/targets'
 import type { Target, ToolKind } from '../hooks/targets'
 import { cellWidth } from '../hooks/width'
@@ -57,7 +57,7 @@ describe('confirmation', () => {
 })
 
 describe('standing notices', () => {
-  const ROOM = 90
+  const ROOM = 86
 
   test('hint toasts and the load-order status fit one line at 110 columns, after the engine prefix', async () => {
     for (const notice of [FIRST_RUN, NO_FULLSCREEN, NOT_OUTERMOST]) expect(notice.length).toBeLessThanOrEqual(ROOM)
@@ -65,10 +65,10 @@ describe('standing notices', () => {
 
   test('the load-order status names the setting to change before anything the line could lose', async () => {
     expect(NOT_OUTERMOST.indexOf('CLAUDE_CODE_PLUGIN_DIRS')).toBeGreaterThanOrEqual(0)
-    expect(NOT_OUTERMOST.indexOf('CLAUDE_CODE_PLUGIN_DIRS') + 'CLAUDE_CODE_PLUGIN_DIRS'.length).toBeLessThanOrEqual(50)
+    expect(NOT_OUTERMOST.indexOf('CLAUDE_CODE_PLUGIN_DIRS') + 'CLAUDE_CODE_PLUGIN_DIRS'.length).toBeLessThanOrEqual(46)
   })
 
-  test('the load-order status says why ditto must come first in words that read as a reason', async () => {
+  test('the load-order status says why copy-that must come first in words that read as a reason', async () => {
     expect(NOT_OUTERMOST).toContain('(a plugin listed earlier draws replies)')
   })
 
@@ -78,7 +78,7 @@ describe('standing notices', () => {
   })
 
   test('toasts under the plugin name do not repeat it', async () => {
-    for (const notice of [FIRST_RUN, NO_FULLSCREEN]) expect(notice.startsWith('ditto:')).toBe(false)
+    for (const notice of [FIRST_RUN, NO_FULLSCREEN]) expect(notice.startsWith('copy-that:')).toBe(false)
   })
 })
 
@@ -104,7 +104,7 @@ describe('group toasts', () => {
     const names = ['markers.ts', 'clipboard.test.ts', 'lucid-palette.ts', 'README.md', 'register.tsx', 'commands.ts']
     const files = names.map(name => call('file', name))
     for (const kept of [3, 4, 5, 6]) {
-      const fit = accounted(moreCalls(files.slice(0, kept), 37), files.slice(0, kept), 37)
+      const fit = accounted(callsInGroup(files.slice(0, kept), 37), files.slice(0, kept), 37)
       expect(fit.lines).toBeLessThanOrEqual(TOAST_LINES)
       expect(fit.counted).toBe(kept)
     }
@@ -112,35 +112,31 @@ describe('group toasts', () => {
 
   test('at a 40-column pane every name is inside the 34-cell box or counted in +N, as README.md once vanished', async () => {
     const calls = [call('output', 'bash #1'), call('file', 'check-clipboard.sh'), call('output', 'bash #2'), call('file', 'README.md')]
-    for (const widenable of [true, false]) {
-      const fit = accounted(callsInGroup(calls, widenable, toastWidth(40)), calls, 34)
-      expect(fit.lines).toBeLessThanOrEqual(TOAST_LINES)
-      expect(fit.counted).toBe(calls.length)
-    }
+    const fit = accounted(callsInGroup(calls, toastWidth(40)), calls, 34)
+    expect(fit.lines).toBeLessThanOrEqual(TOAST_LINES)
+    expect(fit.counted).toBe(calls.length)
   })
 
   test('the commands always survive the box, which once cut the command off the end', async () => {
-    for (const widenable of [true, false]) {
-      const shown = toastLines(callsInGroup(live, widenable)).slice(0, TOAST_LINES).join(' ')
-      expect(shown).toContain('/ditto <name>')
-    }
+    const shown = toastLines(callsInGroup(live)).slice(0, TOAST_LINES).join(' ')
+    expect(shown).toContain('/copy-that <name>')
   })
 
   test('names that overflow the box fold into +N, keeping it within 3 lines of the 37-cell box', async () => {
     const many = Array.from({ length: 30 }, (_, i) => call('output', `bash #${i + 1}`))
-    const text = callsInGroup(many, false)
+    const text = callsInGroup(many)
     expect(fits(text)).toBe(true)
     expect(text).toMatch(/bash #1, .* \+\d+$/)
     expect(toastLines(text).every(line => line.length <= TOAST_WIDTH)).toBe(true)
   })
 
   test('a file name wider than the box leaves only the count', async () => {
-    const text = moreCalls([call('file', `${'x'.repeat(200)}.md`)])
-    expect(text).toBe('Widen for chips, or /ditto <name>: +1')
+    const text = callsInGroup([call('file', `${'x'.repeat(200)}.md`)])
+    expect(text).toBe('Copy with /copy-that <name>: +1')
   })
 
   test('points at the call names, which read top-down like the list, not at counts from the last call', async () => {
-    expect(callsInGroup([call('file', 'a.md'), call('file', 'b.md')], false)).toBe('Copy with /ditto <name>: a.md, b.md')
-    expect(callsInGroup([call('plan', 'plan'), call('output', 'bash')], false)).toBe('Copy with /ditto <name>: plan, bash')
+    expect(callsInGroup([call('file', 'a.md'), call('file', 'b.md')])).toBe('Copy with /copy-that <name>: a.md, b.md')
+    expect(callsInGroup([call('plan', 'plan'), call('output', 'bash')])).toBe('Copy with /copy-that <name>: plan, bash')
   })
 })

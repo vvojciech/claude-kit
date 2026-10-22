@@ -5,7 +5,7 @@ Claude Code plugins I use every day. So far they are mods that change the interf
 ```
 /plugin marketplace add vvojciech/claude-kit
 /plugin install lucid@vvojciech
-/plugin install ditto@vvojciech
+/plugin install copy-that@vvojciech
 /plugin install mermaid@vvojciech
 ```
 
@@ -13,11 +13,11 @@ Claude Code plugins I use every day. So far they are mods that change the interf
 
 A quieter transcript. Warm greys, a single orange accent, and contrast that stays readable on both dark and light terminals. It follows `/theme`, including the ANSI themes. Tool calls collapse into short past-tense rows, like `Ran 2 commands, read 1 file`, and failures and background work get their own marks.
 
-When you select text with the mouse, prose pastes as prose and code pastes exactly as written. If you want the markdown source instead, use ditto.
+When you select text with the mouse, prose pastes as prose and code pastes exactly as written. If you want the markdown source instead, use copy-that.
 
-## ditto
+## copy-that
 
-Claude Code renders markdown, so a mouse selection gives you the rendered text, not what Claude wrote. ditto adds a dim `⧉` at the end of each reply and on each tool row. Hover it and pick what to copy: the whole reply as markdown, a single code block without its fences, a table as GFM, a file Claude read or wrote, a plan, or a tool's output. `/ditto help` lists the same thing as commands for the keyboard.
+Claude Code renders markdown, so a mouse selection gives you the rendered text, not what Claude wrote. copy-that adds a dim `⧉` at the end of each reply and on each tool row. Hover it and pick what to copy: the whole reply as markdown, a single code block without its fences, a table as GFM, a file Claude read or wrote, a plan, or a tool's output. `/copy-that help` lists the same thing as commands for the keyboard.
 
 It works with lucid or with the stock renderer. List it first in `CLAUDE_CODE_PLUGIN_DIRS`, or install it first, so it wraps whichever renderer draws the reply.
 
@@ -27,4 +27,4 @@ Claude often answers with a mermaid diagram, and the terminal shows it as a code
 
 Anything mermaid itself would reject stays as source, with the problems listed under it. Other diagram types aren't drawn yet.
 
-List it after ditto and before lucid in `CLAUDE_CODE_PLUGIN_DIRS`. lucid draws the reply itself, so a mod listed after it never sees the text.
+List it after copy-that and before lucid in `CLAUDE_CODE_PLUGIN_DIRS`. lucid draws the reply itself, so a mod listed after it never sees the text.

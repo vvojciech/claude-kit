@@ -191,7 +191,7 @@ async function handedBack(call: ToolCall, agentId: string, lookup: ReportLookup)
 }
 
 function unavailable(agentId: string): Target {
-  const unavailable = `the report of agent ${agentId} reached the session as a message ditto cannot read, so nothing was copied`
+  const unavailable = `the report of agent ${agentId} reached the session as a message copy-that cannot read, so nothing was copied`
   return { ...target('output', 'output', '', `agent ${OUTPUT}`), unavailable }
 }
 

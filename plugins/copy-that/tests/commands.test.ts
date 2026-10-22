@@ -16,7 +16,7 @@ function pick(history: string[], args: string, partial = false): Choice {
   return text === undefined ? { error: missingReply(history.length) } : chooseBlock(resolved(text, partial), request)
 }
 
-describe('/ditto arguments', () => {
+describe('/copy-that arguments', () => {
   test('takes the last reply by default, and reply names it too', async () => {
     expect(pick(HISTORY, '')).toEqual({ text: HISTORY[2], what: 'last reply' })
     expect(pick(HISTORY, 'reply')).toEqual({ text: HISTORY[2], what: 'last reply' })
@@ -57,7 +57,7 @@ describe('/ditto arguments', () => {
   })
 
   test('says the reply number goes first when it follows reply, and that selection takes none', async () => {
-    expect(parse('reply 2')).toEqual({ error: 'The reply number goes first: /ditto 2 reply' })
+    expect(parse('reply 2')).toEqual({ error: 'The reply number goes first: /copy-that 2 reply' })
     expect(parse('selection 2')).toEqual({ error: numberFirst('2', 'selection') })
     expect(parse('2 reply')).toEqual({ kind: 'block', reply: 2, name: 'reply' })
   })
@@ -131,30 +131,30 @@ describe('/ditto arguments', () => {
     expect(USAGE).toContain('1 = the last')
     expect(USAGE).toContain('count from the top of the reply')
     expect(USAGE).toContain('any code block when none lacks one')
-    expect(USAGE).toContain('/ditto selection')
-    expect(USAGE).toContain('/ditto 1 123')
+    expect(USAGE).toContain('/copy-that selection')
+    expect(USAGE).toContain('/copy-that 1 123')
   })
 })
 
 describe('tool counts', () => {
-  test('N of 0 gets one line on how N counts, as /ditto 0 does, not the whole usage', async () => {
+  test('N of 0 gets one line on how N counts, as /copy-that 0 does, not the whole usage', async () => {
     expect(parse('output 0')).toEqual({ error: badToolCount('output') })
     expect(parse('file 00')).toEqual({ error: badToolCount('file') })
     expect(parse('output x')).toEqual({ error: USAGE })
     expect(parse('output 2')).toEqual({ kind: 'tool', tool: 'output', back: 2 })
   })
 
-  test('the help names every tool /ditto output counts, as it once left out Glob', () => {
+  test('the help names every tool /copy-that output counts, as it once left out Glob', () => {
     const named = [...OUTPUT_TOOLS].filter(tool => tool !== 'Task')
     expect(named.filter(tool => !USAGE.includes(tool))).toEqual([])
   })
 })
 
 describe('group chip names', () => {
-  test('a group call chip such as ⧉ bash #2 is never read as the second bash block, which /ditto bash 2 still means', async () => {
+  test('a group call chip such as ⧉ bash #2 is never read as the second bash block, which /copy-that bash 2 still means', async () => {
     expect(parse('bash #2')).toEqual({ kind: 'call', name: 'bash #2' })
     expect(parse('1 notes.md #3')).toEqual({ error: callNameAlone('1 notes.md #3') })
-    expect(callNameAlone('1 notes.md #3')).toBe('A call name takes nothing else: /ditto notes.md #3')
+    expect(callNameAlone('1 notes.md #3')).toBe('A call name takes nothing else: /copy-that notes.md #3')
     expect(parse('#2')).toEqual({ error: callNameAlone('#2') })
     expect(parse('bash #2 #3')).toEqual({ error: callNameAlone('bash #2 #3') })
     expect(USAGE).not.toMatch(/only a click|cannot point/)

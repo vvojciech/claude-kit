@@ -1,0 +1,1 @@
+{ "name": "copy-that", "version": "0.5.0", "description": "Copy what Claude wrote as raw text: reply markdown, code blocks, tables, files Claude read or wrote, plans and tool output, by hover chip or /copy-that", "author": { "name": "Wojciech Kucha" }, "types": "./types/index.d.ts" }

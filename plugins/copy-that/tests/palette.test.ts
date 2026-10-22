@@ -90,13 +90,13 @@ describe('tone', () => {
     expect(groundOfTerminal('')).toBeUndefined()
   })
 
-  test('the hovered chip reads at 4.5:1 on the ground ditto paints under it', async () => {
+  test('the hovered chip reads at 4.5:1 on the ground copy-that paints under it', async () => {
     expect(contrast(dark.pointed, dark.background)).toBeGreaterThanOrEqual(4.5)
     expect(contrast(light.pointed, light.background)).toBeGreaterThanOrEqual(4.5)
     expect([dark.background, light.background]).toEqual(['#141311', '#f5f4f0'])
   })
 
-  test('under the pointer takes lucid\'s accent when it reads at 4.5:1 on the ground, and ditto\'s deeper orange when it does not', async () => {
+  test('under the pointer takes lucid\'s accent when it reads at 4.5:1 on the ground, and copy-that\'s deeper orange when it does not', async () => {
     const palette = { text: '#2e2c27', strong: '#1c1b18', muted: '#625e56' }
     expect(fromLucid({ ground: 'light', palette: { ...palette, accent: '#a04020' } }).pointed).toBe('#a04020')
     expect(fromLucid({ ground: 'light', palette: { ...palette, accent: '#c96442' } }).pointed).toBe(light.pointed)
@@ -109,7 +109,7 @@ describe('tone', () => {
     expect(fromLucid({ ground: 'light', palette: { text: '#2e2c27', strong: '#1c1b18', muted: '#625e56', accent: '#c96442' } })).toEqual(light)
   })
 
-  test('refuses a lucid tone that is missing, half filled or not hex, so ditto falls back to its own', async () => {
+  test('refuses a lucid tone that is missing, half filled or not hex, so copy-that falls back to its own', async () => {
     const palette = { text: '#d8d5cc', strong: '#ecebe6', muted: '#a39e94', accent: '#d4734f' }
     expect(isLucidTone({ ground: 'dark', palette })).toBe(true)
     expect(isLucidTone(undefined)).toBe(false)

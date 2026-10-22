@@ -14,9 +14,9 @@ export type AssistantRender = RenderInputOf<'AssistantMessage', 'terminal'>
 
 export type Owned = { reply: Reply; shared?: number[] }
 
-const replies = atom({ plugin: 'ditto', key: 'replies' } as const, null as Replies)
-const owners = atom({ plugin: 'ditto', key: 'owners' } as const, {} as Owners)
-const live = atom({ plugin: 'ditto', key: 'live' } as const, false)
+const replies = atom({ plugin: 'copy-that', key: 'replies' } as const, null as Replies)
+const owners = atom({ plugin: 'copy-that', key: 'owners' } as const, {} as Owners)
+const live = atom({ plugin: 'copy-that', key: 'live' } as const, false)
 
 async function transcriptReplies($: EngineInterface): Promise<Reply[]> {
   return repliesFrom(await $.session.messages())
@@ -48,7 +48,7 @@ export async function markLive($: EngineInterface): Promise<void> {
 }
 
 function unreadable($: EngineInterface, error: unknown): Reply[] {
-  $.ui.log(`ditto could not read the transcript, so resumed replies get no ⧉: ${failure(error)}`, { to: 'debug' })
+  $.ui.log(`copy-that could not read the transcript, so resumed replies get no ⧉: ${failure(error)}`, { to: 'debug' })
   return []
 }
 

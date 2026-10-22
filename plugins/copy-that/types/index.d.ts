@@ -6,6 +6,6 @@ export type Owners = Record<string, Reply | null>
 
 declare module 'claude-code' {
   interface PluginState {
-    'ditto': { replies: Replies; owners: Owners; live: boolean }
+    'copy-that': { replies: Replies; owners: Owners; live: boolean }
   }
 }

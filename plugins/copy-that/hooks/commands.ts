@@ -18,52 +18,52 @@ export const SELECTION = 'selection'
 export const ARGUMENT_HINT = `[R] [reply | <language> | code | table] [N] | file [N] | plan | output [N] | ${SELECTION} | help`
 
 const PARAGRAPHS = [
-  [`Usage: /ditto ${ARGUMENT_HINT}`],
+  [`Usage: /copy-that ${ARGUMENT_HINT}`],
   [
-    '/ditto copies the last reply as markdown.',
-    'R picks the reply, 1 = the last: /ditto 2 is the reply before.',
+    '/copy-that copies the last reply as markdown.',
+    'R picks the reply, 1 = the last: /copy-that 2 is the reply before.',
   ],
   [
-    'A name copies one block, as its ⧉ chip shows it: /ditto ruby 2 is the chip "⧉ ruby 2";',
+    'A name copies one block, as its ⧉ chip shows it: /copy-that ruby 2 is the chip "⧉ ruby 2";',
     'blocks of one name count from the top of the reply.',
     'code is a block with no language, or any code block when none lacks one.',
-    'A chip named by digits, as ⧉ 123, needs R first: /ditto 1 123.',
+    'A chip named by digits, as ⧉ 123, needs R first: /copy-that 1 123.',
   ],
   [
-    '/ditto file [N] copies the Nth last file Claude wrote, edited (the whole file after the edit) or read.',
-    '/ditto plan copies the last plan.',
-    '/ditto output [N] copies the Nth last Bash, Grep, Glob, WebFetch, Agent or MCP output, colours stripped.',
+    '/copy-that file [N] copies the Nth last file Claude wrote, edited (the whole file after the edit) or read.',
+    '/copy-that plan copies the last plan.',
+    '/copy-that output [N] copies the Nth last Bash, Grep, Glob, WebFetch, Agent or MCP output, colours stripped.',
   ],
   [
     'N counts back from the last, 1 = the last.',
     'A tool row with one copyable call says ⧉ output or ⧉ file like a single call.',
-    'Chips on a group with more name each call instead, and /ditto copies the last call of that name:',
-    '/ditto notes.md for ⧉ notes.md, /ditto bash for ⧉ bash.',
-    'A repeated name, as ⧉ bash #2, numbers a call from the top of its group: /ditto bash #2 copies it from the last group that has it.',
+    'Chips on a group with more name each call instead, and /copy-that copies the last call of that name:',
+    '/copy-that notes.md for ⧉ notes.md, /copy-that bash for ⧉ bash.',
+    'A repeated name, as ⧉ bash #2, numbers a call from the top of its group: /copy-that bash #2 copies it from the last group that has it.',
   ],
-  [`/ditto ${SELECTION} copies the markdown behind what you last selected with the mouse.`],
+  [`/copy-that ${SELECTION} copies the markdown behind what you last selected with the mouse.`],
   ['The ⧉ markers need fullscreen; a reply still being written gets its marker when it ends.'],
 ]
 
 export const USAGE = PARAGRAPHS.map(lines => lines.join(' ')).join('\n')
 
-export const SELECTION_HAS_NO_REPLY = `${SELECTION} takes no reply number: run /ditto ${SELECTION}`
+export const SELECTION_HAS_NO_REPLY = `${SELECTION} takes no reply number: run /copy-that ${SELECTION}`
 
 export const BAD_REPLY = 'R counts back from 1, the last reply'
 
 export function badToolCount(tool: ToolKind): string {
-  return `N counts back from 1, the last ${tool}: /ditto ${tool} 1`
+  return `N counts back from 1, the last ${tool}: /copy-that ${tool} 1`
 }
 
 const COUNT = /^[1-9]\d*$/
 
 const CALL_ORDINAL = new RegExp(`^${CALL_MARK}\\d+$`)
 
-const COUNTS_BACK = '/ditto output N or /ditto file N counts calls back from the last'
+const COUNTS_BACK = '/copy-that output N or /copy-that file N counts calls back from the last'
 
 export function callNameAlone(given: string): string {
   const name = given.split(' ').slice(-2).join(' ')
-  return `A call name takes nothing else: /ditto ${name}`
+  return `A call name takes nothing else: /copy-that ${name}`
 }
 
 export function noGroupCall(name: string): string {
@@ -73,7 +73,7 @@ export function noGroupCall(name: string): string {
 const DIGITS = /^\d+$/
 
 export function numberFirst(index: string, name: string): string {
-  return name === SELECTION ? SELECTION_HAS_NO_REPLY : `The reply number goes first: /ditto ${index} ${name}`
+  return name === SELECTION ? SELECTION_HAS_NO_REPLY : `The reply number goes first: /copy-that ${index} ${name}`
 }
 
 function words(args: string): string[] {

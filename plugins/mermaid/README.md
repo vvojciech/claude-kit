@@ -9,7 +9,7 @@ Claude often answers with a mermaid diagram, and the terminal shows it as a code
 /plugin install mermaid@vvojciech
 ```
 
-List it after ditto and before lucid in `CLAUDE_CODE_PLUGIN_DIRS`. lucid draws the reply itself, so a mod listed after it never sees the text.
+List it after copy-that and before lucid in `CLAUDE_CODE_PLUGIN_DIRS`. lucid draws the reply itself, so a mod listed after it never sees the text.
 
 ## Features
 

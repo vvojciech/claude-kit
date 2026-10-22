@@ -3,20 +3,20 @@ import type { CopyOutcome } from './clipboard'
 import type { Target } from './targets'
 import { cellWidth } from './width'
 
-export const NOT_OUTERMOST = 'No ⧉: list ditto first in CLAUDE_CODE_PLUGIN_DIRS (a plugin listed earlier draws replies)'
+export const NOT_OUTERMOST = 'Put copy-that first in CLAUDE_CODE_PLUGIN_DIRS (a plugin listed earlier draws replies)'
 
-export const FIRST_RUN = 'Hover ⧉ to copy; /ditto help lists more'
+export const FIRST_RUN = 'Hover ⧉ to copy; /copy-that help'
 
-export const NO_FULLSCREEN = 'No ⧉ outside fullscreen; /ditto copies'
+export const NO_FULLSCREEN = '⧉ needs fullscreen; use /copy-that'
 
 export const LARGE_FOR_TERMINAL = 100_000
 
-export const NO_SELECTION = 'Nothing selected: drag over part of a reply in fullscreen, then run /ditto selection'
+export const NO_SELECTION = 'Nothing selected: drag over part of a reply in fullscreen, then run /copy-that selection'
 
-export const SELECTION_ELSEWHERE = 'The selection is not in a reply ditto can read: select inside one reply Claude wrote'
+export const SELECTION_ELSEWHERE = 'The selection is not in a reply copy-that can read: select inside one reply Claude wrote'
 
 export function selectionRepeats(places: number): string {
-  return `ditto copied nothing: the selected text appears in ${places} places, so select more of it to say which`
+  return `copy-that copied nothing: the selected text appears in ${places} places, so select more of it to say which`
 }
 
 export function lineCount(text: string): number {
@@ -38,6 +38,12 @@ export function flashOf(outcome: CopyOutcome): string {
   return outcome.ok ? `copied (${outcome.via})` : 'copy failed'
 }
 
+const ROUTES = ['pbcopy', 'wl-copy', 'xclip', 'xsel', TERMINAL_ROUTE]
+
+const FLASHES = [...ROUTES.map(via => flashOf({ ok: true, via })), flashOf({ ok: false, error: '' })]
+
+export const LONGEST_FLASH = FLASHES.reduce((longest, text) => (cellWidth(text) > cellWidth(longest) ? text : longest))
+
 function route(via: string, text: string): string {
   if (via !== TERMINAL_ROUTE) return via
   return text.length > LARGE_FOR_TERMINAL ? `${via}, paste to check: terminals often cut copies this large` : `${via}, paste to check`
@@ -48,7 +54,7 @@ export function failure(error: unknown): string {
 }
 
 export function moreTargets(hidden: Target[]): string {
-  return `Also in this reply: ${hidden.map(t => t.name).join(', ')}. Copy one with /ditto <name>`
+  return `Also in this reply: ${hidden.map(t => t.name).join(', ')}. Copy one with /copy-that <name>`
 }
 
 export const TOAST_WIDTH = 37
@@ -61,7 +67,7 @@ export function toastWidth(columns: number | undefined): number {
 
 export const TOAST_LINES = 3
 
-const BY_NAME = '/ditto <name>'
+const BY_NAME = '/copy-that <name>'
 
 export function toastLines(text: string, width = TOAST_WIDTH): string[] {
   const lines: string[] = []
@@ -106,20 +112,16 @@ function fittedList(lead: string, calls: Target[], width: number): string {
   return listing(lead, names, 0)
 }
 
-export function moreCalls(hidden: Target[], width = TOAST_WIDTH): string {
-  return fittedList(`Widen for chips, or ${BY_NAME}:`, hidden, width)
-}
-
-export function callsInGroup(calls: Target[], widenable: boolean, width = TOAST_WIDTH): string {
-  return widenable ? moreCalls(calls, width) : fittedList(`Copy with ${BY_NAME}:`, calls, width)
+export function callsInGroup(calls: Target[], width = TOAST_WIDTH): string {
+  return fittedList(`Copy with ${BY_NAME}:`, calls, width)
 }
 
 export function sharedTailNote(replies: number[]): string {
-  return `reply: /ditto ${replies.join(' or ')}`
+  return `reply: /copy-that ${replies.join(' or ')}`
 }
 
 export function sharedTail(replies: number[]): string {
-  const each = `/ditto ${replies.join(' or /ditto ')} copies each whole`
+  const each = `/copy-that ${replies.join(' or /copy-that ')} copies each whole`
   return `${replies.length} replies end with this block, so ⧉ reply cannot tell which; ${each}`
 }
 

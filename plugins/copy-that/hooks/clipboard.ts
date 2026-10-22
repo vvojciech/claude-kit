@@ -21,7 +21,7 @@ export function clipboardCommands(host: Host): ClipCommand[] {
 }
 
 export function missingToolHint(host: Host): string {
-  if (host.remote) return 'over SSH ditto copies through your terminal (OSC 52) only, so the remote clipboard is never mistaken for yours'
+  if (host.remote) return 'over SSH copy-that copies through your terminal (OSC 52) only, so the remote clipboard is never mistaken for yours'
   if (host.os === 'Linux') return 'no clipboard tool found: install wl-clipboard (Wayland) or xclip (X11)'
   return `no clipboard command known for ${host.os === '' ? 'this system' : host.os}`
 }

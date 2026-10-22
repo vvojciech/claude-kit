@@ -1,5 +1,4 @@
 import type { Block } from './model'
-import { cellWidth } from './width'
 
 export type TargetKind = 'reply' | 'code' | 'table' | ToolKind
 
@@ -79,18 +78,4 @@ export function replyTargets(reply: Resolved): Target[] {
 
 export function overflowLabel(hidden: number): string {
   return `+${hidden}`
-}
-
-export function rowWidth(labels: string[]): number {
-  return labels.reduce((sum, label, i) => sum + cellWidth(label) + (i > 0 ? GAP : 0), 0)
-}
-
-export function fitRow(targets: Target[], columns: number): Row {
-  const labels = targets.map(t => t.label)
-  if (rowWidth(labels) <= columns) return { shown: targets, hidden: [] }
-  for (let count = targets.length - 1; count > 0; count--) {
-    const hidden = targets.slice(count)
-    if (rowWidth([...labels.slice(0, count), overflowLabel(hidden.length)]) <= columns) return { shown: targets.slice(0, count), hidden }
-  }
-  return { shown: [], hidden: targets }
 }

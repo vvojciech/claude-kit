@@ -1,4 +1,4 @@
-import type { ToneEntry } from '../../dev/tones'
+import type { ToneEntry } from './tones'
 
 export const LUCID_TONES: Record<string, ToneEntry> = {
   "dark on unset": {

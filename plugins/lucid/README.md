@@ -67,7 +67,7 @@ lucid redraws the Claude Code transcript: replies, your prompts and tool rows. I
 - Code sits in the same column as prose with no bar or gutter in the way, and long lines are left whole for the terminal to wrap. A selection pastes the exact source.
 - The inline code chip is a background colour, so it never ends up in the paste.
 
-For the markdown source, use ditto.
+For the markdown source, use copy-that.
 
 ### API for other mods
 

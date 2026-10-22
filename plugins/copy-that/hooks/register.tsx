@@ -10,7 +10,7 @@ import { forgetTone } from './palette'
 import { freshSession, session } from './session'
 import { writtenText } from './turns'
 
-const COMMAND = 'ditto'
+const COMMAND = 'copy-that'
 
 const DESCRIPTION = [
   'Copy a reply as markdown, one of its blocks,',

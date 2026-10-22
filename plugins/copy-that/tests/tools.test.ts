@@ -117,7 +117,7 @@ describe('naming the call a copy came from', () => {
     expect(copied('mcp__jira__get', {}, { result: 'x' })?.what).toBe('mcp output')
   })
 
-  test('callName gives the file name or the tool, so group chips never read like a /ditto count', async () => {
+  test('callName gives the file name or the tool, so group chips never read like a /copy-that count', async () => {
     expect(callName({ tool: 'Read', input: { file_path: '/a/b.md' }, output: {} }, 'file')).toBe('b.md')
     expect(callName({ tool: 'Write', input: {}, output: {} }, 'file')).toBe('file')
     expect(callName({ tool: 'Bash', input: {}, output: {} }, 'output')).toBe('bash')

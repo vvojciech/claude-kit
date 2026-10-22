@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { fitRow, replyTargets, rowWidth } from '../hooks/targets'
+import { replyTargets } from '../hooks/targets'
 import { cellWidth } from '../hooks/width'
 import { resolved, resolvedReply } from './support'
 
@@ -69,41 +69,5 @@ describe('replyTargets', () => {
 
   test('names a partial reply as such', async () => {
     expect(replyTargets(resolved('half a reply', true))[0]?.what).toBe('partial reply as markdown')
-  })
-})
-
-describe('fitRow', () => {
-  const targets = replyTargets(resolved('```\na\n```\n\n```\nb\n```\n\n```\nc\n```'))
-
-  test('keeps everything when there is room', async () => {
-    expect(fitRow(targets, 200)).toEqual({ shown: targets, hidden: [] })
-  })
-
-  test('hands back the targets it drops and leaves room to say how many', async () => {
-    const row = fitRow(targets, 24)
-    expect(row.shown.map(t => t.label)).toEqual(['⧉ reply', '⧉ code 1'])
-    expect(row.hidden.map(t => t.name)).toEqual(['code 2', 'code 3'])
-    expect(rowWidth([...row.shown.map(t => t.label), `+${row.hidden.length}`])).toBeLessThanOrEqual(24)
-  })
-
-  test('keeps reply first and drops all when even that and +N do not fit', async () => {
-    expect(fitRow(targets, 11).shown.map(t => t.label)).toEqual(['⧉ reply'])
-    expect(fitRow(targets, 3)).toEqual({ shown: [], hidden: targets })
-  })
-
-  test('measures labels in terminal cells, so a wide language name cannot overrun', async () => {
-    const wide = replyTargets(resolved('```日本語コード\nx\n```'))
-    expect(rowWidth(wide.map(t => t.label))).toBe(7 + 2 + 2 + 12)
-    expect(fitRow(wide, 22).shown.map(t => t.label)).toEqual(['⧉ reply'])
-  })
-})
-
-describe('cellWidth', () => {
-  test('counts wide, combining and emoji graphemes as the terminal draws them', async () => {
-    expect(cellWidth('abc')).toBe(3)
-    expect(cellWidth('日本')).toBe(4)
-    expect(cellWidth('é')).toBe(1)
-    expect(cellWidth('👍🏽')).toBe(2)
-    expect(cellWidth('⧉')).toBe(1)
   })
 })
