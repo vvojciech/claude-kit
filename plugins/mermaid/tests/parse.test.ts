@@ -818,3 +818,12 @@ describe('malformed arrows and declarations', () => {
     expect(text('half #frac12;')).toBe('half ½')
   })
 })
+
+describe('links', () => {
+  test('notes link lines as not shown and still draws the diagram', async () => {
+    const sequence = parseSequence('sequenceDiagram\nparticipant A\nlink A: Docs @ https://example.com\nA->>B: hi\nlinks B: {"x": "y"}')
+
+    expect(sequence.problems).toEqual(['links not shown (lines 3, 5)'])
+    expect(sequence.unread).toBeUndefined()
+  })
+})

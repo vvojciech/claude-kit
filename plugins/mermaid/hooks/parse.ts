@@ -311,6 +311,7 @@ export function parseSequence(source: string): Sequence {
   const unknown: string[] = []
   let rejected = 0
   const lineProblems: string[] = []
+  const links: number[] = []
   const active = new Map<string, number>()
   const doomed = new Map<string, number>()
   const gone = new Set<string>()
@@ -421,7 +422,10 @@ export function parseSequence(source: string): Sequence {
       sendMessage(found, at)
       continue
     }
-    if (IGNORED.test(line)) continue
+    if (IGNORED.test(line)) {
+      if (/^links?\b/i.test(line)) links.push(at)
+      continue
+    }
     const autonumber = AUTONUMBER.exec(line)
     if (autonumber) {
       renumber(counter, autonumber[1] ?? '')
@@ -555,6 +559,7 @@ export function parseSequence(source: string): Sequence {
     problems.push(`${plural(unknown.length, 'line')} not understood: ${examples}`)
   }
   problems.push(...lineProblems)
+  if (links.length > 0) problems.push(`links not shown (${lineList(links)})`)
   const openedOn = (kind: 'box' | 'block') => blocks.filter(block => block.kind === kind).map(block => block.line)
   const unclosed = openedOn('block').length
   if (unclosed > 0) problems.push(`${plural(unclosed, 'block')} not closed, opened on ${lineList(openedOn('block'))} (mermaid.live rejects)`)
