@@ -14,11 +14,16 @@ type Kit = Pick<Elements['terminal'], 'Box' | 'Text'>
 type Style = { dimColor?: boolean; bold?: boolean; italic?: boolean; backgroundColor?: string }
 
 export const TINT = { dark: '#303030', light: '#e4e4e4' } as const
+// `rect` blocks sit on a fainter background than notes, so a note inside one still stands out
+export const SHADE = { dark: '#262626', light: '#efefef' } as const
 
 const INDENT = 2
 
-function styles(tint: string): Record<Ink, Style> {
+type Styles = Record<Ink, Style> & { shade: Style }
+
+function styles(tint: string): Styles {
   return {
+    shade: { backgroundColor: tint === TINT.light ? SHADE.light : SHADE.dark },
     frame: { dimColor: true },
     line: {},
     name: { bold: true },
@@ -40,11 +45,13 @@ async function readTint($: EngineInterface): Promise<string> {
   return typeof theme === 'string' && /light/i.test(theme) ? TINT.light : TINT.dark
 }
 
-function row({ Box, Text }: Kit, style: Record<Ink, Style>, runs: Run[], key: string): RenderNode {
+function row({ Box, Text }: Kit, style: Styles, runs: Run[], key: string): RenderNode {
   return (
     <Box key={key} flexDirection="row">
       {runs.map(run => (
-        <Text {...style[run.ink]}>{run.text}</Text>
+        <Text {...(run.shade ? style.shade : {})} {...style[run.ink]}>
+          {run.text}
+        </Text>
       ))}
     </Box>
   )
@@ -62,7 +69,7 @@ function problems({ Box, Text }: Kit, lines: string[], key: string): RenderNode 
   )
 }
 
-function diagram(kit: Kit, style: Record<Ink, Style>, sequence: Sequence, width: number, key: string): RenderNode {
+function diagram(kit: Kit, style: Styles, sequence: Sequence, width: number, key: string): RenderNode {
   const { Box, Text } = kit
   const { rows, notes } = drawSequence(sequence, width)
   return (
@@ -89,7 +96,7 @@ function notice({ Box, Text }: Kit, kind: string, key: string): RenderNode {
 
 type Shown = { node: RenderNode; source?: undefined } | { source: string[] }
 
-function sequencePart($: EngineInterface, kit: Kit, style: Record<Ink, Style>, part: { source: string }, width: number, key: string): Shown {
+function sequencePart($: EngineInterface, kit: Kit, style: Styles, part: { source: string }, width: number, key: string): Shown {
   try {
     const sequence = parseSequence(part.source)
     if (isUnreadable(sequence)) return { source: sequence.problems }

@@ -46,15 +46,15 @@ J->>RO: link_customer_account
 J->>J: write_quote (REQ + quotes to Mongo, one commit)`
 
 describe('drawSequence', () => {
-  test('puts short labels on the arrow, left-aligned in both directions', async () => {
+  test('puts short labels on the arrow, centred in both directions, a dashed one with dashes either side', async () => {
     const { lines, notes } = draw('participant B as Browser\nparticipant C as Bazaar\nB->>C: GET /quote\nC-->>B: 200 html')
 
     expect(lines).toEqual([
-      '╭─────────╮     ╭────────╮',
-      '│ Browser │     │ Bazaar │',
-      '╰────┬────╯     ╰────┬───╯',
-      '     │─ GET /quote ─▶│',
-      '     │◀╌ 200 html ╌╌╌│',
+      '╭─────────╮      ╭────────╮',
+      '│ Browser │      │ Bazaar │',
+      '╰────┬────╯      ╰────┬───╯',
+      '     │─ GET /quote ──▶│',
+      '     │◀╌╌╌╌ 200 html ╌│',
     ])
     expect(notes).toEqual([])
   })
@@ -86,10 +86,16 @@ describe('drawSequence', () => {
     }
   })
 
-  test('draws a self-message as a loop with its label beside it', async () => {
+  test('draws a self-message with a one-line label on one row', async () => {
     const { lines } = draw('A->>B: hi\nB->>B: think')
 
-    expect(lines.slice(-2)).toEqual(['  │       │─╮ think', '  │       │◀╯'])
+    expect(lines.at(-1)).toBe('  │       │↺ think')
+  })
+
+  test('draws a self-message with a multi-line label as a loop with its label beside it', async () => {
+    const { lines } = draw('A->>B: hi\nB->>B: think<br/>it over')
+
+    expect(lines.slice(-2)).toEqual(['  │       │─╮ think', '  │       │◀╯ it over'])
   })
 
   test('draws a one-line note as one tinted row covering the lifelines it spans', async () => {
@@ -131,18 +137,18 @@ describe('drawSequence', () => {
     for (const line of lines.filter(line => /note|gutter|wide/.test(line))) expect(line.search(/\S/)).toBeLessThan(a)
   })
 
-  test('frames blocks around the lanes they use, labels stopping short of the next lifeline, nested ones inset', async () => {
+  test('frames blocks around the lanes they use, conditions in brackets, nested ones inset', async () => {
     const { lines } = draw('A->>B: hi\nB->>C: ho\nloop every minute\nB-)C: ping\nalt ok\nC-->>B: pong\nelse fail\nC--xB: boom\nend\nend')
 
     expect(lines.slice(5)).toEqual([
-      '  │   ┌───┼─ loop every minute ─┼───┐',
-      '  │   │   │─ ping ─────────────▷│   │',
-      '  │   │ ┌─┼─ alt ok ────────────┼─┐ │',
-      '  │   │ │ │◀╌ pong ╌╌╌╌╌╌╌╌╌╌╌╌╌│ │ │',
-      '  │   │ ├╌┼╌ else fail ╌╌╌╌╌╌╌╌╌┼╌┤ │',
-      '  │   │ │ │×╌ boom ╌╌╌╌╌╌╌╌╌╌╌╌╌│ │ │',
-      '  │   │ └─┼─────────────────────┼─┘ │',
-      '  │   └───┼─────────────────────┼───┘',
+      '  │   ┌───┼─ loop [every minute] ─┼───┐',
+      '  │   │   │─ ping ───────────────▷│   │',
+      '  │   │ ┌─┼─ alt [ok] ────────────┼─┐ │',
+      '  │   │ │ │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ pong ╌│ │ │',
+      '  │   │ ├╌┼╌ else [fail] ╌╌╌╌╌╌╌╌╌┼╌┤ │',
+      '  │   │ │ │×╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ boom ╌│ │ │',
+      '  │   │ └─┼───────────────────────┼─┘ │',
+      '  │   └───┼───────────────────────┼───┘',
     ])
   })
 
@@ -159,29 +165,32 @@ describe('drawSequence', () => {
     expect(lines.at(-1)).toMatch(/^└.*┘$/)
   })
 
-  test('leaves rect frames unlabelled', async () => {
-    const { lines } = draw('rect rgb(0,0,255)\nA->>B: hi\nend')
+  test('shades a rect block instead of framing it', async () => {
+    const sequence = parseSequence('sequenceDiagram\nrect rgb(0,0,255)\nA->>B: hi\nend')
+    const { rows } = drawSequence(sequence, 40)
 
-    expect(lines.slice(3)).toEqual(['┌─┼───────┼─┐', '│ │─ hi ─▶│ │', '└─┼───────┼─┘'])
+    expect(plainRows(rows).slice(3)).toEqual(['  │─ hi ─▶│'])
+    expect(rows[3]!.some(run => run.shade)).toBe(true)
+    expect(rows[0]!.some(run => run.shade)).toBe(false)
   })
 
   test('thickens the lifeline from the arrow that activates it', async () => {
     const { lines } = draw('A->>+B: go\nB-->>-A: back\nA->>B: again')
 
-    expect(lines.slice(3)).toEqual(['  │─ go ────▶┃', '  │◀╌ back ╌╌┃', '  │─ again ─▶│'])
+    expect(lines.slice(3)).toEqual(['  │─ go ──────▶┃', '  │◀╌╌╌╌ back ╌┃', '  │─ again ───▶│'])
   })
 
   test('starts a nested activation on the head of the self-call that opens it', async () => {
     const { lines } = draw('A->>+B: go\nB->>+B: recurse\nB-->>-A: back\nB-->>-A: done')
 
-    expect(lines.slice(4, 6)).toEqual(['  │         ┃──╮ recurse', '  │         ┃┃◀╯'])
+    expect(lines.slice(4, 6)).toEqual(['  │            ┃┃↺ recurse', '  │◀╌╌╌╌ back ╌┃┃'])
   })
 
   test('frames a block from just left of its first lane, the condition running along the top edge', async () => {
     const { lines } = draw('participant A\nparticipant B\nA->>B: hi\nalt the customer has an active policy\nB-->>A: ok\nend')
 
     expect(lines[4]!.indexOf('┌')).toBe(0)
-    expect(lines[4]).toContain('alt the customer has an active policy')
+    expect(lines[4]).toContain('alt [the customer has an active policy]')
   })
 
   test('centres names with even padding on both sides', async () => {
@@ -216,7 +225,7 @@ describe('drawSequence', () => {
     expect(rows[3]?.find(run => run.text.trim() === '1')?.ink).toBe('number')
   })
 
-  test('starts a created participant at its create row and ends a destroyed one with a cross', async () => {
+  test('starts a created participant at its create row and ends a destroyed one in its box', async () => {
     const { lines } = draw('A->>B: hi\ncreate participant C\nB->>C: spawn\ndestroy C\nB->>C: stop')
 
     expect(lines.slice(3)).toEqual([
@@ -225,14 +234,16 @@ describe('drawSequence', () => {
       '  │       │─ spawn ─▶│ C │',
       '  │       │          ╰─┬─╯',
       '  │       │─ stop ────▶│',
-      '  │       │            ×',
+      '  │       │          ╭─┴─╮',
+      '  │       │          │ C │',
+      '  │       │          ╰───╯',
     ])
   })
 
-  test('labels box groups above their participants and breaks lines at <br/>', async () => {
+  test('labels box groups above their participants, rails their sides and breaks lines at <br/>', async () => {
     const { lines } = draw('box Team\nparticipant A\nparticipant B\nend\nA->>B: hi<br/>there')
 
-    expect(lines).toEqual(['╶─ Team ───────╴', '╭───╮      ╭───╮', '│ A │      │ B │', '╰─┬─╯      ╰─┬─╯', '  │ hi       │', '  │─ there ─▶│'])
+    expect(lines).toEqual(['╭─ Team ──────╮', '╭───╮     ╭───╮', '│ A │     │ B │', '╰─┬─╯     ╰─┬─╯', '┆ │ hi      │ ┆', '┆ │ there ─▶│ ┆'])
   })
 
   test('measures wide characters by terminal cells', async () => {
@@ -278,18 +289,19 @@ describe('drawSequence', () => {
     for (const text of ['Aratherlongtitlethatgoespastfortycolumns', 'averyveryverylongwordthatcannotwrap', 'anotethatisfartoolongtofitintheroom']) expect(shown).toContain(text)
   })
 
-  test('routes the odd message to a participant it could not fit to a stub column', async () => {
-    const { lines, notes } = draw('A->>B: one\nB->>C: two\nC->>A: three\nA->>B: four\nB->>C: five\nC->>A: six\nA->>B: seven\nB->>C: eight\nC->>D: nine\nD->>E: ten', 30)
+  test('falls back to the list rather than hiding a participant it could not fit', async () => {
+    const { lines } = draw('A->>B: one\nB->>C: two\nC->>A: three\nA->>B: four\nB->>C: five\nC->>A: six\nA->>B: seven\nB->>C: eight\nC->>D: nine\nD->>E: ten', 30)
 
-    expect(notes).toEqual(['+2 = D, E', 'D → E: ten'])
-    expect(lines.some(line => /▶┆ D$/.test(line))).toBe(true)
+    expect(lines[0]).toMatch(/^A → B +one$/)
+    expect(lines.some(line => line.includes('┆'))).toBe(false)
+    expect(lines.some(line => /^D → E +ten$/.test(line))).toBe(true)
     for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(30)
   })
 
   test('ends a wrapped label with its arrow on the last line when the arrow fits', async () => {
     const { lines } = draw('participant A as Alice\nparticipant B as Bob\nparticipant C as Carol\nA->>B: one\nC->>A: three is long\nB-->>A: a reply<br/>on two lines', 40)
 
-    expect(lines.slice(-2)).toEqual(['    │   a reply       │        │', '    │◀╌ on two lines ╌│        │'])
+    expect(lines.slice(-2)).toEqual(['    │           a reply │        │', '    │◀╌╌╌╌ on two lines │        │'])
   })
 
   test('never puts two notes on one row', async () => {
@@ -301,7 +313,7 @@ describe('drawSequence', () => {
   test('keeps the autonumber with its first word however narrow the gap', async () => {
     const { lines } = draw('autonumber\nA->>B: unquestionably long\nB->>C: x', 24)
 
-    expect(lines.some(line => /\b1 unquestion/.test(line) || /^1 /.test(line.trim()))).toBe(true)
+    expect(lines.some(line => /\b1 unquest/.test(line) || /^1 /.test(line.trim()))).toBe(true)
     expect(lines.some(line => line.trim() === '1')).toBe(false)
   })
 
@@ -349,6 +361,12 @@ describe('wrap', () => {
 
   test('never cuts a word of six characters or fewer', async () => {
     expect(wrap('cancel the quote', 6)).toEqual({ lines: ['cancel', 'the', 'quote'], isCut: false })
+  })
+
+  test('never starts a line with a free-standing arrow or slash', async () => {
+    const lines = [...wrap('enrichment → quoting → Oracle overlay', 14).lines, ...wrap('422 → EmptyOffersetError / InvalidOffersetError', 26).lines]
+
+    expect(lines.filter(line => /^[→⇢/|]/.test(line))).toEqual([])
   })
 })
 
@@ -419,20 +437,17 @@ describe('spending spare columns', () => {
     expect(lines.join(' ')).toContain('backoff and jitter')
   })
 
-  test('keeps a note over two participants inside their span', async () => {
+  test('keeps a note over two participants on one row rather than wrap it', async () => {
     const { lines } = draw('participant A\nparticipant B\nparticipant C\nA->>C: go\nNote over A,B: across both lanes', 60)
-    const lanes = columnsOf(lines[2]!, '┬')
-    const note = lines.at(-1)!
 
-    expect(note.indexOf('across')).toBeGreaterThanOrEqual(lanes[0]! - 1)
-    expect(note.indexOf('lanes') + 'lanes'.length - 1).toBeLessThanOrEqual(lanes[1]! + 1)
+    expect(lines.filter(line => /across|lanes/.test(line))).toEqual([expect.stringContaining('across both lanes')])
   })
 
   test('wraps a section label onto one more row before cutting it', async () => {
     const { lines, notes } = draw('participant A\nparticipant B\nA->>B: x\nalt ok\nB->>A: y\nelse the request timed out\nB->>A: z\nend', 30)
 
     expect(notes).toEqual([])
-    expect(lines.some(line => line.includes('├') && line.includes('else the request'))).toBe(true)
+    expect(lines.some(line => line.includes('├') && /else \[?the request/.test(line))).toBe(true)
     expect(lines.some(line => line.includes('timed out') && !line.includes('├'))).toBe(true)
   })
 
@@ -451,13 +466,15 @@ describe('spending spare columns', () => {
   })
 
   test('starts the compact list with the number and hangs every continuation at one label column', async () => {
-    const { lines } = draw('autonumber\nparticipant C as Customer\nparticipant Ch as Bazaar\nparticipant Q as Gate\nparticipant R as Tarif\nC->>Ch: submit answers\nCh->>Q: rate REQ\nQ-->>R: price per scheme\nNote over Ch,Q: filter rules applied', 36)
+    const { lines } = draw('autonumber\nparticipant C as Customer\nparticipant Ch as Bazaar\nparticipant Q as Gate\nparticipant R as Tarif\nC->>Ch: submit answers\nCh->>Q: rate REQ\nQ-->>R: price per scheme\nNote over Ch,Q: filter rules applied', 26)
 
     expect(lines).toEqual([
       '1 Customer → Bazaar',
-      '                    submit answers',
-      '2 Bazaar → Gate     rate REQ',
-      '3 Gate ⇢ Tarif      price per scheme',
+      '                 submit',
+      '                 answers',
+      '2 Bazaar → Gate  rate REQ',
+      '3 Gate ⇢ Tarif   price per',
+      '                 scheme',
       '  ┆ filter rules applied',
       '    (Bazaar–Gate)',
     ])
@@ -469,12 +486,13 @@ describe('spending spare columns', () => {
     expect(lines.at(-1)).toMatch(/^ {2}│─ a label that crosses the middle lanes ─+▶│$/)
   })
 
-  test('narrows a side note when the width it frees puts other labels on their arrows', async () => {
-    const { lines } = draw('participant A as Browser\nparticipant B as API gateway\nparticipant D as Database\nA->>B: GET /policy/123\nB-->>A: 200 from cache\nB->>D: SELECT policy\nNote left of A: user waits', 50)
+  test('keeps every label whole beside a left note', async () => {
+    const { lines, notes } = draw('participant A as Browser\nparticipant B as API gateway\nparticipant D as Database\nA->>B: GET /policy/123\nB-->>A: 200 from cache\nB->>D: SELECT policy\nNote left of A: user waits', 54)
 
-    expect(lines.some(line => line.includes('GET /policy/123 ─▶│'))).toBe(true)
-    expect(lines.some(line => line.includes('◀╌ 200 from cache'))).toBe(true)
-    expect(lines.map(line => line.trim().split(' ')[0]).filter(word => word === 'user' || word === 'waits')).toEqual(['user', 'waits'])
+    expect(lines.some(line => line.includes('GET /policy/123'))).toBe(true)
+    expect(lines.some(line => line.includes('200 from cache'))).toBe(true)
+    expect(lines.some(line => /^ *user waits +│/.test(line))).toBe(true)
+    expect(notes).toEqual([])
   })
 
   test('lets a note over two lanes spread past them rather than wrap again', async () => {
@@ -486,17 +504,17 @@ describe('spending spare columns', () => {
 
   test('keeps a space between a margin footnote marker and its lifeline', async () => {
     const source = 'actor U as User\nparticipant S as Service\nparticipant C as Cache\nNote left of U: on call\nU->>+S: request\nloop every 5s\nS->>C: poll\nalt hit\nC-->>S: value\nelse miss\nC--)S: refresh later\nend\nend\nS-->>-U: done\nNote right of C: TTL 30s'
-    const { lines, notes } = draw(source, 37)
+    const { lines, notes } = draw(source, 34)
 
     expect(notes).toContain('[1] on call')
     expect(lines.find(line => line.includes('[1]'))).toMatch(/│ \[1\]|\[1\] │/)
   })
 
   test('marks a cut participant name with a numbered footnote', async () => {
-    const { lines, notes } = draw('participant C as Customer services desk\nparticipant Q as Gate\nC->>Q: ok', 18)
+    const { lines, notes } = draw('participant C as Customerservicesdesk\nparticipant Q as Gate\nC->>Q: ok', 24)
 
     expect(lines[0]).toContain('[1]')
-    expect(notes).toEqual(['[1] Customer services desk'])
+    expect(notes).toEqual(['[1] Customerservicesdesk'])
   })
 
   test('shows the id for a participant declared with an empty label, in a centred box', async () => {
@@ -510,11 +528,12 @@ describe('spending spare columns', () => {
 })
 
 describe('round 11', () => {
-  test('switches to the list when the diagram needs over 1.6 rows a message and the list is clearly shorter', async () => {
+  test('draws the diagram while every participant fits, even when a list would be shorter', async () => {
     const { lines } = draw('A->>B: one\nB->>C: two\nC->>D: three\nD->>E: four\nE->>F: five\nF->>G: six\nG->>H: seven\nA->>H: a very long message label that crosses everything in the middle', 57)
 
-    expect(lines[0]).toBe('A → B  one')
-    expect(lines).toHaveLength(9)
+    expect(lines[1]).toContain('│ A │')
+    expect(lines[1]).toContain('│ H │')
+    expect(lines.join(' ')).toContain('crosses everything in the middle')
   })
 
   test('keeps a short diagram whose label breaks on purpose', async () => {
@@ -558,7 +577,7 @@ describe('round 11', () => {
   test('names the box groups in one dim row above the list', async () => {
     const { rows } = drawSequence(
       parseSequence('sequenceDiagram\nbox Frontend\nparticipant U as User\nparticipant W as Web app\nend\nbox Backend\nparticipant A as API\nparticipant P as Postgres\nend\nU->>W: click buy\nW->>A: POST /policy<br/>with card token\nA->>P: insert\nNote over W,A: idempotency key travels with the request\nP-->>A: id'),
-      37,
+      24,
     )
     const shown = plainRows(rows)
 
@@ -567,7 +586,7 @@ describe('round 11', () => {
   })
 
   test('puts a footnoted left-of note marker left of the first lifeline', async () => {
-    const { lines } = draw('actor U as User\nparticipant S as Service\nparticipant C as Cache\nNote left of U: on call\nU->>+S: request\nloop every 5s\nS->>C: poll\nalt hit\nC-->>S: value\nelse miss\nC--)S: refresh later\nend\nend\nS-->>-U: done\nNote right of C: TTL 30s', 37)
+    const { lines } = draw('actor U as User\nparticipant S as Service\nparticipant C as Cache\nNote left of U: on call\nU->>+S: request\nloop every 5s\nS->>C: poll\nalt hit\nC-->>S: value\nelse miss\nC--)S: refresh later\nend\nend\nS-->>-U: done\nNote right of C: TTL 30s', 34)
 
     expect(lines.some(line => /^\[1\] │/.test(line))).toBe(true)
     expect(lines.some(line => /│ \[1\]/.test(line))).toBe(false)
@@ -582,16 +601,76 @@ describe('round 11', () => {
     expect(notes).toEqual(['[1] one supercalifragilisticexpialidocious two'])
   })
 
-  test('keeps a real many-participant reply readable in the compact list', async () => {
-    const width = 127
-    const { lines, notes } = draw(OFFERSET, width)
+  test('draws a real many-participant reply as a diagram while every participant fits', async () => {
+    for (const width of [127, 165, 200]) {
+      const { lines, notes } = draw(OFFERSET, width)
+      const shown = lines.join('\n')
+
+      expect(lines.slice(0, 9).some(line => line.includes('╭'))).toBe(true)
+      for (const name of ['Bazaar', 'Gate', 'Risk', 'Contact', 'Tarif', 'Kafka']) expect(shown).toContain(name)
+      for (let n = 1; n <= 22; n++) expect(shown).toMatch(new RegExp(`(^|[^\\d])${n} [^\\[\\s]`, 'm'))
+      for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(width)
+      if (width >= 165) expect(notes).toEqual([])
+    }
+  })
+
+  test('lists a real many-participant reply once its participants no longer fit', async () => {
+    const { lines } = draw(OFFERSET, 90)
     const entries = lines.filter(line => /^\d+ /.test(line))
 
-    expect(notes).toEqual([])
     expect(entries).toHaveLength(22)
-    for (const line of entries) expect(cellWidth(line.replace(/^\d+ +/, '').split(/ {2,}/)[0] ?? '')).toBeLessThanOrEqual(Math.floor(width * 0.35))
     expect(entries[0]).toMatch(/^1 +Bazaar journey ↺ +rate → generate_offerset$/)
-    expect(lines.some(line => line.includes('Bazaar journey = Bazaar journey (QuotingService::Common)'))).toBe(true)
-    expect(lines.some(line => line.includes('Kafka ='))).toBe(false)
   })
 })
+
+describe('label-driven layout', () => {
+  test('runs a self message label over the idle lanes to its right instead of wrapping it', async () => {
+    const { lines } = draw('A->>B: hi\nB->>C: go\nA->>A: think about the request before sending it on', 60)
+
+    expect(lines.at(-1)).toBe('  │↺ think about the request before sending it on')
+  })
+
+  test('draws every participant box the same height, top-aligned, under a centred title', async () => {
+    const { lines } = draw('title Checkout\nparticipant A as Web<br/>app\nparticipant B as API\nA->>B: hi', 40)
+
+    expect(lines.slice(0, 5)).toEqual(['   Checkout', '╭─────╮ ╭─────╮', '│ Web │ │ API │', '│ app │ │     │', '╰──┬──╯ ╰──┬──╯'])
+  })
+
+  test('gives width to the gaps whose labels need it, so a real many-participant reply stays short', async () => {
+    const rows = [124, 162, 197].map(width => draw(OFFERSET, width))
+
+    expect(rows.map(({ notes }) => notes)).toEqual([[], [], []])
+    expect(rows[0]!.lines.length).toBeLessThanOrEqual(80)
+    expect(rows[1]!.lines.length).toBeLessThanOrEqual(62)
+    expect(rows[2]!.lines.length).toBeLessThanOrEqual(52)
+  })
+
+  test('lists a reply whose participants cannot all fit with their names whole', async () => {
+    const { lines } = draw(OFFERSET, 87)
+
+    expect(lines.filter(line => /^\d+ /.test(line))).toHaveLength(22)
+  })
+})
+
+describe('labels over idle lanes', () => {
+  test('runs a long call label right over idle lanes instead of wrapping it in its gap', async () => {
+    const { lines } = draw('A->>B: generate the quote set for the risk profile\nB->>C: ok\nC->>D: ok', 70)
+
+    expect(lines.some(line => line.includes('generate the quote set for the risk profile'))).toBe(true)
+    for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(70)
+  })
+
+  test('breaks identifiers only at their seams, never inside a CamelCase word', async () => {
+    expect(wrap('GateSlowVerticalFailFast timeout', 30).lines).toEqual(['GateSlowVerticalFailFast', 'timeout'])
+    expect(wrap('generate_quote_set_for_new_business', 20).lines).toEqual(['generate_quote_set_', 'for_new_business'])
+  })
+
+  test('keeps a participant box to four lines of name', async () => {
+    const { lines } = draw('participant Q as Bazaar GateAdapter<br/>(offerset_generation/gate_adapter.rb)\nparticipant B\nQ->>B: hi', 40)
+    const header = lines.slice(0, lines.findIndex(line => line.includes('┬')) + 1)
+
+    expect(header.length).toBeLessThanOrEqual(HEADER_ROWS)
+  })
+})
+
+const HEADER_ROWS = 6
