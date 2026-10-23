@@ -110,7 +110,9 @@ type Vertex = {
   at: number // cross position of the first cell
 }
 
-type Route = { edge: FlowEdge; path: Vertex[]; isBack: boolean }
+type Route = { edge: FlowEdge; path: Vertex[] }
+// an edge that turns back up a cycle, drawn round the outside of the chart
+type Loop = { edge: FlowEdge; from: Vertex; to: Vertex }
 
 export type FlowDrawn = { rows: Run[][]; notes: string[] }
 
@@ -185,7 +187,7 @@ function settle(wants: number[], sizes: number[], gap: number): number[] {
   return at
 }
 
-type Layout = { vertices: Vertex[]; ranks: Vertex[][]; routes: Route[]; across: boolean; reversed: boolean }
+type Layout = { vertices: Vertex[]; ranks: Vertex[][]; routes: Route[]; loops: Loop[]; across: boolean; reversed: boolean }
 
 function layout(flow: Flow, cap: number): Layout {
   const across = isAcross(flow.direction)
@@ -199,10 +201,14 @@ function layout(flow: Flow, cap: number): Layout {
     byId.set(node.id, v)
   }
   const routes: Route[] = []
+  const loops: Loop[] = []
   for (const edge of flow.edges) {
     if (edge.from === edge.to) continue
-    const isBack = back.has(edge)
-    const [a, b] = isBack ? [byId.get(edge.to)!, byId.get(edge.from)!] : [byId.get(edge.from)!, byId.get(edge.to)!]
+    const [a, b] = [byId.get(edge.from)!, byId.get(edge.to)!]
+    if (back.has(edge) || a.rank === b.rank) {
+      loops.push({ edge, from: a, to: b })
+      continue
+    }
     const path = [a]
     for (let r = a.rank + 1; r < b.rank; r++) {
       const dummy: Vertex = { key: `${edge.from}>${edge.to}#${routes.length}@${r}`, rank: r, order: 0, at: 0, lines: [], main: 0, cross: 1 }
@@ -210,7 +216,7 @@ function layout(flow: Flow, cap: number): Layout {
       path.push(dummy)
     }
     path.push(b)
-    routes.push({ edge, path, isBack })
+    routes.push({ edge, path })
   }
   const top = Math.max(0, ...vertices.map(v => v.rank))
   const ranks: Vertex[][] = Array.from({ length: top + 1 }, () => [])
@@ -235,6 +241,13 @@ function layout(flow: Flow, cap: number): Layout {
       list.sort((a, b) => a.order - b.order)
     }
   }
+  // a box a loop leaves or enters goes last in its rank, on the side the loop's lane runs, so the
+  // loop never runs through a neighbour
+  const looped = new Set(loops.flatMap(loop => [loop.from, loop.to]))
+  for (const list of ranks) {
+    list.sort((a, b) => Number(looped.has(a)) - Number(looped.has(b)) || a.order - b.order)
+    list.forEach((v, i) => (v.order = i))
+  }
   const gap = across ? 1 : 3
   for (const list of ranks) {
     let at = 0
@@ -258,7 +271,7 @@ function layout(flow: Flow, cap: number): Layout {
   }
   const least = Math.min(...vertices.map(v => v.at))
   for (const v of vertices) v.at -= least
-  return { vertices, ranks, routes, across, reversed }
+  return { vertices, ranks, routes, loops, across, reversed }
 }
 
 // ── drawing ───────────────────────────────────────────────────────────────────────────────────
@@ -305,7 +318,7 @@ export function drawFlow(flow: Flow, width: number): FlowDrawn | undefined {
 
 function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   const plan = layout(flow, cap)
-  const { ranks, routes, across, reversed } = plan
+  const { ranks, routes, loops, across, reversed } = plan
   const labelCap = Math.max(8, Math.min(cap, 20))
   const labelOf = (edge: FlowEdge) => (edge.label === '' ? [] : edge.label.split('\n').flatMap(part => wrap(part, labelCap).lines).map(l => l.replace(/ /g, ' ')))
 
@@ -325,22 +338,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const span = Math.max(1, v.cross - 2)
     list.forEach((route, i) => landing.set(route, list.length === 1 ? centre(v) : v.at + 1 + Math.round(((i + 1) * span) / (list.length + 1)) - (span > list.length ? 0 : 1)))
   }
-  // forward edges fan out of one port at the middle; an edge that turns back up a cycle leaves
-  // through a port of its own beside it, so its arrow never sits on the fan-out
-  const leaving = new Map<Route, number>()
-  const backs = new Map<Vertex, number>()
-  for (const route of routes) {
-    const v = route.path[0]!
-    if (!route.isBack || !v.node) continue
-    const k = backs.get(v) ?? 0
-    backs.set(v, k + 1)
-    const step = 2 * (Math.floor(k / 2) + 1)
-    const right = centre(v) + step
-    const left = centre(v) - step
-    leaving.set(route, k % 2 === 0 && right < v.at + v.cross - 1 ? right : left > v.at ? left : right)
-  }
-  const crossAt = (route: Route, i: number) =>
-    i === route.path.length - 1 ? landing.get(route)! : i === 0 ? (leaving.get(route) ?? centre(route.path[0]!)) : centre(route.path[i]!)
+  const crossAt = (route: Route, i: number) => (i === route.path.length - 1 ? landing.get(route)! : centre(route.path[i]!))
   const placed: Placed[] = routes.map(route => ({ route, tracks: [] }))
   for (let c = 0; c < channels.length; c++) {
     const spans: Array<{ p: Placed; lo: number; hi: number; owner: string }> = []
@@ -393,8 +391,12 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const main = reversed ? mainTotal - 1 - m : m
     return across ? [main, k] : [k, main]
   }
-  const total = across ? mainTotal : crossTotal
-  if (total > width) return undefined
+  // loops nest outside the chart, the shortest innermost, each on a lane of its own
+  loops.sort((a, b) => Math.abs(a.from.rank - a.to.rank) - Math.abs(b.from.rank - b.to.rank))
+  const laneAt = (k: number) => crossTotal + 1 + 2 * k
+  const loopRoom = loops.length === 0 ? 0 : 2 * loops.length
+  const total = across ? mainTotal : crossTotal + loopRoom
+  if (total > width || (across && crossTotal + loopRoom > 400)) return undefined
 
   const grid = new Grid()
   // nodes first, so lines stop at their borders
@@ -440,25 +442,41 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     }
     const last = path.at(-1)!
     const first = path[0]!
-    // the line leaves through the border, so the border shows where: ┬ under a box, ├ beside it;
-    // a back edge leaves its real source through the side facing up the ranks
-    const join = (m: number, k: number, ahead: boolean) => {
-      const [bx, by] = xy(m, k)
-      const border = grid.cells[by]?.[bx]
-      const down = ahead !== reversed
-      if (border?.char === '─' || border?.char === '│' || border?.char === '═') border.char = across ? (down ? '├' : '┤') : down ? '┬' : '┴'
-    }
-    if (route.isBack) join(bandStart[last.rank]!, crossAt(route, path.length - 1), false)
-    else join(bandStart[first.rank]! + first.main - 1, crossAt(route, 0), true)
+    // the line leaves through the border, so the border shows where: ┬ under a box, ├ beside it
+    const [bx, by] = xy(bandStart[first.rank]! + first.main - 1, crossAt(route, 0))
+    const border = grid.cells[by]?.[bx]
+    if (border?.char === '─' || border?.char === '│' || border?.char === '═') border.char = across ? (reversed ? '┤' : '├') : reversed ? '┴' : '┬'
     const landingAt = crossAt(route, path.length - 1)
-    if (route.isBack) {
-      if (route.edge.head) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false)
-      if (route.edge.tail) head(bandStart[last.rank]! - 1, landingAt, true)
-    } else {
-      if (route.edge.head) head(bandStart[last.rank]! - 1, landingAt, true)
-      if (route.edge.tail) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false)
-    }
+    if (route.edge.head) head(bandStart[last.rank]! - 1, landingAt, true)
+    if (route.edge.tail) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false)
   }
+  // a loop leaves its source through the side facing out, runs up its lane and comes into its
+  // target's same side: right of a top-down chart, under a left-right one
+  loops.forEach((loop, k) => {
+    const lane = laneAt(k)
+    const middle = (v: Vertex) => bandStart[v.rank]! + (reversed ? bandSize[v.rank]! - v.main : 0) + Math.floor(v.main / 2)
+    const side = (v: Vertex) => v.at + v.cross
+    const stroke = loop.edge.stroke
+    const a = middle(loop.from)
+    const b = middle(loop.to)
+    segment(a, side(loop.from), a, lane, stroke)
+    segment(a, lane, b, lane, stroke)
+    segment(b, lane, b, side(loop.to), stroke)
+    const out = (v: Vertex, m: number) => {
+      const [x, y] = xy(m, side(v) - 1)
+      const cell = grid.cells[y]?.[x]
+      if (cell?.char === '│' || cell?.char === '─' || cell?.char === '<' || cell?.char === '>' || cell?.char === '(' || cell?.char === ')') cell.char = across ? '┬' : '├'
+    }
+    const arrow = (m: number, v: Vertex) => {
+      const [x, y] = xy(m, side(v))
+      grid.put(x, y, across ? HEADS.up : HEADS.left, 'line')
+    }
+    out(loop.from, a)
+    if (loop.edge.head) arrow(b, loop.to)
+    if (loop.edge.tail) arrow(a, loop.from)
+    const lines = labelOf(loop.edge)
+    if (lines.length > 0) labels.push({ route: { edge: loop.edge, path: [] }, m: across ? b + 2 : b - 1, k: across ? side(loop.to) + 1 + lines.length : side(loop.to) + 1 - 2, lines })
+  })
   const notes: string[] = []
   let footnotes = 0
   for (const label of labels) {

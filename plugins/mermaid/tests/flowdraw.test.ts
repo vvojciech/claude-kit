@@ -43,20 +43,29 @@ describe('drawFlow top-down', () => {
     expect(lines[1]).toMatch(/^< +Ok\? +>$/)
   })
 
-  test('turns an edge back up a cycle with ▲ into the node it returns to', async () => {
-    const { lines } = draw('flowchart TD\nA --> B\nB --> C\nC --> A')
+  test('loops an edge back up a cycle round the right of the chart, out of its source\'s side into its target\'s', async () => {
+    const { lines } = draw('flowchart TD\nA --> B\nB --> C\nB --> D\nD --> B')
+    const b = rowOf(lines, ' B ')
+    const d = rowOf(lines, ' D ')
 
-    expect(lines.join('\n')).toContain('▲')
-    expect(rowOf(lines, 'A')).toBeLessThan(rowOf(lines, 'C'))
+    expect(lines[b]).toMatch(/ B │◀─+┐$/)
+    expect(lines[d]).toMatch(/ D ├─+┘$/)
+    for (const line of lines.slice(b + 1, d)) expect(line).toMatch(/│$/)
   })
 
-  test('gives a back edge its own port, the arrow beside the forward lines, and joins it into the border it leaves', async () => {
-    const { lines } = draw('flowchart TD\nA --> B\nB --> C\nB --> D\nD --> B')
-    const under = lines[rowOf(lines, ' B ') + 2]!
+  test('keeps a loop off the other boxes in its source\'s rank by setting that source outermost', async () => {
+    const { lines } = draw('flowchart TD\nA --> B\nB --> C[Loop back]\nB --> D[Carry on]\nC --> A')
+    const row = lines[rowOf(lines, 'Loop back')]!
 
-    expect(under).toContain('▲')
-    expect(under).toContain('│')
-    expect(lines[rowOf(lines, ' D ') - 1]).toContain('┴')
+    expect(row.indexOf('Loop back')).toBeGreaterThan(row.indexOf('Carry on'))
+  })
+
+  test('loops a back edge under the chart when it runs left to right', async () => {
+    const { lines } = draw('flowchart LR\nA --> B\nB --> C\nC --> A')
+    const last = lines.at(-1)!
+
+    expect(lines.join('\n')).toContain('▲')
+    expect(last).toMatch(/^\s*└─+┘$/)
   })
 
   test('draws a dotted edge with dotted strokes and a thick one heavy', async () => {
