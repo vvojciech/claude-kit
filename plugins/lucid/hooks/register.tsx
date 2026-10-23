@@ -6,7 +6,9 @@ import type { Draw } from './runs'
 import { renderFailure, renderToolRow, renderWrittenFile } from './tool-rows'
 import { ReplyStream } from './live'
 import { CallLedger } from './permits'
-import { blocksOf } from './message'
+import { blocksOf, parseBlocks } from './message'
+import { imageSources, picturesOf, thumbnail } from './pictures'
+import type { Pictures } from './pictures'
 import { drawnTone, forgetTheme, themePalette } from './theme'
 import { TASK_STILL_RUNNING, TASK_UNTRACKED, backgroundTaskId, callEnd, createdContent, describeCall, failureOf, isInterimNotice, notificationRow, stateOf, stoppedTaskId, summariseGroup, unsuccessfulState } from './tools'
 import type { CallEnd, Roots, ToolCall } from './tools'
@@ -101,6 +103,10 @@ async function recordEnd($: Tracker, id: string | undefined, status: string | un
   $.clock.after(0, () => quietly($.state.set({ plugin: 'lucid', key: 'endedTasks', id }, status)))
 }
 
+async function opened($: EngineInterface, path: string): Promise<void> {
+  await $.peek.open({ path }).catch(() => undefined)
+}
+
 export const register: Register = on => {
   on('engine.create', async (_$, e, next) => {
     forgetTheme()
@@ -126,8 +132,14 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
-    const draw = { kit: $.ui.resolve(e), palette: await themePalette($) }
-    const message = renderMarkdown(draw, e.props.text, e.viewport?.columns ?? DEFAULT_COLUMNS, replies.isStreaming(e.requestId))
+    const kit = $.ui.resolve(e)
+    const draw = { kit, palette: await themePalette($) }
+    const columns = e.viewport?.columns ?? DEFAULT_COLUMNS
+    const streaming = replies.isStreaming(e.requestId)
+    const sources = imageSources(parseBlocks(e.props.text, { streaming }))
+    const found = sources.length === 0 ? new Map() : await picturesOf($, sources, { requestId: e.requestId, columns, isFullscreen: e.viewport?.isFullscreen })
+    const pictures: Pictures = { found, node: (picture, key) => thumbnail(kit, draw.palette, picture, key, () => void opened($, picture.path)) }
+    const message = renderMarkdown(draw, e.props.text, columns, streaming, pictures)
     return e.props.isSummary ? markSummary(draw, message) : message
   }).catch(($, e, next) => next(e))
 

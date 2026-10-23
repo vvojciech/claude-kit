@@ -329,7 +329,7 @@ describe('link schemes', () => {
   })
 
   test('drops the href of an image with an unopenable scheme', async () => {
-    expect(inlineSpans('![pic](data:image/png;base64,AAAA)')).toEqual([{ text: '[image: pic]', kind: 'image' }])
+    expect(inlineSpans('![pic](data:image/png;base64,AAAA)')).toEqual([{ text: '[image: pic]', kind: 'image', src: 'data:image/png;base64,AAAA' }])
   })
 })
 
@@ -441,8 +441,8 @@ describe('links', () => {
   })
 
   test('shows an image as its alt text, linked only when absolute', async () => {
-    expect(inlineSpans('![diagram](arch.png)')).toEqual([{ text: '[image: diagram]', kind: 'image' }])
-    expect(inlineSpans('![](https://x.io/a.png)')).toEqual([{ text: '[image]', kind: 'image', href: 'https://x.io/a.png' }])
+    expect(inlineSpans('![diagram](arch.png)')).toEqual([{ text: '[image: diagram]', kind: 'image', src: 'arch.png' }])
+    expect(inlineSpans('![](https://x.io/a.png)')).toEqual([{ text: '[image]', kind: 'image', href: 'https://x.io/a.png', src: 'https://x.io/a.png' }])
   })
 
   test('shows a relative destination as a path after its text, without link styling', async () => {

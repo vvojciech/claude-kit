@@ -200,7 +200,7 @@ describe('html in replies', () => {
   })
 
   test('keeps an image tag as its alt text', async () => {
-    expect(inlineSpans('<img src="https://x.io/a.png" alt="chart">')).toEqual([{ text: '[image: chart]', kind: 'image', href: 'https://x.io/a.png' }])
+    expect(inlineSpans('<img src="https://x.io/a.png" alt="chart">')).toEqual([{ text: '[image: chart]', kind: 'image', href: 'https://x.io/a.png', src: 'https://x.io/a.png' }])
   })
 })
 

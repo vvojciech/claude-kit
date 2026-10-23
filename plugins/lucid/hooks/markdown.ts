@@ -43,6 +43,7 @@ export type Span = {
   strike?: boolean
   underline?: boolean
   href?: string
+  src?: string
 }
 
 export type Footnotes = { has(label: string): boolean; readonly size: number }
@@ -460,7 +461,8 @@ function localLinkSpans(token: Tokens.Link, style: Style): Span[] {
 
 function imageOf(alt: string, href: string, style: Style): Span {
   const label = decodeEntities(alt).trim()
-  return styled(label === '' ? '[image]' : `[image: ${label}]`, 'image', { ...style, ...hrefStyle(href) })
+  const span = styled(label === '' ? '[image]' : `[image: ${label}]`, 'image', { ...style, ...hrefStyle(href) })
+  return href.trim() === '' ? span : { ...span, src: href.trim() }
 }
 
 const PATH_SEGMENT = '[\\w@.+-]*[\\w@+-]'

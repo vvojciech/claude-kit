@@ -5,6 +5,8 @@ import { heading } from './headings'
 import type { AlertKind, Block, ListItem, Span } from './markdown'
 import { parseBlocks } from './message'
 import type { Palette } from './palette'
+import { laidOut } from './pictures'
+import type { Pictures, Placed } from './pictures'
 import { drawRuns, gapRows, paragraph, spansText, wrappedRows } from './runs'
 import type { Draw, Run } from './runs'
 import { table, tableRows } from './tables'
@@ -491,17 +493,39 @@ function plainRest(draw: Draw, blocks: Block[]): RenderNode {
   return <draw.kit.Text color={draw.palette.text}>{blocks.map(plainText).join('\n\n')}</draw.kit.Text>
 }
 
-export function renderMarkdown(draw: Draw, text: string, columns: number, streaming = false): RenderElement {
-  const blocks = parseBlocks(text, { streaming })
+const PICTURE_NODES = 8
+
+const NO_PICTURES: Pictures = { found: new Map(), node: () => '' }
+
+function pictureKey(used: Set<string>, key: string): string {
+  let unique = key
+  for (let n = 2; used.has(unique); n++) unique = `${key}-${n}`
+  used.add(unique)
+  return unique
+}
+
+function gapBefore(previous: Block | Placed | undefined, current: Block | Placed): number {
+  if (previous === undefined) return 0
+  return previous.kind === 'picture' || current.kind === 'picture' ? 1 : blockGap(previous, current)
+}
+
+export function renderMarkdown(draw: Draw, text: string, columns: number, streaming = false, pictures: Pictures = NO_PICTURES): RenderElement {
+  const blocks = laidOut(parseBlocks(text, { streaming }), pictures.found)
   const flowWidth = Math.max(1, columns)
   const rows: RenderNode[] = []
+  const used = new Set<string>()
   let spent = 1
   for (const [i, b] of blocks.entries()) {
-    const gap = blockGap(blocks[i - 1], b)
+    const gap = gapBefore(blocks[i - 1], b)
+    if (b.kind === 'picture') {
+      rows.push(blockRow(draw, pictures.node(b.picture, pictureKey(used, b.picture.key)), gap, undefined))
+      spent += PICTURE_NODES + ROW_NODES
+      continue
+    }
     const wide = b.kind === 'list' ? holdsWide(b) : WIDE_BLOCKS.has(b.kind)
     const drawn = drawnBlock(draw, b, flowWidth)
     if (spent + drawn.size.nodes + ROW_NODES > NODE_BUDGET) {
-      rows.push(blockRow(draw, plainRest(draw, blocks.slice(i)), gap, undefined))
+      rows.push(blockRow(draw, plainRest(draw, blocks.slice(i).filter((rest): rest is Block => rest.kind !== 'picture')), gap, undefined))
       break
     }
     const node = drawn.size.depth <= DEPTH_BUDGET ? drawn.node : plainRest(draw, [b])
