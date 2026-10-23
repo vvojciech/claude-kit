@@ -68,6 +68,8 @@ const DASHES = 3
 const LEADER = 1
 // the fewest stroke cells an arrow keeps when a label shares its row
 const ARROW_MIN = 3
+// the narrowest strip left of a lifeline worth opening a self-call into
+const SELF_LEFT_MIN = 20
 const COLS_PER_ROW = 12
 const ACTOR = '☺ '
 const plain = (text: string) => text.replace(/\u00a0/g, ' ')
@@ -1040,7 +1042,7 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
     // spare width also goes to a box whose name folds inside an identifier (`offerset_` /
     // `generation`), as long as no row is spent on it
     names.forEach((_, i) => {
-      if (fullHeader(lanes[i]!, names[i]!).some(line => /(_|::)$/.test(line))) widen(() => names[i]!, cap => (names[i] = cap), fullNames[i]!, tried => tried.rows > plan.rows)
+      if (breaksInside(lanes[i]!, names[i]!)) widen(() => names[i]!, cap => (names[i] = cap), fullNames[i]!, tried => tried.rows > plan.rows)
     })
     const narrow = items
       .filter(item => !states.get(item.step)!.isHidden && !states.get(item.step)!.inline && states.get(item.step)!.cap < item.maxCap)
@@ -1318,6 +1320,8 @@ class Canvas {
   readonly frames: Frame[] = []
   readonly marks = new Map<string, string>()
   readonly rails: number[] = []
+  // the last self-call that opened left, so the next one on the same lane keeps that side
+  leftSelf?: { lane: number; row: number }
   stub?: number
 
   constructor(readonly width: number, readonly plan: Plan, created: Set<string>) {
@@ -1479,7 +1483,8 @@ function frameRow(canvas: Canvas, y: number, frame: Frame, ends: [string, string
   if (end < frame.right - 1) canvas.put(y, end, ' ', 'text')
 }
 
-type Arrival = { lightsLane?: number; born?: number }
+// `caller` is the lane that last called the sender, so a self-call may run left up to it, never past it
+type Arrival = { lightsLane?: number; born?: number; caller?: number }
 
 function writeLabel(canvas: Canvas, y: number, x: number, line: string, number: string | undefined): number {
   if (number && (line === number || line.startsWith(`${number}${GLUE}`))) {
@@ -1512,6 +1517,26 @@ function drawMessage(canvas: Canvas, plan: Plan, step: Message, text: string, wr
     const indent = number ? cellWidth(number) + 1 : 0
     const room = Math.max(1, stop - start - indent)
     const lines = wrap(text, room).lines
+    // near the right edge the label opens to the left instead, over idle lanes, when that saves
+    // two rows or more: `… OfferSetBuilder ↺│`, every line ending against the lifeline
+    if (isSpill) {
+      const end = at - 3
+      const reach = arrival.caller !== undefined && arrival.caller < from ? c[arrival.caller]! + 2 : 0
+      const begin = c.reduce((most, lane, i) => (i < from && canvas.alive[i] && canvas.depth[i]! > 0 ? Math.max(most, lane + 2) : most), reach)
+      const left = wrap(text, Math.max(1, end - begin + 1)).lines
+      const follows = canvas.leftSelf?.lane === from && canvas.leftSelf.row === canvas.rows.length
+      if (end - begin >= SELF_LEFT_MIN && (left.length + 2 <= lines.length || (follows && left.length <= lines.length))) {
+        left.forEach((line, i) => {
+          const y = canvas.row()
+          if (i === 0) canvas.put(y, at - 1, '↺', 'line')
+          const x = end - cellWidth(line) + 1
+          canvas.put(y, x - 1, ' ', 'text')
+          canvas.put(y, writeLabel(canvas, y, x, line, i === 0 ? number : undefined), ' ', 'text')
+        })
+        canvas.leftSelf = { lane: from, row: canvas.rows.length }
+        return
+      }
+    }
     lines.forEach((line, i) => {
       const y = canvas.row()
       if (i === 0) canvas.put(y, at + 1, '↺', 'line')
@@ -1569,21 +1594,6 @@ function drawMessage(canvas: Canvas, plan: Plan, step: Message, text: string, wr
     if (born === undefined && end !== undefined && fits(end)) {
       tail = { text: end, number: above.length === 1 ? number : undefined, isTight: true }
       above = above.slice(0, -1)
-    } else if (born === undefined && end !== undefined && !wrapped.isCut && above.length > 1) {
-      // a wrapped label whose last line is too wide for the span hands its trailing words to the
-      // arrow row, so it ends on its arrow at the same row count; a one-line label stays whole
-      // it splits at a space outside parentheses and away from `=`, so `(rating_type = full_rating)`
-      // stays whole, and keeps a readable arrow
-      const words = end.split(' ')
-      const opens = (text: string) => [...text].reduce((depth, ch) => depth + (ch === '(' ? 1 : ch === ')' ? -1 : 0), 0)
-      for (let k = 1; k < words.length; k++) {
-        const suffix = words.slice(k).join(' ')
-        const isClean = opens(words.slice(0, k).join(' ')) <= 0 && words[k] !== '=' && words[k - 1] !== '='
-        if (!isClean || !fits(suffix)) continue
-        above = [...above.slice(0, -1), words.slice(0, k).join(' ')]
-        tail = { text: suffix, isTight: true }
-        break
-      }
     }
   }
   // every label line starts at the same gutter, whether or not its arrow shares the row
@@ -1591,7 +1601,7 @@ function drawMessage(canvas: Canvas, plan: Plan, step: Message, text: string, wr
   above.forEach((line, i) => {
     const y = canvas.row()
     const at =
-      born !== undefined ? x : isRight ? tailAt(planned.start, isTail) : Math.max(x, planned.end - lead(isTail) - cellWidth(line))
+      born !== undefined ? x : isRight ? tailAt(planned.start, isTail) : Math.max(planned.start + 1, planned.end - lead(isTail) - cellWidth(line))
     canvas.put(y, writeLabel(canvas, y, at, line, i === 0 ? number : undefined), ' ', 'text')
   })
 
@@ -1700,6 +1710,26 @@ export function drawSequence(sequence: Sequence, width: number): { rows: Run[][]
   return drawn
 }
 
+// True when a box at this width folds its name inside a word: after `_` or `::`, or at a
+// CamelCase hump the label has no space at. A fold after `/` or at a space is fine.
+function breaksInside(p: Participant, cap: number): boolean {
+  const lines = fullHeader(p, cap)
+  const label = p.label.replace(/\s*\n\s*/g, ' ')
+  return lines.some((line, i) => {
+    const next = lines[i + 1]
+    if (next === undefined || line.endsWith('/')) return false
+    return /(_|::)$/.test(line) || (label.includes(line + next) && !label.includes(`${line} ${next}`))
+  })
+}
+
+const SUPERSCRIPT = '⁰¹²³⁴⁵⁶⁷⁸⁹'
+const superscript = (n: number) => [...String(n)].map(digit => SUPERSCRIPT[Number(digit)]).join('')
+
+const detailsFold = (p: Participant, cap: number) => {
+  const [name = '', ...details] = p.label.split('\n').map(line => line.trim())
+  return breaksInside(p, cap) || details.some(line => cellWidth(line) > cap) || wrap(name, cap, true).lines.length > 2
+}
+
 function draw(given: Sequence, width: number): { rows: Run[][]; notes: string[] } {
   const sequence = { ...given, participants: given.participants.map(p => (p.label.trim() === '' ? { ...p, label: p.id } : p)) }
   const notes: string[] = []
@@ -1707,6 +1737,15 @@ function draw(given: Sequence, width: number): { rows: Run[][]; notes: string[] 
   if (all.length === 0) return { rows: [], notes }
   const chosen = choose(sequence, width)
   if (!chosen) return compact(sequence, width)
+  // a box whose `<br/>` detail lines don't fit whole, each on one line, keeps just its name; the
+  // full name goes to the legend under the diagram, so nothing is lost and no box towers
+  const folded = chosen.plan.lanes.filter((p, i) => p.label.includes('\n') && detailsFold(p, chosen.plan.names[i]!))
+  if (folded.length > 0) {
+    const mark = new Map(folded.map((p, k) => [p.id, superscript(k + 1)]))
+    const slim = { ...given, participants: given.participants.map(p => (mark.has(p.id) ? { ...p, label: `${p.label.split('\n')[0]!.trim()}\u00a0${mark.get(p.id)}` } : p)) }
+    const drawn = draw(slim, width)
+    return { rows: drawn.rows, notes: [...folded.map(p => `${mark.get(p.id)} ${p.label.split('\n').slice(1).map(line => line.trim()).join(' · ')}`), ...drawn.notes] }
+  }
   const { plan, items, numbers, blocks } = chosen
   const itemOf = new Map(items.map(item => [item.step, item]))
   const created = new Set(sequence.steps.flatMap(step => (step.kind === 'create' ? [step.id] : [])))
@@ -1896,6 +1935,15 @@ function draw(given: Sequence, width: number): { rows: Run[][]; notes: string[] 
     const breaks = (itemOf.get(step)?.text ?? step.text).split('\n').length
     leastRows += Math.max(step.from === step.to || !plan.lane.has(step.from) || !plan.lane.has(step.to) ? 2 : 1, breaks)
   }
+  function callerOf(step: Message): number | undefined {
+    if (step.from !== step.to) return undefined
+    const k = sequence.steps.indexOf(step)
+    for (let j = k - 1; j >= 0; j--) {
+      const earlier = sequence.steps[j]!
+      if (earlier.kind === 'message' && earlier.to === step.from && earlier.from !== step.from) return plan.lane.get(earlier.from)
+    }
+    return undefined
+  }
   function drawLink(step: Message, after: Step | undefined, number: string | undefined) {
     if (plan.lane.has(step.from) && plan.lane.has(step.to)) {
       const lights = after?.kind === 'activate' && after.isOn && after.id === step.to ? plan.lane.get(after.id) : undefined
@@ -1904,7 +1952,7 @@ function draw(given: Sequence, width: number): { rows: Run[][]; notes: string[] 
       const born = bornId !== undefined && pendingBirths.has(bornId) && !canvas.alive[plan.lane.get(bornId)!] ? plan.lane.get(bornId) : undefined
       if (bornId !== undefined) pendingBirths.delete(bornId)
       const inline = (plan.states.get(step)?.inline ?? false) && !isSpill(step, plan.states, items, plan.nested, plan.creates)
-      drawMessage(canvas, plan, step, itemOf.get(step)?.text ?? step.text, labelled(step), inline, isTight || (plan.states.get(step)?.tight ?? false), number, { lightsLane: lights, born }, () => footnote(numbered(itemOf.get(step)?.text ?? step.text), step))
+      drawMessage(canvas, plan, step, itemOf.get(step)?.text ?? step.text, labelled(step), inline, isTight || (plan.states.get(step)?.tight ?? false), number, { lightsLane: lights, born, caller: callerOf(step) }, () => footnote(numbered(itemOf.get(step)?.text ?? step.text), step))
       return
     }
     const text = itemOf.get(step)?.text ?? step.text

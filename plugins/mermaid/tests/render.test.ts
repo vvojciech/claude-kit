@@ -92,6 +92,21 @@ describe('drawSequence', () => {
     expect(lines.at(-1)).toBe('  │       │↺ think')
   })
 
+  test('moves a detail line that would break inside an identifier out of its box and into the legend', async () => {
+    const { lines, notes } = draw('participant A as Gate API<br/>(offerset_generation v1)\nparticipant B as Store\nparticipant C as Cache\nA->>B: a label long enough to need the room\nB->>C: and another one that needs it too', 46)
+
+    expect(lines.slice(0, 5).join('\n')).not.toMatch(/offerset_$/m)
+    expect(lines.slice(0, 5).join('\n')).toContain('Gate API\u00a0¹')
+    expect(notes).toContain('¹ (offerset_generation v1)')
+  })
+
+  test('keeps a detail line in its box when it fits whole', async () => {
+    const { lines, notes } = draw('participant A as Gate API<br/>(offerset_generation v1)\nparticipant B as Store\nA->>B: hi', 80)
+
+    expect(lines.slice(0, 5).join('\n')).toContain('(offerset_generation v1)')
+    expect(notes).toEqual([])
+  })
+
   test('wraps a numbered self-message so its hanging lines never pass the right edge', async () => {
     const { lines } = draw('autonumber\nA->>B: x\nB->>B: OfferSetBuilder: pipeline route by business_unit/quoting_operation/vertical/rating_type', 30)
 
@@ -617,7 +632,7 @@ describe('round 11', () => {
       for (const name of ['Bazaar', 'Gate', 'Risk', 'Contact', 'Tarif', 'Kafka']) expect(shown).toContain(name)
       for (let n = 1; n <= 22; n++) expect(shown).toMatch(new RegExp(`(^|[^\\d])${n} [^\\[\\s]`, 'm'))
       for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(width)
-      if (width >= 165) expect(notes).toEqual([])
+      if (width >= 165) expect(notes.filter(note => note.startsWith('['))).toEqual([])
     }
   })
 
@@ -646,7 +661,7 @@ describe('label-driven layout', () => {
   test('gives width to the gaps whose labels need it, so a real many-participant reply stays short', async () => {
     const rows = [124, 162, 197].map(width => draw(OFFERSET, width))
 
-    expect(rows.map(({ notes }) => notes)).toEqual([[], [], []])
+    expect(rows.map(({ notes }) => notes.filter(note => note.startsWith('[')))).toEqual([[], [], []])
     expect(rows[0]!.lines.length).toBeLessThanOrEqual(80)
     expect(rows[1]!.lines.length).toBeLessThanOrEqual(62)
     expect(rows[2]!.lines.length).toBeLessThanOrEqual(52)
