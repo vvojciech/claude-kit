@@ -73,3 +73,13 @@ export async function withThumbs($: EngineInterface, frame: Frame, drawn: Render
   const items = await itemsFor($, frame, wanted)
   return items.length === 0 ? drawn : gallery(frame.kit, drawn, items)
 }
+
+type Node = { type?: unknown; props?: { key?: unknown }; children?: unknown }
+
+export function imageKeysIn(node: unknown, found: Set<string> = new Set()): Set<string> {
+  if (typeof node !== 'object' || node === null) return found
+  const { type, props, children } = node as Node
+  if (type === 'Image' && typeof props?.key === 'string') found.add(props.key)
+  if (Array.isArray(children)) for (const child of children) imageKeysIn(child, found)
+  return found
+}

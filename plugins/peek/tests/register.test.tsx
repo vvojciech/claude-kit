@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine, TestBody } from 'claude-code/testing'
 
+import { replyImageKey } from '../hooks/api'
 import { forgetThumbs } from '../hooks/convert'
 import { ON_CLIPBOARD } from '../hooks/actions'
 import { USAGE } from '../hooks/commands'
@@ -19,6 +20,7 @@ type World = {
   clipboard?: string
   lucid?: unknown
   pressed?: string[]
+  inPlace?: string[]
 }
 
 const IMAGES = '/tmp/claude-501/-w/s1/images'
@@ -75,9 +77,15 @@ async function changed($: Engine, text: string) {
   await ($.prompt as unknown as Changes).change({ text, cursor: 0, origin: { kind: 'paste' } })
 }
 
-type Beneath = { Box: (p: object) => unknown; Text: (p: object) => unknown; Button: (p: object) => unknown }
+type Beneath = { Box: (p: object) => unknown; Text: (p: object) => unknown; Button: (p: object) => unknown; Image: (p: object) => unknown }
+
+function drawnInPlace(kit: Beneath, paths: string[]) {
+  const pictures = paths.map(path => kit.Image({ key: replyImageKey(path), source: { png: WIDE_PNG }, columns: 8, rows: 2, alt: path }))
+  return kit.Box({ flexDirection: 'column', children: [kit.Text({ children: ['beneath'] }), kit.Box({ flexDirection: 'column', children: pictures })] })
+}
 
 function beneath(kit: Beneath, world: World) {
+  if (world.inPlace !== undefined) return drawnInPlace(kit, world.inPlace)
   if (world.pressed === undefined) return kit.Text({ children: ['beneath'] })
   const chip = kit.Button({ key: 'copy-cover', plain: true, label: '⧉', onPress: () => world.pressed?.push('⧉'), children: [kit.Text({ children: ['⧉'] })] })
   return kit.Box({ flexDirection: 'column', children: [kit.Text({ children: ['beneath'] }), chip] })
@@ -167,6 +175,24 @@ describe('composing with other mods', () => {
     expect(pressed).toEqual(['⧉'])
     const keys = (await ui.findAll({ type: 'Button' })).map(b => b.props.key)
     expect(keys).toEqual(['copy-cover', 'peek-open-reply-0'])
+  })
+})
+
+describe('reply images a mod beneath drew in place', () => {
+  test('appends nothing for an image already drawn in place', async ($, on) => {
+    host(on, { files: { '/w/out/c.png': WIDE_PNG }, inPlace: ['/w/out/c.png'] })
+    await start($)
+    const ui = await reply($, 'Before\n\n![chart](out/c.png)\n\nAfter')
+    expect(await images(ui)).toHaveLength(1)
+    expect(await ui.find({ key: GALLERY_KEY })).toBeUndefined()
+  })
+
+  test('still appends the images it left as placeholders', async ($, on) => {
+    host(on, { files: { '/w/a.png': WIDE_PNG, '/w/b.png': WIDE_PNG }, inPlace: ['/w/a.png'] })
+    await start($)
+    const ui = await reply($, '![a](a.png)\n\n- ![b](/w/b.png)')
+    expect(await ui.find({ key: GALLERY_KEY })).toBeDefined()
+    expect((await images(ui)).map(i => i.props.alt)).toEqual(['/w/a.png', '▣ b.png'])
   })
 })
 
