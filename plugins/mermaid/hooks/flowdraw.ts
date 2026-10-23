@@ -400,19 +400,30 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const port = leaving.get(route)
     return port !== undefined && route.path.slice(1, -1).every(d => Math.abs(centre(d) - port) <= 2) ? port : centre(v)
   }
-  // an arrow lands where its line already runs when that is over the box, so it drops straight in;
-  // arrows that would land within a cell of each other spread out along the side
+  // an arrow lands where its line already runs when that is over the box, so it drops straight in.
+  // A solid edge claims its spot first; the others take the nearest spot a cell clear of every
+  // arrow already placed. A decision's arrows keep off its slanted corners.
   const landing = new Map<Route, number>()
   for (const [v, list] of portIn) {
     const from = (route: Route) => through(route, route.path.length - 2)
-    list.sort((a, b) => from(a) - from(b))
-    const lo = v.at + 1
-    const hi = v.at + v.cross - 2
-    const at = list.map(route => Math.max(lo, Math.min(hi, list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route))))
+    const inset = v.node!.shape === 'diamond' || v.node!.shape === 'hexagon' ? (across ? 1 : 2) : 1
+    const lo = v.at + inset
+    const hi = v.at + v.cross - 1 - inset
     const apart = across ? 2 : 3
-    for (let i = 1; i < at.length; i++) at[i] = Math.max(at[i]!, at[i - 1]! + apart)
-    for (let i = at.length - 1; i >= 0; i--) at[i] = Math.min(at[i]!, i === at.length - 1 ? hi : at[i + 1]! - apart)
-    list.forEach((route, i) => landing.set(route, Math.max(lo, at[i]!)))
+    const want = (route: Route) => Math.max(lo, Math.min(hi, list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route)))
+    const first = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(want(a) - from(a)) - Math.abs(want(b) - from(b)))
+    const taken: number[] = []
+    for (const route of first) {
+      const free = (at: number) => at >= lo && at <= hi && taken.every(t => Math.abs(t - at) >= apart)
+      let at = want(route)
+      for (let d = 0; !free(at) && d <= v.cross; d++) {
+        const toward = from(route) >= want(route) ? 1 : -1
+        if (free(want(route) + toward * d)) at = want(route) + toward * d
+        else if (free(want(route) - toward * d)) at = want(route) - toward * d
+      }
+      taken.push(at)
+      landing.set(route, at)
+    }
   }
   const crossAt = (route: Route, i: number) => (i === route.path.length - 1 ? landing.get(route)! : through(route, i))
   const placed: Placed[] = routes.map(route => ({ route, tracks: [] }))

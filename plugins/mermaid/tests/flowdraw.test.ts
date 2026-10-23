@@ -162,6 +162,13 @@ describe('drawFlow left-right', () => {
     expect(lines.filter(line => [...line][border] === '├')).toHaveLength(2)
   })
 
+  test('runs the solid edge straight into a decision\'s tip and sets the dotted one beside it', async () => {
+    const { lines } = draw('flowchart LR\nE[Rate] --> F{Any?}\nE -.-> K[Side]\nK -.-> F')
+    const tip = lines.find(line => line.includes('<'))!
+
+    expect(tip).toMatch(/Rate *├─+▶</)
+  })
+
   test('writes an edge label above the line into its target', async () => {
     const { lines } = draw('flowchart LR\nA -->|go| B')
 
