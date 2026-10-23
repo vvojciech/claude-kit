@@ -499,10 +499,11 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const [x1, y1] = xy(m1, k1)
     grid.line(x0, y0, x1, y1, stroke)
   }
-  const head = (m: number, k: number, forward: boolean, stroke: Stroke = 'solid') => {
+  // heads stay bright on a dimmed dotted edge, so where it lands never fades
+  const head = (m: number, k: number, forward: boolean) => {
     const [x, y] = xy(m, k)
     const ahead = forward !== reversed
-    grid.put(x, y, across ? (ahead ? HEADS.right : HEADS.left) : ahead ? HEADS.down : HEADS.up, stroke === 'dotted' ? 'frame' : 'line')
+    grid.put(x, y, across ? (ahead ? HEADS.right : HEADS.left) : ahead ? HEADS.down : HEADS.up, 'line')
   }
   const labels: Array<{ route: Route; m: number; k: number; lines: string[] }> = []
   for (const p of placed) {
@@ -535,8 +536,8 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     if (border?.char === '═') border.char = reversed ? '╧' : '╤'
     else if (border?.char === '─' || border?.char === '│') border.char = across ? (reversed ? '┤' : '├') : reversed ? '┴' : '┬'
     const landingAt = crossAt(route, path.length - 1)
-    if (route.edge.head) head(bandStart[last.rank]! - 1, landingAt, true, stroke)
-    if (route.edge.tail) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false, stroke)
+    if (route.edge.head) head(bandStart[last.rank]! - 1, landingAt, true)
+    if (route.edge.tail) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false)
   }
   // a loop leaves its source through the side facing out, runs up its lane and comes into its
   // target's same side: right of a top-down chart, under a left-right one

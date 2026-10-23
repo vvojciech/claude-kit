@@ -99,13 +99,12 @@ describe('drawFlow top-down', () => {
     expect([...border].filter(ch => ch === '┬')).toHaveLength(2)
   })
 
-  test('dims every cell of a dotted edge, corners and head included, so even a short one reads as dotted', async () => {
+  test('dims every cell of a dotted edge, corners included, so even a short one reads as dotted, but keeps its head bright', async () => {
     const { drawn } = draw('flowchart LR\nA -.-> B')
-    const runs = drawn!.rows.flat().filter(run => /[─╌┐┘┌└▶├┤╎]/.test(run.text) && !/[A-Z]/.test(run.text))
-    const between = runs.filter(run => run.text.includes('▶') || run.text.includes('╌'))
+    const runs = drawn!.rows.flat()
 
-    expect(between.length).toBeGreaterThan(0)
-    expect(between.every(run => run.ink === 'frame')).toBe(true)
+    expect(runs.filter(run => run.text.includes('╌')).every(run => run.ink === 'frame')).toBe(true)
+    expect(runs.find(run => run.text.includes('▶'))!.ink).toBe('line')
   })
 
   test('keeps the main stroke centred under a box and puts another stroke four cells out toward its target', async () => {
