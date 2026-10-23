@@ -4,6 +4,42 @@ import { parseSequence } from '../hooks/parse'
 import { drawSequence, plainRows, wrap } from '../hooks/render'
 import { cellWidth } from '../hooks/width'
 
+const QUOTE_FLOW = [
+  'autonumber',
+  'participant J as Bazaar journey<br/>(QuotingService::Common)',
+  'participant QA as Bazaar GateAdapter<br/>(offerset_generation/gate_adapter.rb)',
+  'participant QG as Gate API<br/>(offerset_generation v1)',
+  'participant GQ as Gate GenerateOfferset',
+  'participant RP as Risk Profiler',
+  'participant RO as Contact (ACCT)',
+  'participant R as Tarif (in-process gem)<br/>Tarif::Rating',
+  'participant K as Kafka',
+  'participant S3 as Gate persistence (S3)',
+  'J->>J: rate → generate_offerset',
+  'J->>QA: generate_offerset(req_identity, risk_profile_attributes,<br/>for_insurers, vertical)',
+  'QA->>QA: build contract, restrict insurer panel,<br/>pick endpoint by quoting_operation',
+  'QA->>QG: POST generate_offer_set_for_new_business<br/>(GateSlowVerticalFailFast timeout)',
+  'QG->>GQ: NewBusiness::GenerateOfferset<br/>(rating_type = full_rating)',
+  'GQ->>GQ: TransformRiskProfileAttributes',
+  'GQ->>RP: enriched risk factors, first-party data,<br/>rating questionnaire id (by req_reference, request-cached)',
+  'GQ->>RO: FetchCustomerDetails(customer_account_id)',
+  'GQ->>GQ: BuildTarifRiskProfile',
+  'GQ->>R: generate_offer_set_for_risk_profile(profile, for_insurers)',
+  'R->>R: OfferSetBuilder: pipeline route by<br/>business_unit/quoting_operation/vertical/rating_type',
+  'R->>R: enrichment → quoting → Oracle overlay → BazaarFiltering',
+  'R-->>GQ: tarif offerset (offers + enriched REQ)',
+  'GQ->>K: enriched_req_built (configured BUs only)',
+  'GQ->>GQ: HandleOracleError',
+  'GQ->>S3: PersistOfferset → offerset_id',
+  'GQ-->>QG: Offerset',
+  'QG-->>QA: 200 offerset',
+  'Note over QA,QG: 400 → GateContractValidationError<br/>422 → EmptyOffersetError / InvalidOffersetError',
+  'QA-->>J: Dto::Offerset',
+  'J->>QG: warm offerset cache (read API by offerset_id)',
+  'J->>RO: link_customer_account',
+  'J->>J: write_offer (REQ + offers to Mongo, one commit)',
+].join('\n')
+
 const draw = (source: string, width = 80) => {
   const { rows, notes } = drawSequence(parseSequence(`sequenceDiagram\n${source}`), width)
   return { lines: plainRows(rows), rows, notes }
@@ -50,11 +86,11 @@ describe('drawSequence', () => {
     const { lines, notes } = draw('participant B as Browser\nparticipant C as Bazaar\nB->>C: GET /quote\nC-->>B: 200 html')
 
     expect(lines).toEqual([
-      '╭─────────╮      ╭────────╮',
-      '│ Browser │      │ Bazaar │',
-      '╰────┬────╯      ╰────┬───╯',
-      '     │─ GET /quote ──▶│',
-      '     │◀╌╌╌╌ 200 html ╌│',
+      '╭─────────╮       ╭────────╮',
+      '│ Browser │       │ Bazaar │',
+      '╰────┬────╯       ╰────┬───╯',
+      '     │─ GET /quote ───▶│',
+      '     │◀╌╌╌╌╌╌ 200 html │',
     ])
     expect(notes).toEqual([])
   })
@@ -73,7 +109,7 @@ describe('drawSequence', () => {
   test('spreads a long label across the whole span it travels', async () => {
     const { lines } = draw('A->>B: one\nB->>C: two\nA->>C: spans both lanes with a long label')
 
-    expect(lines.at(-1)).toBe('  │─ spans both lanes with a long label ─▶│')
+    expect(lines.at(-1)).toBe('  │─ spans both lanes with a long label ──▶│')
     expect(lines.filter(line => line.includes('spans both'))).toHaveLength(1)
   })
 
@@ -89,7 +125,7 @@ describe('drawSequence', () => {
   test('draws a self-message with a one-line label on one row', async () => {
     const { lines } = draw('A->>B: hi\nB->>B: think')
 
-    expect(lines.at(-1)).toBe('  │       │↺ think')
+    expect(lines.at(-1)).toBe('  │        │↺ think')
   })
 
   test('moves a detail line that would break inside an identifier out of its box and into the legend', async () => {
@@ -98,6 +134,22 @@ describe('drawSequence', () => {
     expect(lines.slice(0, 5).join('\n')).not.toMatch(/offerset_$/m)
     expect(lines.slice(0, 5).join('\n')).toContain('Gate API\u00a0¹')
     expect(notes).toContain('¹ (offerset_generation v1)')
+  })
+
+  test('moves a trailing parenthetical to the legend once the name would wrap', async () => {
+    const { lines, notes } = draw('participant A as Tarif (in-process gem)\nparticipant B as Store\nA->>B: a label long enough to need the room\nB->>A: and another one that needs it too', 30)
+
+    expect(lines.slice(0, 5).join('\n')).toContain('Tarif ¹')
+    expect(notes).toContain('¹ (in-process gem)')
+  })
+
+  test('numbers the legend once when folding frees room that folds another box', async () => {
+    for (const width of [124, 162, 197]) {
+      const marks = draw(QUOTE_FLOW, width).notes.map(note => note.split(' ')[0])
+
+      expect(marks.length).toBeGreaterThan(1)
+      expect(new Set(marks).size).toBe(marks.length)
+    }
   })
 
   test('keeps a detail line in its box when it fits whole', async () => {
@@ -117,26 +169,26 @@ describe('drawSequence', () => {
   test('hangs the later lines of a multi-line self-message under its label', async () => {
     const { lines } = draw('A->>B: hi\nB->>B: think<br/>it over')
 
-    expect(lines.slice(-2)).toEqual(['  │       │↺ think', '  │       │  it over'])
+    expect(lines.slice(-2)).toEqual(['  │        │↺ think', '  │        │  it over'])
   })
 
   test('draws a one-line note as one tinted row covering the lifelines it spans', async () => {
     const { lines, rows } = draw('A->>B: hi\nNote over A,B: shared')
 
-    expect(lines.slice(-1)).toEqual(['   shared'])
-    expect(rows.at(-1)).toEqual([{ text: ' ', ink: 'text' }, { text: '  shared   ', ink: 'note' }])
+    expect(lines.slice(-1)).toEqual(['    shared'])
+    expect(rows.at(-1)).toEqual([{ text: ' ', ink: 'text' }, { text: '   shared   ', ink: 'note' }])
   })
 
   test('gives every line of a note its own tinted row, all the same width', async () => {
     const { rows } = draw('A->>B: hi\nNote over A,B: two<br/>lines')
 
-    expect(rows.slice(-2).map(row => row.filter(run => run.ink === 'note'))).toEqual([[{ text: '    two    ', ink: 'note' }], [{ text: '   lines   ', ink: 'note' }]])
+    expect(rows.slice(-2).map(row => row.filter(run => run.ink === 'note'))).toEqual([[{ text: '    two     ', ink: 'note' }], [{ text: '   lines    ', ink: 'note' }]])
   })
 
   test('keeps a left note left of its lifeline and a right note right of it, each on its own row', async () => {
     const { lines } = draw('A->>B: hi\nNote left of A: before\nNote right of B: after')
 
-    expect(lines.slice(4)).toEqual([' before  │       │', '         │       │  after'])
+    expect(lines.slice(4)).toEqual([' before  │        │', '         │        │  after'])
   })
 
   test('gives consecutive notes their own rows when they would touch', async () => {
@@ -163,14 +215,14 @@ describe('drawSequence', () => {
     const { lines } = draw('A->>B: hi\nB->>C: ho\nloop every minute\nB-)C: ping\nalt ok\nC-->>B: pong\nelse fail\nC--xB: boom\nend\nend')
 
     expect(lines.slice(5)).toEqual([
-      '  │   ┌───┼─ loop [every minute] ─┼───┐',
-      '  │   │   │─ ping ───────────────▷│   │',
-      '  │   │ ┌─┼─ alt [ok] ────────────┼─┐ │',
-      '  │   │ │ │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ pong ╌│ │ │',
-      '  │   │ ├╌┼╌ else [fail] ╌╌╌╌╌╌╌╌╌┼╌┤ │',
-      '  │   │ │ │×╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ boom ╌│ │ │',
-      '  │   │ └─┼───────────────────────┼─┘ │',
-      '  │   └───┼───────────────────────┼───┘',
+      '  │    ┌───┼─ loop [every minute] ─┼───┐',
+      '  │    │   │─ ping ───────────────▷│   │',
+      '  │    │ ┌─┼─ alt [ok] ────────────┼─┐ │',
+      '  │    │ │ │◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ pong │ │ │',
+      '  │    │ ├╌┼╌ else [fail] ╌╌╌╌╌╌╌╌╌┼╌┤ │',
+      '  │    │ │ │×╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ boom │ │ │',
+      '  │    │ └─┼───────────────────────┼─┘ │',
+      '  │    └───┼───────────────────────┼───┘',
     ])
   })
 
@@ -191,7 +243,7 @@ describe('drawSequence', () => {
     const sequence = parseSequence('sequenceDiagram\nrect rgb(0,0,255)\nA->>B: hi\nend')
     const { rows } = drawSequence(sequence, 40)
 
-    expect(plainRows(rows).slice(3)).toEqual(['  │─ hi ─▶│'])
+    expect(plainRows(rows).slice(3)).toEqual(['  │─ hi ──▶│'])
     expect(rows[3]!.some(run => run.shade)).toBe(true)
     expect(rows[0]!.some(run => run.shade)).toBe(false)
   })
@@ -199,13 +251,13 @@ describe('drawSequence', () => {
   test('thickens the lifeline from the arrow that activates it', async () => {
     const { lines } = draw('A->>+B: go\nB-->>-A: back\nA->>B: again')
 
-    expect(lines.slice(3)).toEqual(['  │─ go ──────▶┃', '  │◀╌╌╌╌ back ╌┃', '  │─ again ───▶│'])
+    expect(lines.slice(3)).toEqual(['  │─ go ───────▶┃', '  │◀╌╌╌╌╌╌ back ┃', '  │─ again ────▶│'])
   })
 
   test('starts a nested activation on the head of the self-call that opens it', async () => {
     const { lines } = draw('A->>+B: go\nB->>+B: recurse\nB-->>-A: back\nB-->>-A: done')
 
-    expect(lines.slice(4, 6)).toEqual(['  │            ┃┃↺ recurse', '  │◀╌╌╌╌ back ╌┃┃'])
+    expect(lines.slice(4, 6)).toEqual(['  │             ┃┃↺ recurse', '  │◀╌╌╌╌╌╌ back ┃┃'])
   })
 
   test('frames a block from just left of its first lane, the condition running along the top edge', async () => {
@@ -237,13 +289,13 @@ describe('drawSequence', () => {
   test('draws async, cross, open and two-way arrows with their own heads', async () => {
     const { lines } = draw('A-)B: a\nA-xB: b\nA->B: c\nA<<->>B: d')
 
-    expect(lines.slice(3)).toEqual(['  │─ a ──▷│', '  │─ b ──×│', '  │─ c ───│', '  │◀─ d ─▶│'])
+    expect(lines.slice(3)).toEqual(['  │─ a ───▷│', '  │─ b ───×│', '  │─ c ────│', '  │◀─ d ──▶│'])
   })
 
   test('puts the autonumber beside its label on every arrow', async () => {
     const { lines, rows } = draw('autonumber\nA->>B: one\nB->>A: two')
 
-    expect(lines.slice(3)).toEqual(['  │─ 1 one ─▶│', '  │◀─ 2 two ─│'])
+    expect(lines.slice(3)).toEqual(['  │─ 1 one ──▶│', '  │◀─── 2 two │'])
     expect(rows[3]?.find(run => run.text.trim() === '1')?.ink).toBe('number')
   })
 
@@ -251,14 +303,14 @@ describe('drawSequence', () => {
     const { lines } = draw('A->>B: hi\ncreate participant C\nB->>C: spawn\ndestroy C\nB->>C: stop')
 
     expect(lines.slice(3)).toEqual([
-      '  │─ hi ─▶│',
-      '  │       │          ╭───╮',
-      '  │       │─ spawn ─▶│ C │',
-      '  │       │          ╰─┬─╯',
-      '  │       │─ stop ────▶│',
-      '  │       │          ╭─┴─╮',
-      '  │       │          │ C │',
-      '  │       │          ╰───╯',
+      '  │─ hi ──▶│',
+      '  │        │           ╭───╮',
+      '  │        │─ spawn ──▶│ C │',
+      '  │        │           ╰─┬─╯',
+      '  │        │─ stop ─────▶│',
+      '  │        │           ╭─┴─╮',
+      '  │        │           │ C │',
+      '  │        │           ╰───╯',
     ])
   })
 
@@ -272,7 +324,7 @@ describe('drawSequence', () => {
     const { lines } = draw('participant Z as Zürich\nparticipant T as 東京\nZ->>T: こんにちは')
     const lane = cellWidth(lines[2]!.slice(0, lines[2]!.lastIndexOf('┬')))
 
-    expect(lines[3]).toBe('     │─ こんにちは ─▶│')
+    expect(lines[3]).toBe('     │─ こんにちは ──▶│')
     expect(cellWidth(lines[3]!.slice(0, lines[3]!.lastIndexOf('│')))).toBe(lane)
   })
 
@@ -408,7 +460,7 @@ describe('spending spare columns', () => {
   test('puts a label back on its arrow once the width allows it', async () => {
     const { lines } = draw(QUOTE, 60)
 
-    expect(lines.some(line => line.includes('─ submit answers ─▶'))).toBe(true)
+    expect(lines.some(line => /─ submit answers ─+▶/.test(line))).toBe(true)
   })
 
   test('stacks a label above its arrow rather than cutting it when the width is short', async () => {
@@ -446,9 +498,10 @@ describe('spending spare columns', () => {
   })
 
   test('drops the leading stub on every message once one short label needs it', async () => {
-    const { lines } = draw('A->>B: one\nB->>C: two', 22)
+    const { lines } = draw('A->>B: one\nB->>C: two', 24)
 
-    expect(lines.slice(3)).toEqual(['  │ one ─▶│        │', '  │       │ two ──▶│'])
+    expect(lines.filter(line => /\b(one|two)\b/.test(line)).every(line => !/│─ (one|two)/.test(line))).toBe(true)
+    expect(lines.filter(line => /(one|two) ─+▶/.test(line))).toHaveLength(2)
   })
 
   test('wraps a self message rather than letting it stretch the gap to the next lane', async () => {
@@ -484,7 +537,7 @@ describe('spending spare columns', () => {
   test('draws no header row for a box without a label', async () => {
     const { lines } = draw('box Aqua\nparticipant A\nparticipant B\nend\nA->>B: hi')
 
-    expect(lines[0]).toBe('╭───╮   ╭───╮')
+    expect(lines[0]).toBe('╭───╮    ╭───╮')
   })
 
   test('starts the compact list with the number and hangs every continuation at one label column', async () => {
@@ -655,7 +708,7 @@ describe('label-driven layout', () => {
   test('draws every participant box the same height, top-aligned, under a centred title', async () => {
     const { lines } = draw('title Checkout\nparticipant A as Web<br/>app\nparticipant B as API\nA->>B: hi', 40)
 
-    expect(lines.slice(0, 5)).toEqual(['   Checkout', '╭─────╮ ╭─────╮', '│ Web │ │ API │', '│ app │ │     │', '╰──┬──╯ ╰──┬──╯'])
+    expect(lines.slice(0, 5)).toEqual(['    Checkout', '╭─────╮  ╭─────╮', '│ Web │  │ API │', '│ app │  │     │', '╰──┬──╯  ╰──┬──╯'])
   })
 
   test('gives width to the gaps whose labels need it, so a real many-participant reply stays short', async () => {

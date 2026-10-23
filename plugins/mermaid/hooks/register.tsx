@@ -11,7 +11,29 @@ type AssistantRender = RenderInputOf<'AssistantMessage', 'terminal'>
 
 type Kit = Pick<Elements['terminal'], 'Box' | 'Text'>
 
-type Style = { dimColor?: boolean; bold?: boolean; italic?: boolean; backgroundColor?: string }
+type Style = { dimColor?: boolean; bold?: boolean; italic?: boolean; backgroundColor?: string; color?: string }
+
+// six hues spread round the wheel, readable on dark and light themes; the n-th participant to send
+// a message takes PALETTE[n % length], and participants that never send stay uncoloured
+export const PALETTE = ['#5f87ff', '#ff8700', '#5fd75f', '#d75fd7', '#00d7d7', '#d7d700'] as const
+
+type Look = { colour: boolean; quiet: boolean; boxnote: boolean }
+
+// colour, quiet returns and boxed notes are on by default; MERMAID_STYLE=plain turns them all off
+async function readLook($: EngineInterface): Promise<Look> {
+  const value = (await $.env.get('MERMAID_STYLE').catch(() => undefined)) ?? ''
+  const isPlain = String(value).split(',').some(part => part.trim() === 'plain')
+  return { colour: !isPlain, quiet: !isPlain, boxnote: !isPlain }
+}
+
+const PAINTED: ReadonlySet<Ink> = new Set(['frame', 'name', 'line'])
+
+function runStyle(style: Styles, run: Run, chosen: Look): Style {
+  const base = { ...(run.shade ? style.shade : {}), ...(chosen.boxnote && run.ink === 'note' ? { italic: true } : style[run.ink]) }
+  const coloured = chosen.colour && run.lane !== undefined && run.lane >= 0 && PAINTED.has(run.ink) ? { color: PALETTE[run.lane % PALETTE.length] } : {}
+  const quiet = chosen.quiet && run.reply && run.ink === 'line' ? { dimColor: true } : {}
+  return { ...base, ...coloured, ...quiet }
+}
 
 export const TINT = { dark: '#303030', light: '#e4e4e4' } as const
 // `rect` blocks sit on a fainter background than notes, so a note inside one still stands out
@@ -45,11 +67,11 @@ async function readTint($: EngineInterface): Promise<string> {
   return typeof theme === 'string' && /light/i.test(theme) ? TINT.light : TINT.dark
 }
 
-function row({ Box, Text }: Kit, style: Styles, runs: Run[], key: string): RenderNode {
+function row({ Box, Text }: Kit, style: Styles, chosen: Look, runs: Run[], key: string): RenderNode {
   return (
     <Box key={key} flexDirection="row">
       {runs.map(run => (
-        <Text {...(run.shade ? style.shade : {})} {...style[run.ink]}>
+        <Text {...runStyle(style, run, chosen)}>
           {run.text}
         </Text>
       ))}
@@ -69,12 +91,12 @@ function problems({ Box, Text }: Kit, lines: string[], key: string): RenderNode 
   )
 }
 
-function diagram(kit: Kit, style: Styles, sequence: Sequence, width: number, key: string): RenderNode {
+function diagram(kit: Kit, style: Styles, chosen: Look, sequence: Sequence, width: number, key: string): RenderNode {
   const { Box, Text } = kit
-  const { rows, notes } = drawSequence(sequence, width)
+  const { rows, notes } = drawSequence(sequence, width, { boxedNotes: chosen.boxnote })
   return (
     <Box key={key} flexDirection="column" paddingLeft={INDENT}>
-      {rows.map((runs, i) => row(kit, style, runs, `${key}-row-${i}`))}
+      {rows.map((runs, i) => row(kit, style, chosen, runs, `${key}-row-${i}`))}
       {notes.length > 0 && <Text key={`${key}-gap`}> </Text>}
       {notes.map(note => (
         <Text dimColor>{note}</Text>
@@ -96,11 +118,11 @@ function notice({ Box, Text }: Kit, kind: string, key: string): RenderNode {
 
 type Shown = { node: RenderNode; source?: undefined } | { source: string[] }
 
-function sequencePart($: EngineInterface, kit: Kit, style: Styles, part: { source: string }, width: number, key: string): Shown {
+function sequencePart($: EngineInterface, kit: Kit, style: Styles, chosen: Look, part: { source: string }, width: number, key: string): Shown {
   try {
     const sequence = parseSequence(part.source)
     if (isUnreadable(sequence)) return { source: sequence.problems }
-    return { node: diagram(kit, style, sequence, width, key) }
+    return { node: diagram(kit, style, chosen, sequence, width, key) }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     $.ui.log(`mermaid could not draw a diagram: ${reason}`, { to: 'debug' })
@@ -111,6 +133,7 @@ function sequencePart($: EngineInterface, kit: Kit, style: Styles, part: { sourc
 async function drawParts($: EngineInterface, e: AssistantRender, next: (e: AssistantRender) => Promise<RenderElement>, parts: Segment[]): Promise<RenderElement> {
   const kit = $.ui.resolve(e)
   const style = styles(await (tint ??= readTint($)))
+  const chosen = await readLook($)
   const width = (e.viewport?.columns ?? 80) - INDENT - 1
   const drawn: RenderNode[] = []
   let isFirst = e.props.isFirstOfReply
@@ -121,7 +144,7 @@ async function drawParts($: EngineInterface, e: AssistantRender, next: (e: Assis
       isFirst = false
       drawn.push(<kit.Box key={key}>{element}</kit.Box>)
     } else if (part.kind === 'sequence') {
-      const shown = sequencePart($, kit, style, part, width, key)
+      const shown = sequencePart($, kit, style, chosen, part, width, key)
       if (shown.source) {
         const source = await next({ ...e, props: { ...e.props, text: part.fence, isFirstOfReply: isFirst } })
         isFirst = false

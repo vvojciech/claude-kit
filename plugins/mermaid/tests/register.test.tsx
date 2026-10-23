@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine, TestBody } from 'claude-code/testing'
 
-import { TINT, notDrawn } from '../hooks/register'
+import { PALETTE, TINT, notDrawn } from '../hooks/register'
 
 type On = Parameters<TestBody>[1]
 type Surface = 'terminal' | 'desktop'
@@ -86,8 +86,29 @@ test('leaves other surfaces alone', async ($, on) => {
   await ui.unmount()
 })
 
-test('tints a note, italic and not dimmed, darker on a dark theme', async ($, on) => {
+test('boxes a note by default, italic and not dimmed', async ($, on) => {
   beneath(on)
+  const ui = await mount($, '```mermaid\nsequenceDiagram\nA->>B: hi\nNote over A,B: shared\n```')
+  const note = await ui.find({ type: 'Text', text: /shared/ })
+  expect(note?.props.backgroundColor).toBeUndefined()
+  expect(note?.props.italic).toBe(true)
+  expect((await texts(ui)).some(text => text.includes('╭'))).toBe(true)
+  await ui.unmount()
+})
+
+test('colours each sender and dims only the stroke of a return', async ($, on) => {
+  beneath(on)
+  const ui = await mount($, '```mermaid\nsequenceDiagram\nA->>B: ask\nB-->>A: answer\n```')
+  const name = await ui.find({ type: 'Text', text: /^ ?A ?$/ })
+  expect(name?.props.color).toBe(PALETTE[0])
+  const answer = await ui.find({ type: 'Text', text: /answer/ })
+  expect(answer?.props.dimColor).toBeUndefined()
+  await ui.unmount()
+})
+
+test('tints a note in plain style, italic and not dimmed, darker on a dark theme', async ($, on) => {
+  beneath(on)
+  on('env.get', (_, e) => ({ value: e.name === 'MERMAID_STYLE' ? 'plain' : undefined }))
   const ui = await mount($, '```mermaid\nsequenceDiagram\nA->>B: hi\nNote over A,B: shared\n```')
   const note = await ui.find({ type: 'Text', text: /shared/ })
   expect(note?.props.backgroundColor).toBe(TINT.dark)
