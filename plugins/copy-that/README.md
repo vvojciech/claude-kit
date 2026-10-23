@@ -2,6 +2,8 @@
 
 Claude Code renders Claude's markdown in the terminal, so a mouse selection gives you the rendered text: no fences, no `**`, tables redrawn as boxes, link targets gone. `copy-that` copies the raw text instead. Hover a reply or a tool row and click a chip, or type `/copy-that`.
 
+![A reply with a bash block, a table and a ts block. The chip list is open upward from the ⧉ under the reply, with ⧉ ts highlighted. A tool group row above has its own ⧉.](../../docs/screens/copy-that.png)
+
 ## Install
 
 ```
@@ -9,7 +11,12 @@ Claude Code renders Claude's markdown in the terminal, so a mouse selection give
 /plugin install copy-that@vvojciech
 ```
 
-`copy-that` must load before (outside) any other mod that draws replies, such as lucid. If a mod loaded earlier draws replies first, `copy-that` never sees them. It notices after the first settled reply and leaves a status line saying to list copy-that first in `CLAUDE_CODE_PLUGIN_DIRS`. Every `/copy-that` answer repeats the warning until it's fixed.
+## Requirements
+
+- Claude Code 2.1.287 or later.
+- Fullscreen rendering for the ⧉ markers. `/copy-that` works without it.
+- A clipboard route: `pbcopy` on macOS, `wl-copy`, `xclip` or `xsel` on Linux, or a terminal that takes OSC 52.
+- Load order: `copy-that` must load before (outside) any other mod that draws replies, such as lucid. List it first in `CLAUDE_CODE_PLUGIN_DIRS`, or install it first. If a mod loaded earlier draws replies first, `copy-that` never sees them. It notices after the first settled reply and leaves a status line saying so, and every `/copy-that` answer repeats the warning until it's fixed.
 
 ## Features
 
@@ -41,30 +48,6 @@ Claude Code renders Claude's markdown in the terminal, so a mouse selection give
 - A background Agent row gets `⧉ output` once its report arrives, including a report delivered through a handback.
 - No chip is drawn while a call runs, when it failed or was interrupted, on an expanded live group, or when there is nothing to copy.
 
-### Commands
-
-`/copy-that help` prints the full usage. N counts back from the last, 1 is the last.
-
-| Command | Copies |
-| --- | --- |
-| `/copy-that` | the last reply as markdown |
-| `/copy-that R` | reply R back, so `/copy-that 2` is the reply before the last |
-| `/copy-that <name>` | one block by its chip name, such as `/copy-that ruby 2`, or `/copy-that 2 ruby` for an older reply |
-| `/copy-that code` | the block with no language, or any code block when every block has one |
-| `/copy-that table` | a table |
-| `/copy-that quote [N]` | the Nth quote without its `>` markers, or `/copy-that 2 quote` for an older reply; an alert goes by its type, such as `/copy-that note` |
-| `/copy-that file [N]` | the Nth last file Claude wrote, edited or read |
-| `/copy-that plan` | the last plan |
-| `/copy-that output [N]` | the Nth last Bash, Grep, Glob, WebFetch, Agent or MCP output |
-| `/copy-that <call>` | a call by its group chip name, such as `/copy-that notes.md`, `/copy-that bash` or `/copy-that bash #2` |
-| `/copy-that selection` | the markdown behind what you last selected with the mouse |
-
-- Names are case-insensitive.
-- A chip named by digits, such as `⧉ 123`, needs R first: `/copy-that 1 123`.
-- `/copy-that bash 2` is the second bash block in the reply. `/copy-that bash #2` is the second bash call in the latest group that has one.
-- A group with more calls than the list can show folds the rest into `+N`, whose toast names them, for example "Copy with /copy-that <name>: bash #1, a.md, bash #2". Typing one of those names copies that call.
-- `/copy-that selection` widens a partial selection to balanced inline markup and maps rendered lines back to their source. When the selected text appears in more than one place, it copies nothing and asks you to select more.
-
 ### Clipboard
 
 - macOS uses `pbcopy`.
@@ -89,6 +72,30 @@ Claude Code renders Claude's markdown in the terminal, so a mouse selection give
 - When lucid is loaded, `copy-that` takes the tone lucid last drew with, so the marker and chips match it.
 - Without lucid, it picks light or dark from the theme name, or from the terminal's `COLORFGBG` under `auto`, and falls back to dark.
 - The marker is muted, chips use the text colour, and a hovered chip is bold, underlined and orange, at 4.5:1 contrast or better.
+
+## Commands
+
+`/copy-that help` prints the full usage. N counts back from the last, 1 is the last.
+
+| Command | Copies |
+| --- | --- |
+| `/copy-that` | the last reply as markdown |
+| `/copy-that R` | reply R back, so `/copy-that 2` is the reply before the last |
+| `/copy-that <name>` | one block by its chip name, such as `/copy-that ruby 2`, or `/copy-that 2 ruby` for an older reply |
+| `/copy-that code` | the block with no language, or any code block when every block has one |
+| `/copy-that table` | a table |
+| `/copy-that quote [N]` | the Nth quote without its `>` markers, or `/copy-that 2 quote` for an older reply; an alert goes by its type, such as `/copy-that note` |
+| `/copy-that file [N]` | the Nth last file Claude wrote, edited or read |
+| `/copy-that plan` | the last plan |
+| `/copy-that output [N]` | the Nth last Bash, Grep, Glob, WebFetch, Agent or MCP output |
+| `/copy-that <call>` | a call by its group chip name, such as `/copy-that notes.md`, `/copy-that bash` or `/copy-that bash #2` |
+| `/copy-that selection` | the markdown behind what you last selected with the mouse |
+
+- Names are case-insensitive.
+- A chip named by digits, such as `⧉ 123`, needs R first: `/copy-that 1 123`.
+- `/copy-that bash 2` is the second bash block in the reply. `/copy-that bash #2` is the second bash call in the latest group that has one.
+- A group with more calls than the list can show folds the rest into `+N`, whose toast names them, for example "Copy with /copy-that <name>: bash #1, a.md, bash #2". Typing one of those names copies that call.
+- `/copy-that selection` widens a partial selection to balanced inline markup and maps rendered lines back to their source. When the selected text appears in more than one place, it copies nothing and asks you to select more.
 
 ## Known limits
 
