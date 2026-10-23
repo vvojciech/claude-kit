@@ -27,6 +27,14 @@ describe('drawFlow top-down', () => {
     expect(lines.some(line => /┌─*┴─*┐/.test(line))).toBe(true)
   })
 
+  test('runs a chain of only children straight down one column', async () => {
+    const { lines } = draw('flowchart TD\nA{Pick} --> B[Short]\nA --> C[A much longer box]\nC --> D[Mid]\nD --> E([End of the line])')
+    const chain = lines.slice(rowOf(lines, 'A much longer box'), rowOf(lines, 'End of the line'))
+    const columns = new Set(chain.flatMap(line => [...line].flatMap((ch, i) => ('┬▼│'.includes(ch) && !/[A-Za-z]/.test(line) ? [i] : []))))
+
+    expect([...columns]).toHaveLength(1)
+  })
+
   test('writes an edge label beside the line into its target', async () => {
     const { lines } = draw('flowchart TD\nA{Ok?} -->|yes| B\nA -->|no| C')
 

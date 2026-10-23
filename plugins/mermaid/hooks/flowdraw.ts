@@ -269,6 +269,19 @@ function layout(flow: Flow, cap: number): Layout {
       list.forEach((v, i) => (v.at = placed[i]!))
     }
   }
+  // an only child sits straight under an only-child parent whenever its neighbours leave room, so
+  // a chain runs down one column instead of jogging by a cell at each step
+  const only = (v: Vertex, near: Map<Vertex, Vertex[]>) => (near.get(v)?.length === 1 ? near.get(v)![0] : undefined)
+  for (let pass = 0; pass < 2; pass++)
+    for (const list of ranks)
+      list.forEach((v, i) => {
+        const u = only(v, ups)
+        if (!u || only(u, downs) !== v) return
+        const want = centre(u) - Math.floor(v.cross / 2)
+        const left = list[i - 1]
+        const right = list[i + 1]
+        if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
+      })
   const least = Math.min(...vertices.map(v => v.at))
   for (const v of vertices) v.at -= least
   return { vertices, ranks, routes, loops, across, reversed }
