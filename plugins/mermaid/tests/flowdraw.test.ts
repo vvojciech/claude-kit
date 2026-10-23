@@ -102,7 +102,7 @@ describe('drawFlow top-down', () => {
   test('draws a dotted edge with dotted strokes and a thick one heavy', async () => {
     const { lines } = draw('flowchart TD\nA -.-> B\nB ==> C')
 
-    expect(lines.join('\n')).toContain('┆')
+    expect(lines.join('\n')).toContain('╎')
     expect(lines.join('\n')).toContain('┃')
   })
 
