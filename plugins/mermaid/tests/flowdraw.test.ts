@@ -35,6 +35,15 @@ describe('drawFlow top-down', () => {
     expect([...columns]).toHaveLength(1)
   })
 
+  test('keeps a long edge straight and lets the short detour bend round it', async () => {
+    const { lines } = draw('flowchart TD\nE[Rate the request] --> F{Any quotes?}\nE -.-> K[Side check]\nK -.-> F')
+    const leaves = [...lines[rowOf(lines, 'Rate the request') + 1]!].lastIndexOf('┬')
+    const lands = lines.findIndex(line => line.includes('Any quotes?'))
+    const above = lines.slice(rowOf(lines, 'Rate the request') + 2, lands - 1)
+
+    expect(above.every(line => '│▼'.includes([...line][leaves] ?? ''))).toBe(true)
+  })
+
   test('writes an edge label beside the line into its target', async () => {
     const { lines } = draw('flowchart TD\nA{Ok?} -->|yes| B\nA -->|no| C')
 

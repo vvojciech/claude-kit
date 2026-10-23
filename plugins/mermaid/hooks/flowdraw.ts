@@ -162,7 +162,7 @@ function ranksOf(flow: Flow): { rank: Map<string, number>; back: Set<FlowEdge> }
 }
 
 // pool-adjacent-violators: places boxes in order, as close to where each wants to be as overlap allows
-function settle(wants: number[], sizes: number[], gap: number): number[] {
+function settle(wants: number[], sizes: number[], gap: number, weights: number[] = sizes.map(() => 1)): number[] {
   type Block = { first: number; last: number; at: number; weight: number; sum: number }
   const blocks: Block[] = []
   const offset: number[] = []
@@ -172,7 +172,7 @@ function settle(wants: number[], sizes: number[], gap: number): number[] {
     run += size + gap
   })
   wants.forEach((want, i) => {
-    let block: Block = { first: i, last: i, sum: want - offset[i]!, weight: 1, at: want - offset[i]! }
+    let block: Block = { first: i, last: i, sum: weights[i]! * (want - offset[i]!), weight: weights[i]!, at: want - offset[i]! }
     while (blocks.length > 0 && blocks.at(-1)!.at > block.at) {
       const prev = blocks.pop()!
       block = { first: prev.first, last: block.last, sum: prev.sum + block.sum, weight: prev.weight + block.weight, at: 0 }
@@ -263,9 +263,13 @@ function layout(flow: Flow, cap: number): Layout {
     for (const list of order) {
       const wants = list.map(v => {
         const near = [...((down ? ups.get(v) : downs.get(v)) ?? []), ...(sweep > 4 ? ((down ? downs.get(v) : ups.get(v)) ?? []) : [])]
-        return near.length > 0 ? near.reduce((s, n) => s + centre(n), 0) / near.length - Math.floor(v.cross / 2) : v.at
+        // a long edge pulls harder than a short one, so it runs straight and the short ones bend
+        const weight = (n: Vertex) => (v.node && n.node ? 1 : 8)
+        const total = near.reduce((s, n) => s + weight(n), 0)
+        return near.length > 0 ? near.reduce((s, n) => s + weight(n) * centre(n), 0) / total - Math.floor(v.cross / 2) : v.at
       })
-      const placed = settle(wants, list.map(v => v.cross), gap)
+      // a long edge's placeholder outweighs a box when two crowd each other, so the edge stays put
+      const placed = settle(wants, list.map(v => v.cross), gap, list.map(v => (v.node ? 1 : 8)))
       list.forEach((v, i) => (v.at = placed[i]!))
     }
   }
@@ -275,8 +279,10 @@ function layout(flow: Flow, cap: number): Layout {
   for (let pass = 0; pass < 2; pass++)
     for (const list of ranks)
       list.forEach((v, i) => {
-        const u = only(v, ups)
-        if (!u || only(u, downs) !== v) return
+        // a box also lines up under a long edge coming into it, which then never steps aside
+        const long = ups.get(v)?.find(n => !n.node)
+        const u = long ?? only(v, ups)
+        if (!u || (v.node && !long && only(u, downs) !== v)) return
         const want = centre(u) - Math.floor(v.cross / 2)
         const left = list[i - 1]
         const right = list[i + 1]
@@ -345,13 +351,6 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const last = route.path.at(-1)!
     portIn.set(last, [...(portIn.get(last) ?? []), route])
   }
-  // an arrow lands on its own port: several arrows into one node spread along its side
-  const landing = new Map<Route, number>()
-  for (const [v, list] of portIn) {
-    list.sort((a, b) => centre(a.path.at(-2)!) - centre(b.path.at(-2)!))
-    const span = Math.max(1, v.cross - 2)
-    list.forEach((route, i) => landing.set(route, list.length === 1 ? centre(v) : v.at + 1 + Math.round(((i + 1) * span) / (list.length + 1)) - (span > list.length ? 0 : 1)))
-  }
   // edges of one stroke fan out of a shared port at the middle; a dotted or thick edge from the same
   // box leaves through a port of its own beside it, so its stroke shows from the border on
   const leaving = new Map<Route, number>()
@@ -369,8 +368,29 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       for (const r of list) if (r.edge.stroke === stroke) leaving.set(r, at)
     })
   }
-  const crossAt = (route: Route, i: number) =>
-    i === route.path.length - 1 ? landing.get(route)! : i === 0 ? (leaving.get(route) ?? centre(route.path[0]!)) : centre(route.path[i]!)
+  // a long edge's placeholders follow its port when that is a cell or two off their middle, so the
+  // edge runs straight down instead of stepping aside under its box
+  const through = (route: Route, i: number) => {
+    const v = route.path[i]!
+    if (i === 0) return leaving.get(route) ?? centre(v)
+    if (v.node) return centre(v)
+    const port = leaving.get(route)
+    return port !== undefined && route.path.slice(1, -1).every(d => Math.abs(centre(d) - port) <= 2) ? port : centre(v)
+  }
+  // an arrow lands where its line already runs when that is over the box, so it drops straight in;
+  // arrows that would land within a cell of each other spread out along the side
+  const landing = new Map<Route, number>()
+  for (const [v, list] of portIn) {
+    const from = (route: Route) => through(route, route.path.length - 2)
+    list.sort((a, b) => from(a) - from(b))
+    const lo = v.at + 1
+    const hi = v.at + v.cross - 2
+    const at = list.map(route => Math.max(lo, Math.min(hi, list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route))))
+    for (let i = 1; i < at.length; i++) at[i] = Math.max(at[i]!, at[i - 1]! + 3)
+    for (let i = at.length - 1; i >= 0; i--) at[i] = Math.min(at[i]!, i === at.length - 1 ? hi : at[i + 1]! - 3)
+    list.forEach((route, i) => landing.set(route, Math.max(lo, at[i]!)))
+  }
+  const crossAt = (route: Route, i: number) => (i === route.path.length - 1 ? landing.get(route)! : through(route, i))
   const placed: Placed[] = routes.map(route => ({ route, tracks: [] }))
   for (let c = 0; c < channels.length; c++) {
     const spans: Array<{ p: Placed; lo: number; hi: number; owner: string }> = []
