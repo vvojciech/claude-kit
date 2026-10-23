@@ -36,6 +36,12 @@ lucid redraws the Claude Code transcript: replies, your prompts and tool rows. I
 - Named and numeric HTML entities are decoded.
 - Very large or deeply nested replies stay within the engine's limits. Past them the rest of the reply draws as plain text.
 
+### Images
+
+With peek loaded, a local `![alt](path)` image in a reply draws as a thumbnail where it sits, with the file name, pixel size and a `⤢ open` button beside it, the same as peek's own thumbnails. An image in the middle of a sentence breaks onto its own row between the words around it. lucid asks peek for the picture (`$.peek.picture`) and peek does the reading, converting and sizing.
+
+Everything else stays `[image: alt]`: web URLs, images inside lists, quotes, tables or headings, and any image when peek isn't loaded, can't find the file, or the terminal can't draw pictures. peek still shows those under the reply.
+
 ### Tool rows
 
 - One row per call: a state glyph, a verb and the target, such as `Ran`, `Read`, `Edited`, `Wrote`, `Searched`, `Fetched`, `Watched` or `Loaded skill`.

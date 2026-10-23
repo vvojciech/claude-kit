@@ -34,6 +34,19 @@ Non-PNG files, and PNGs over 512 KiB, are converted with `/usr/bin/sips` to an 8
 
 peek wraps the rows other mods draw rather than replacing them, so it works with lucid and copy-that, and copy-that's `⧉` chips keep working.
 
+### With lucid
+
+lucid draws a reply's local images where they sit in the text, through the API below. peek then leaves those images out of the thumbnails it adds under the reply, so none shows twice. It tells them apart by the picture key: any `Image` in the reply already drawn under the key `$.peek.picture` handed out counts as drawn. Images lucid leaves as placeholders, such as one inside a list, still show under the reply. Without lucid, every reply image shows under the reply as before.
+
+### API for other mods
+
+peek adds `$.peek` to the engine:
+
+- `picture({ path, cwd, columns, isFullscreen, requestId })` returns `{ source: { png }, columns, rows, alt, path, name, caption, open, key }` for a local image, or `{ fallback: 'pictures-off' }` when pictures can't draw and `{ fallback: 'unresolved' }` when the file is missing or not an image. `path` may be absolute, `~/`, `file://` or relative to `cwd` (the session's directory by default). It uses the same conversion, 2 MiB downscale, cache and capability check as the thumbnails. Draw the `Image` under `key`. Pass `requestId` so the capability check can test the picture you drew.
+- `open({ path, cwd })` opens the original in Preview and returns `{}`, or `{ error }` after a toast with the reason.
+
+Types live in `types/index.d.ts`.
+
 ### Open
 
 `⤢ open` runs `open -a Preview` on the original file, and plain `open` if Preview refuses. If both fail you get a toast with the reason.
