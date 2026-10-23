@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="terminal.css"><title>mermaid</title>
+<style>
+.i-frame, .i-block, .i-number { color: #8f8b83; }
+.i-name { font-weight: bold; }
+.i-note { font-style: italic; background: #303030; }
+.shade { background: #262626; }
+.dg { line-height: 16.5px; min-height: 16.5px; }
+</style></head>
+<body>
+<div class="win">
+<div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><div class="title">~/project</div></div>
+<div class="term">
+<div class="prompt"><div class="edge"></div><div class="body">How does sign-in work end to end?</div></div>
+<div class="gap"></div>
+<div class="l">The web app posts the form to the API, which checks the password against Postgres and returns</div>
+<div class="l">a short-lived token. The app refreshes it every five minutes while the tab is open.</div>
+<div class="gap"></div>
+<div class="l dg">  <span class="i-frame">╭────────╮     ╭─────────╮                 ╭─────╮                 ╭────────────╮</span></div>
+<div class="l dg">  <span class="i-frame">│ </span><span class="i-name">☺ User </span><span class="i-frame">│     │ </span><span class="i-name">Web app </span><span class="i-frame">│                 │ </span><span class="i-name">API </span><span class="i-frame">│                 │ </span><span class="i-name">◫ Postgres </span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-frame">╰────┬───╯     ╰────┬────╯                 ╰──┬──╯                 ╰──────┬─────╯</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│</span><span class="i-line">─ </span><span class="i-number">1 </span><span class="i-text">Sign in </span><span class="i-line">─▶</span><span class="i-frame">│                         │                           │</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│              │</span><span class="i-line">─ </span><span class="i-number">2 </span><span class="i-text">POST /session </span><span class="i-line">──────▶┃                           </span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│              │                         </span><span class="i-line">┃─ </span><span class="i-number">3 </span><span class="i-text">SELECT user by email </span><span class="i-line">─▶</span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│              │                         </span><span class="i-line">┃◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ </span><span class="i-number">4 </span><span class="i-text">row </span><span class="i-line">╌</span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│            </span><span class="i-block">┌─┼─ </span><span class="i-name">alt </span><span class="i-text">[password ok] </span><span class="i-block">─────╂─┐                         </span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│            </span><span class="i-block">│ </span><span class="i-frame">│</span><span class="i-line">◀╌╌╌╌╌╌╌╌ </span><span class="i-number">5 </span><span class="i-text">200 + token </span><span class="i-line">╌┃ </span><span class="i-block">│                         </span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│            </span><span class="i-block">├╌┼╌ </span><span class="i-name">else </span><span class="i-text">[wrong password] </span><span class="i-block">╌╂╌┤                         </span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│            </span><span class="i-block">│ </span><span class="i-frame">│</span><span class="i-line">×╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ </span><span class="i-number">6 </span><span class="i-text">401 </span><span class="i-line">╌┃ </span><span class="i-block">│                         </span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│            </span><span class="i-block">└─┼─────────────────────────╂─┘                         </span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│             </span><span class="i-note">    token kept in memory     </span><span class="i-text">                          </span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│            </span><span class="i-block">┌─┼─ </span><span class="i-name">loop </span><span class="i-text">[every 5 min] </span><span class="i-block">────┼─┐                         </span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│            </span><span class="i-block">│ </span><span class="i-frame">│</span><span class="i-line">─ </span><span class="i-number">7 </span><span class="i-text">refresh token </span><span class="i-line">──────▷</span><span class="i-frame">│ </span><span class="i-block">│                         </span><span class="i-frame">│</span></div>
+<div class="l dg">  <span class="i-text">     </span><span class="i-frame">│            </span><span class="i-block">└─┼─────────────────────────┼─┘                         </span><span class="i-frame">│</span></div>
+<div class="gap"></div>
+<div class="l">A wrong password returns 401 and the form shows the error inline.</div>
+</div>
+</div>
+</body></html>
