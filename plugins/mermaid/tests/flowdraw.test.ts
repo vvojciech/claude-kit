@@ -117,7 +117,7 @@ describe('drawFlow top-down', () => {
   })
 
   test('keeps a tall diamond\'s sides slanted on every row', async () => {
-    const { lines } = draw('flowchart LR\nA --> D{Ok?}\nB --> D\nC --> D')
+    const { lines } = draw('flowchart LR\nA --> D{Is it<br/>safe to<br/>go now?}')
     const top = rowOf(lines, '╱───')
     const left = lines[top]!.indexOf('╱')
     const bottom = lines.findIndex((line, i) => i > top && [...line][left] === '╲' && line.includes('───'))
@@ -152,20 +152,20 @@ describe('drawFlow left-right', () => {
   })
 
   test('grows a box tall enough to give each stroke and each arrow a row of its own', async () => {
-    const { lines } = draw('flowchart LR\nE[Rate] --> F{Any?}\nE -.-> K[Side]\nK -.-> F')
+    const { lines } = draw('flowchart LR\nE[Rate] --> F[Any]\nE -.-> K[Side]\nK -.-> F')
     const border = lines[rowOf(lines, 'Rate')]!.indexOf('Rate') + 'Rate'.length + 1
-
-    const edge = [...lines.find(line => line.includes('╱'))!].indexOf('╱')
+    const edge = lines[rowOf(lines, 'Any')]!.indexOf('Any') - 2
 
     expect(lines.filter(line => [...line][edge - 1] === '▶')).toHaveLength(2)
     expect(lines.filter(line => [...line][border] === '├')).toHaveLength(2)
   })
 
-  test('runs the solid edge straight into a decision\'s tip and sets the dotted one beside it', async () => {
+  test('runs every edge into a left-right decision through its tip, as Mermaid converges them', async () => {
     const { lines } = draw('flowchart LR\nE[Rate] --> F{Any?}\nE -.-> K[Side]\nK -.-> F')
     const tip = lines.find(line => line.includes('<'))!
 
-    expect(tip).toMatch(/Rate *├─+▶</)
+    expect(tip).toMatch(/Rate *├─+[┤┴┬]?─*▶</)
+    expect(lines.filter(line => line.includes('▶╱') || line.includes('▶╲'))).toHaveLength(0)
   })
 
   test('writes an edge label above the line into its target', async () => {
@@ -173,5 +173,12 @@ describe('drawFlow left-right', () => {
 
     expect(rowOf(lines, 'go')).toBe(rowOf(lines, 'A') - 1)
     expect(colOf(lines, 'go')).toBeGreaterThan(colOf(lines, 'A'))
+  })
+
+  test('leaves a cell between a branch label and the line it turns from, and a two-cell stub before each head', async () => {
+    const { lines } = draw('flowchart LR\nA{Ok?} -->|yes| B[Go]\nA -->|no| C[Stop]')
+
+    expect(lines.some(line => /│yes|│no/.test(line))).toBe(false)
+    expect(lines.filter(line => /──▶│ (Go|Stop)/.test(line))).toHaveLength(2)
   })
 })

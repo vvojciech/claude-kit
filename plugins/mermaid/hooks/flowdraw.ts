@@ -65,8 +65,9 @@ class Grid {
   mark(x: number, y: number, bits: number, stroke: Stroke, lane?: number) {
     const cell = this.at(x, y)
     if (cell.char !== undefined) return
+    // where two edges share a cell the solid one shows, so a trunk two strokes meet on stays solid
+    if (cell.mask === 0 || stroke === 'solid') cell.stroke = stroke
     cell.mask |= bits
-    if (stroke !== 'solid' || cell.stroke === 'solid') cell.stroke = stroke
     if (lane !== undefined) cell.lane = lane
   }
 
@@ -224,7 +225,9 @@ function layout(flow: Flow, cap: number): Layout {
   // of its own, two cells apart, so no two of them share a line
   for (const v of vertices) {
     if (!v.node) continue
-    const arriving = routes.filter(r => r.path.at(-1) === v).length
+    // edges into a left-right decision all meet at its tip, so they need no room along its sides
+    const meets = across && (v.node.shape === 'diamond' || v.node.shape === 'hexagon')
+    const arriving = meets ? 1 : routes.filter(r => r.path.at(-1) === v).length
     const strokes = new Set(routes.filter(r => r.path[0] === v).map(r => r.edge.stroke)).size
     v.cross = Math.max(v.cross, 2 * Math.max(arriving, strokes) + 1)
   }
@@ -410,6 +413,10 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const lo = v.at + inset
     const hi = v.at + v.cross - 1 - inset
     const apart = across ? 2 : 3
+    if (across && (v.node!.shape === 'diamond' || v.node!.shape === 'hexagon')) {
+      for (const route of list) landing.set(route, centre(v))
+      continue
+    }
     const want = (route: Route) => Math.max(lo, Math.min(hi, list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route)))
     const first = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(want(a) - from(a)) - Math.abs(want(b) - from(b)))
     const taken: number[] = []
@@ -455,7 +462,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const into = route.path.at(-1)!.rank - 1
     const lines = labelOf(route.edge)
     if (lines.length === 0 || into < 0) continue
-    const room = across ? Math.max(...lines.map(cellWidth)) + 1 : lines.length
+    const room = across ? Math.max(...lines.map(cellWidth)) + 2 : lines.length
     channels[into]!.label = Math.max(channels[into]!.label, room)
   }
 
@@ -469,7 +476,8 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     run += bandSize[r]!
     if (r < channels.length) {
       channelStart.push(run)
-      run += 1 + channels[r]!.tracks + channels[r]!.label + 1
+      // left to right, a head gets a two-cell stub so it never crowds the box it enters
+      run += 1 + channels[r]!.tracks + channels[r]!.label + (across ? 2 : 1)
     }
   })
   const mainTotal = run
@@ -584,7 +592,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       })
     const widest = Math.max(...label.lines.map(cellWidth))
     const tries: Array<[number, number]> = across
-      ? [[label.m - 1, label.k], [label.m - 1, label.k + label.lines.length + 1]]
+      ? [[label.m, label.k], [label.m, label.k + label.lines.length + 1]]
       : [[label.m - 1, label.k + 2], [label.m - 1, label.k - 1 - widest]]
     const spot = tries.find(([m, k]) => k >= 0 && fits(m, k))
     if (spot) put(...spot)
