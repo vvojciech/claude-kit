@@ -1,0 +1,49 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="terminal.css"><title>copy-that</title>
+<style>
+.gl { display: inline-block; width: 1ch; text-align: center; }
+.mk { display: flex; justify-content: flex-end; position: relative; }
+.menu { position: absolute; right: 0; bottom: 19px; }
+.item { width: 9ch; white-space: pre; background: var(--ground); color: var(--text); height: 19px; }
+.item.hot { background: var(--accent); color: var(--ground); font-weight: bold; }
+.item.hot .lab { text-decoration: underline; text-underline-offset: 3px; }
+</style></head>
+<body>
+<div class="win">
+<div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><div class="title">~/project</div></div>
+<div class="term">
+<div class="prompt"><div class="edge"></div><div class="body">Add a script that seeds the dev database with a few users</div></div>
+<div class="gap"></div>
+<div class="l"><span class="ok">●</span> <span class="s b">Wrote 1 file, edited 1 file</span>  <span class="m gl">⧉</span></div>
+<div class="l"><span class="m">  ⎿  </span><span class="s">Wrote</span> <span class="s">scripts/seed.ts</span></div>
+<div class="l">     <span class="s">Edited</span> <span class="s">package.json</span></div>
+<div class="gap"></div>
+<div class="l">Run it once after the migrations:</div>
+<div class="gap"></div>
+<div class="l"><span class="m">bash</span></div>
+<div class="l"><span class="s b">npm</span> <span class="s">run</span> <span class="s">db:seed</span></div>
+<div class="gap"></div>
+<div class="l">It creates three users, all with the password <span class="chip">dev-only</span>:</div>
+<div class="gap"></div>
+<div class="l"><span class="t b">Email            </span>  <span class="t b">Role</span></div>
+<div class="l"><span class="f">─────            </span>  <span class="f">────</span></div>
+<div class="l">admin@example.com  admin</div>
+<div class="l">ana@example.com    editor</div>
+<div class="l">sam@example.com    viewer</div>
+<div class="gap"></div>
+<div class="l">The insert is one call, so a rerun after <span class="chip">db:reset</span> is safe:</div>
+<div class="gap"></div>
+<div class="l"><span class="m">ts</span></div>
+<div class="l"><span class="b">await</span> db.user.createMany({ data: users, skipDuplicates: true })</div>
+<div class="mk">
+  <div class="menu">
+    <div class="item"> <span class="gl">⧉</span> reply </div>
+    <div class="item"> <span class="gl">⧉</span> bash  </div>
+    <div class="item"> <span class="gl">⧉</span> table </div>
+    <div class="item hot"> <span class="lab"><span class="gl">⧉</span> ts</span>    </div>
+  </div>
+  <div class="l"><span class="m gl">⧉</span> </div>
+</div>
+</div>
+</div>
+</body></html>
