@@ -177,7 +177,9 @@ function wrapUncached(text: string, cap: number, humps: boolean): Wrapped {
   const lines = text.split('\n').flatMap(paragraph => {
     // A free-standing arrow stays with the word before it, so no line starts with one; a slash or bar
     // between alternatives stays with the word after it, so no line ends on one.
-    const kept = paragraph.replace(/ ([→⇢]) /gu, ' $1 ').replace(/ ([/|]) /gu, ' $1 ')
+    // a stage between pipeline arrows stays whole while it fits, so `Oracle overlay` never splits
+    const staged = paragraph.split(' → ').length > 2 ? paragraph.split(' → ').map(stage => (cellWidth(stage) <= cap - 2 ? stage.replace(/ /g, GLUE) : stage)).join(' → ') : paragraph
+    const kept = staged.replace(/ ([→⇢]) /gu, ' $1 ').replace(/ ([/|]) /gu, ' $1 ')
     const tokens = kept.split(' ').filter(t => t !== '').flatMap(token => pieces(token, cap, humps)).map(token => {
       const isGlued = token.startsWith(GLUED)
       const shown = cut(isGlued ? token.slice(1) : token, cap)
@@ -1542,8 +1544,8 @@ function drawMessagePainted(canvas: Canvas, plan: Plan, step: Message, text: str
     const start = at + 3
     const isSpill = isSpilling(step, plan.nested)
     const stop = isSpill
-      ? c.reduce((most, lane, i) => (i !== from && canvas.alive[i] && canvas.depth[i]! > 0 && lane > start && lane < most ? lane - 1 : most), canvas.width)
-      : from < plan.lanes.length - 1 ? c[from + 1]! - 1 : canvas.width
+      ? c.reduce((most, lane, i) => (i !== from && canvas.alive[i] && canvas.depth[i]! > 0 && lane > start && lane < most ? lane - 1 : most), canvas.width - 1)
+      : from < plan.lanes.length - 1 ? c[from + 1]! - 1 : canvas.width - 1
     // later lines hang under the label text, past the number, so they wrap to the room left there
     const indent = number ? cellWidth(number) + 1 : 0
     const room = Math.max(1, stop - start - indent)
@@ -1707,8 +1709,11 @@ function drawNotes(canvas: Canvas, given: Placed[]) {
         canvas.put(y, note.x + note.bw - 1, '│', 'frame')
         const line = note.lines[k]
         if (line === undefined) continue
+        // the text block centres as a whole and its lines share a left edge, so a wrapped line hangs
+        // under the one it continues
         const shown = cut(line, note.bw - 4).text
-        canvas.write(y, note.x + 2 + Math.floor((note.bw - 4 - cellWidth(shown)) / 2), shown, 'note')
+        const block = Math.min(note.bw - 4, widest(note.lines))
+        canvas.write(y, note.x + 2 + Math.floor((note.bw - 4 - block) / 2), shown, 'note')
       }
     }
     edge('╰', '╯')

@@ -182,6 +182,22 @@ describe('drawSequence', () => {
     expect(lines.filter(line => line.includes('↺')).every(line => /↺[ \u2007]\d/.test(line))).toBe(true)
   })
 
+  test('with labels above, hangs a note\'s wrapped line under the line it continues', async () => {
+    const sequence = parseSequence('sequenceDiagram\nA->>B: hi\nNote over A,B: 400 → GateContractValidationError<br/>422 → EmptyOffersetError / InvalidOffersetError')
+    const lines = plainRows(drawSequence(sequence, 44, { boxedNotes: true, labelsAbove: true }).rows)
+    const starts = ['400', '422', '/'].map(start => lines.find(line => line.includes(start))?.indexOf(start))
+
+    expect(starts[0]).toBeDefined()
+    expect(new Set(starts).size).toBe(1)
+  })
+
+  test('with labels above, leaves the last column free when a self-call wraps to the edge', async () => {
+    const sequence = parseSequence('sequenceDiagram\nA->>B: hi\nB->>C: go\nB->>B: OfferSetBuilder: pipeline route by business_unit/quoting_operation/vertical/rating_type')
+    const lines = plainRows(drawSequence(sequence, 44, { labelsAbove: true }).rows)
+
+    for (const line of lines) expect([...line.trimEnd()].length).toBeLessThan(44)
+  })
+
   test('keeps a detail line in its box when it fits whole', async () => {
     const { lines, notes } = draw('participant A as Gate API<br/>(offerset_generation v1)\nparticipant B as Store\nA->>B: hi', 80)
 
@@ -471,6 +487,13 @@ describe('wrap', () => {
     const lines = wrap('enrichment → quoting → Oracle overlay', 14).lines
 
     expect(lines.filter(line => /^[→⇢]/.test(line))).toEqual([])
+  })
+
+  test('keeps a pipeline stage whole when it fits', async () => {
+    const lines = wrap('enrichment → quoting → Oracle overlay → BazaarFiltering', 30).lines.map(line => line.replace(/ /g, ' '))
+
+    expect(lines.length).toBeGreaterThan(1)
+    expect(lines.some(line => /Oracle$/.test(line))).toBe(false)
   })
 
   test('never ends a line on a slash between alternatives', async () => {
