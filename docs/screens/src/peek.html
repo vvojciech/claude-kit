@@ -1,0 +1,65 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="terminal.css"><title>peek</title>
+<style>
+.gal { display: flex; padding-left: 2ch; }
+.band { display: flex; }
+.pic { display: flex; margin-right: 2ch; }
+.side { padding-left: 1ch; color: var(--muted); }
+.side div { height: 19px; white-space: pre; }
+.open { color: var(--muted); }
+.hov { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.img { height: 152px; overflow: hidden; border-radius: 2px; position: relative; flex: none; }
+.desk { width: 26ch; background: #f6f5f2; }
+.phone { width: 8ch; background: #f6f5f2; }
+.hdr { height: 22px; background: #1f3a5f; display: flex; align-items: center; padding: 0 7px; gap: 6px; }
+.logo { width: 18px; height: 9px; border-radius: 2px; background: #f2b84b; }
+.nav { height: 4px; width: 22px; border-radius: 2px; background: rgba(255,255,255,0.7); }
+.btn { margin-left: auto; height: 10px; width: 30px; border-radius: 3px; background: #f2b84b; }
+.hero { margin: 14px 10px 0; height: 12px; width: 60%; background: #2a2a2a; border-radius: 2px; }
+.line { margin: 7px 10px 0; height: 5px; background: #c9c6be; border-radius: 2px; }
+.cards { display: flex; gap: 6px; margin: 12px 10px 0; }
+.card { flex: 1; height: 46px; background: #fff; border: 1px solid #e0ddd5; border-radius: 3px; }
+.phone .hdr { padding: 0 5px; height: 26px; }
+.phone .nav { width: 10px; }
+.burger { margin-left: auto; width: 12px; height: 9px; border-top: 2px solid #fff; border-bottom: 2px solid #fff; position: relative; }
+.burger::after { content: ""; position: absolute; left: 0; right: 0; top: 2.5px; border-top: 2px solid #fff; }
+.phone .hero { margin: 12px 6px 0; width: 70%; height: 9px; }
+.phone .line { margin: 6px 6px 0; }
+.phone .card { margin: 10px 6px 0; height: 34px; }
+.squash .hdr { height: 22px; }
+.squash .nav { width: 7px; }
+.night { background: #1b1d22; } .night .hdr { background: #0f1115; } .night .hero { background: #e6e6e6; } .night .line { background: #3b3f47; } .night .card { background: #262a31; border-color: #333842; }
+.input { margin-top: 0; border-top: 1px solid #3a3833; border-bottom: 1px solid #3a3833; padding: 0; }
+</style></head>
+<body>
+<div class="win">
+<div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><div class="title">~/project</div></div>
+<div class="term">
+<div class="prompt"><div class="edge"></div><div class="body">[Image #1] the header is cramped on phones, make it look like the desktop mockup</div></div>
+<div class="gal">
+  <div class="pic"><div class="img phone squash"><div class="hdr"><div class="logo"></div><div class="nav"></div><div class="nav"></div><div class="nav"></div><div class="nav"></div></div><div class="hero"></div><div class="line"></div><div class="line"></div><div class="card"></div><div class="card"></div></div>
+    <div class="side"><div>Image #1</div><div>390×844</div><div class="open">⤢ open</div></div></div>
+</div>
+<div class="gap"></div>
+<div class="l"><span class="ok">●</span> <span class="s b">Read</span> <span class="s">design/header-desktop.png</span></div>
+<div class="gal">
+  <div class="pic"><div class="img desk"><div class="hdr"><div class="logo"></div><div class="nav"></div><div class="nav"></div><div class="nav"></div><div class="btn"></div></div><div class="hero"></div><div class="line"></div><div class="line" style="width:70%"></div><div class="cards"><div class="card"></div><div class="card"></div><div class="card"></div></div></div>
+    <div class="side"><div>header-desktop.png</div><div>1440×900</div><div class="hov">⤢ open</div></div></div>
+</div>
+<div class="gap"></div>
+<div class="l">The nav links now fold into a menu button below 640px, and the logo keeps its size.</div>
+<div class="gap"></div>
+<div class="l"><span class="ok">●</span> <span class="s b">Ran</span> <span class="s b">npx</span> <span class="s">playwright</span> <span class="s">screenshot</span> <span class="m">--viewport-size</span><span class="m">=</span><span class="m">390,844</span> <span class="s">localhost:5173</span> <span class="s">shots/header-mobile.png</span></div>
+<div class="gal">
+  <div class="pic"><div class="img phone"><div class="hdr"><div class="logo"></div><div class="burger"></div></div><div class="hero"></div><div class="line"></div><div class="line"></div><div class="card"></div><div class="card"></div></div>
+    <div class="side"><div>header-mobile.png</div><div>390×844</div><div class="open">⤢ open</div></div></div>
+</div>
+<div class="gap"></div>
+<div class="band">
+  <div class="pic"><div class="img phone night"><div class="hdr"><div class="logo"></div><div class="burger"></div></div><div class="hero"></div><div class="line"></div><div class="line"></div><div class="card"></div><div class="card"></div></div>
+    <div class="side"><div>header-mobile-dark.png</div><div>390×844</div><div class="open">⤢ open</div><div class="open">⧉ clip</div></div></div>
+</div>
+<div class="input"><div class="l"><span class="m">&gt;</span> ~/Desktop/header-mobile-dark.png same check in dark mode</div></div>
+</div>
+</div>
+</body></html>
