@@ -152,3 +152,17 @@ test('a diagram mermaid rejects shows as source without undrawing the others in 
   expect(seen.map(one => one.text)).toEqual([bad])
   await ui.unmount()
 })
+
+test('keeps the text around a diagram whose boxes send details to the legend, at a wide terminal', async ($, on) => {
+  beneath(on)
+  const names = ['Bazaar journey<br/>(QuotingService::Common)', 'Bazaar GateAdapter<br/>(offerset_generation/gate_adapter.rb)', 'Gate API<br/>(offerset_generation v1)', 'Gate GenerateOfferset', 'Risk Profiler', 'Contact (ACCT)', 'Tarif (in-process gem)<br/>Tarif::Rating', 'Kafka', 'Gate persistence (S3)']
+  const source = [...names.map((name, i) => `participant P${i} as ${name}`), ...names.slice(1).map((_, i) => `P${i}->>P${i + 1}: step ${i} with a label long enough to wrap somewhere`)].join('\n')
+  const text = `Here is the flow.\n\n\`\`\`mermaid\nsequenceDiagram\n${source}\n\`\`\`\n\nDone drawing.`
+  for (const columns of [127, 165, 200]) {
+    const ui = await $.ui.mount({ plugin: 'mermaid', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true }, viewport: { columns, rows: 60, isFullscreen: true } } as never)
+    const all = await texts(ui)
+    expect(all).toContain('engine: Here is the flow.')
+    expect(all).toContain('engine: Done drawing.')
+    await ui.unmount()
+  }
+})
