@@ -13,7 +13,7 @@
       "name": "lucid",
       "source": "./plugins/lucid",
       "description": "Restrained, readable transcript for dark and light terminals: warm greys, one accent, AA contrast, quiet tool rows. A mouse selection pastes rendered prose and code lines exactly as written; for the markdown source use copy-that.",
-      "version": "0.6.0"
+      "version": "0.7.0"
     },
     {
       "name": "copy-that",
@@ -31,7 +31,7 @@
       "name": "peek",
       "source": "./plugins/peek",
       "description": "Shows images inline in the transcript: pasted, read, written and linked in replies, with a button to open each in Preview and /peek to put an image on the clipboard",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ]
 }
