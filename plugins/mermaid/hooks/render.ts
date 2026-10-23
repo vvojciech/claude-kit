@@ -1672,12 +1672,28 @@ function placeNote(canvas: Canvas, plan: Plan, step: Note, over: number[], wrapp
     : wrapped.lines
   const text = widest(lines)
   const bw = isWide ? Math.max(span, text + 2) : noteWidth(step, text)
+  const hung = hang(lines, source, text)
   const x =
     step.side === 'left' ? c[a]! - 1 - bw
     : step.side === 'right' ? c[b]! + canvas.offset(b) + 2
     : isWide ? Math.max(left, Math.min(c[a]! - 1 - Math.floor((bw - span) / 2), right - bw))
     : c[a]! - half(bw)
-  return { x, bw, lines: lines.length > 0 ? lines : [''], side: step.side }
+  return { x, bw, lines: hung.length > 0 ? hung : [''], side: step.side }
+}
+
+// A note line wrapped from `422 → A / B` continues under `A`, not under `422`, so it never reads as
+// a third code; it hangs only when that fits the note's width.
+function hang(lines: string[], source: string[], most: number): string[] {
+  const flat = (line: string) => line.replace(/\u00a0/g, ' ').trim()
+  let indent = 0
+  return lines.map(line => {
+    const starts = source.find(paragraph => flat(paragraph).startsWith(flat(line)))
+    if (starts !== undefined) {
+      indent = cellWidth(/^\S+ → /.exec(flat(starts))?.[0] ?? '')
+      return line
+    }
+    return indent > 0 && cellWidth(line) + indent <= most ? ' '.repeat(indent) + line : line
+  })
 }
 
 function paintNote(canvas: Canvas, y: number, { x, bw }: Placed, line: string) {

@@ -182,13 +182,13 @@ describe('drawSequence', () => {
     expect(lines.filter(line => line.includes('↺')).every(line => /↺[ \u2007]\d/.test(line))).toBe(true)
   })
 
-  test('with labels above, hangs a note\'s wrapped line under the line it continues', async () => {
+  test('with labels above, hangs a note\'s wrapped line under the text after its code', async () => {
     const sequence = parseSequence('sequenceDiagram\nA->>B: hi\nNote over A,B: 400 → GateContractValidationError<br/>422 → EmptyOffersetError / InvalidOffersetError')
     const lines = plainRows(drawSequence(sequence, 44, { boxedNotes: true, labelsAbove: true }).rows)
-    const starts = ['400', '422', '/'].map(start => lines.find(line => line.includes(start))?.indexOf(start))
+    const at = (start: string) => lines.find(line => line.includes(start))?.indexOf(start)
 
-    expect(starts[0]).toBeDefined()
-    expect(new Set(starts).size).toBe(1)
+    expect(at('400')).toBe(at('422'))
+    expect(at('/')).toBe(at('Empty'))
   })
 
   test('with labels above, leaves the last column free when a self-call wraps to the edge', async () => {
