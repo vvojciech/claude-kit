@@ -164,6 +164,15 @@ describe('drawSequence', () => {
     expect([...strokes[2]!].slice(a! + 1, c!).join('')).toMatch(/^◀[╌┼]+$/)
   })
 
+  test('with labels above, cuts through idle lifelines and leaves a row after a self-call', async () => {
+    const sequence = parseSequence('sequenceDiagram\nA->>A: think\nA->>C: over B\nC-->>A: back')
+    const lines = plainRows(drawSequence(sequence, 80, { labelsAbove: true }).rows)
+    const think = lines.findIndex(line => line.includes('think'))
+
+    expect(lines[think + 1]).not.toMatch(/[a-z]/)
+    expect(lines.filter(line => /[─╌]/.test(line)).join('')).not.toContain('┼')
+  })
+
   test('keeps a detail line in its box when it fits whole', async () => {
     const { lines, notes } = draw('participant A as Gate API<br/>(offerset_generation v1)\nparticipant B as Store\nA->>B: hi', 80)
 

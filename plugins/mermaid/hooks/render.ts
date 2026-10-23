@@ -1343,10 +1343,12 @@ class Canvas {
     return this.plan.centre.findIndex((c, i) => this.alive[i] && (x === c || (x === c + 1 && this.offset(i) === 1)))
   }
 
-  crossing(x: number, fallback: string): string {
+  // a stroke cuts straight through an idle lifeline when labels sit above, so a crossing never
+  // reads as a stop on the way
+  crossing(x: number, fallback: string, cuts = false): string {
     const i = this.laneAt(x)
     if (i < 0) return fallback
-    return this.depth[i]! > 0 ? '╂' : '┼'
+    return this.depth[i]! > 0 ? '╂' : cuts ? fallback : '┼'
   }
 
   blank(): number {
@@ -1546,6 +1548,8 @@ function drawMessagePainted(canvas: Canvas, plan: Plan, step: Message, text: str
       if (i === 0) canvas.put(y, at + 1, '↺', 'line')
       canvas.put(y, writeLabel(canvas, y, i === 0 ? start : start + indent, line, i === 0 ? number : undefined), ' ', 'text')
     })
+    // with labels above, the next message's label would read as this call's second line
+    if (labelsAbove) canvas.row()
     return
   }
 
@@ -1608,7 +1612,7 @@ function drawMessagePainted(canvas: Canvas, plan: Plan, step: Message, text: str
     const y = canvas.row()
     const gutter = tail === undefined ? planned.start + 1 : tailAt(planned.start, isTail)
     const at =
-      born !== undefined ? x : isRight ? gutter + (i > 0 ? hang : 0) : Math.max(planned.start + 1, planned.end - lead(isTail) - cellWidth(line))
+      born !== undefined ? x : isRight || labelsAbove ? gutter + (i > 0 ? hang : 0) : Math.max(planned.start + 1, planned.end - lead(isTail) - cellWidth(line))
     canvas.put(y, writeLabel(canvas, y, at, line, i === 0 ? number : undefined), ' ', 'text')
   })
 
@@ -1626,7 +1630,7 @@ function drawMessagePainted(canvas: Canvas, plan: Plan, step: Message, text: str
     y = canvas.row()
   }
   const { start, end } = edgeAt(canvas.offset(lo))
-  for (let at = start; at <= end; at++) canvas.put(y, at, canvas.crossing(at, stroke), 'line')
+  for (let at = start; at <= end; at++) canvas.put(y, at, canvas.crossing(at, stroke, labelsAbove), 'line')
   if (isRight && heads.right) canvas.put(y, end, heads.right, 'line')
   if (!isRight && heads.left) canvas.put(y, start, heads.left, 'line')
   if (step.arrow === 'both') canvas.put(y, isRight ? start : end, isRight ? heads.left : heads.right, 'line')
