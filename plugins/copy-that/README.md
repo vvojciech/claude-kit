@@ -1,10 +1,10 @@
 # copy-that
 
-Claude Code renders Claude's markdown in the terminal, so a mouse selection gives you the rendered text: no fences, no `**`, tables redrawn as boxes, link targets gone. copy-that copies the raw text instead. Hover a reply or a tool row and click a chip, or type `/copy-that`.
+Claude Code renders Claude's markdown in the terminal, so a mouse selection gives you the rendered text: no fences, no `**`, tables redrawn as boxes, link targets gone. copy-that copies the raw text instead. Hover the ⧉ at the end of a reply or a tool row and click a chip, a row naming what to copy (`⧉ reply`, `⧉ bash`, `⧉ table`). The ⧉ needs fullscreen mode. `/copy-that` works without it.
 
-![A reply with a bash block, a table and a ts block. The chip list is open upward from the end of the reply, with ⧉ ts under the pointer. A tool group row above has its own ⧉. Shown with lucid loaded.](../../docs/screens/copy-that.png)
+![A reply with a bash block, a table and a ts block. The chip list is open upward from the end of the reply, with ⧉ ts under the pointer. A tool group row above has its own ⧉ at the right edge.](../../docs/screens/copy-that.png)
 
-The screen shows lucid loaded. Hovering the ⧉ under the reply opened the chip list, and the pointer is on `⧉ ts`.
+Drawn with lucid loaded. At rest a single ⧉ sits at the bottom right of the reply. Hovering it opened the list, which hides the ⧉ while it is open.
 
 ## Install
 
@@ -42,8 +42,8 @@ copy-that works alone, with the same list on rows Claude Code draws itself. With
 
 ### Tool chips
 
-- A settled tool row gets a ⧉ beside its first line. Its list opens like a reply's and never covers the row the ⧉ is on.
-- `⧉ file` on Write, Edit and Read. Write copies what was written. Edit copies the whole file after the edit. Read copies the text read; images give nothing.
+- A settled tool row gets a ⧉ at the right end of its first line. Its list opens like a reply's and never covers the row the ⧉ is on.
+- `⧉ file` on Write, Edit and Read. Write copies what was written. Edit copies the whole file after the edit. Read copies what was read. An image read gives no chip.
 - `⧉ plan` on ExitPlanMode copies the plan.
 - `⧉ output` on Bash, Grep, Glob, WebFetch, Agent and MCP tools copies the output with colour codes stripped. Bash gives stdout then stderr, Grep gives matches or file names.
 - A folded group of calls gets one chip per call, named by file or tool: `⧉ a.md`, `⧉ bash #1`, `⧉ bash #2`. A group with one copyable call shows `⧉ output` or `⧉ file`, like a single row.
@@ -72,21 +72,21 @@ copy-that works alone, with the same list on rows Claude Code draws itself. With
 ### Themes
 
 - When lucid is loaded, copy-that takes the tone lucid last drew with, so the marker and chips match it.
-- Without lucid, it picks light or dark from the theme name, or from the terminal's `COLORFGBG` under `auto`, and falls back to dark.
+- Without lucid, it picks light or dark from the theme name. A theme name with neither "light" nor "dark" in it reads the terminal background from `COLORFGBG`, and falls back to dark.
 - The marker is muted and chips use the text colour. A hovered chip is bold, underlined and orange on the terminal background, at 4.5:1 contrast or better.
 
 ## Commands
 
-`/copy-that help` prints the full usage. N counts back from the last, 1 is the last.
+`/copy-that help` prints the full usage. R counts replies back from the last, so 1 is the last. N picks the Nth item of a kind.
 
 | Command | Copies |
 | --- | --- |
 | `/copy-that` | the last reply as markdown |
 | `/copy-that R` | reply R back, so `/copy-that 2` is the reply before the last |
-| `/copy-that <name>` | one block by its chip name, such as `/copy-that ruby 2`, or `/copy-that 2 ruby` for an older reply |
+| `/copy-that <name>` | one block by its chip name, such as `/copy-that ruby 2` |
 | `/copy-that code [N]` | the block with no language. If every block has a language, the Nth code block |
 | `/copy-that table` | a table |
-| `/copy-that quote [N]` | the Nth quote without its `>` markers, or `/copy-that 2 quote` for an older reply. An alert goes by its type, such as `/copy-that note` |
+| `/copy-that quote [N]` | the Nth quote without its `>` markers |
 | `/copy-that file [N]` | the Nth last file Claude wrote, edited or read |
 | `/copy-that plan` | the last plan |
 | `/copy-that output [N]` | the Nth last Bash, Grep, Glob, WebFetch, Agent or MCP output |
@@ -94,18 +94,25 @@ copy-that works alone, with the same list on rows Claude Code draws itself. With
 | `/copy-that selection` | the markdown behind what you last selected with the mouse |
 
 - Names are case-insensitive.
+- Put R first to reach an older reply: `/copy-that 2 ruby`, `/copy-that 2 quote`.
+- An alert goes by its type, such as `/copy-that note`.
 - A chip named by digits, such as `⧉ 123`, needs R first: `/copy-that 1 123`.
 - `/copy-that bash 2` is the second bash block in the reply. `/copy-that bash #2` is the second bash call in the latest group that has one.
-- `/copy-that selection` widens a partial selection to balanced inline markup and maps rendered lines back to their source. When the selected text appears in more than one place, it copies nothing and asks you to select more.
+- `/copy-that selection` copies the markdown source of what you selected, even when the selection starts or ends inside bold text or a link. When the selected text appears in more than one place, it copies nothing and asks you to select more.
 
-## No ⧉ under replies
+## Troubleshooting
 
-- Fullscreen is off. Turn it on with `/tui fullscreen`.
-- Another mod draws replies before copy-that. After the first settled reply copy-that leaves this status line, and every `/copy-that` answer repeats it: `Put copy-that first in CLAUDE_CODE_PLUGIN_DIRS (a plugin listed earlier draws replies)`. See [load order](../../README.md#load-order).
+When copy-that is working, the first reply that gets a ⧉ in a session also shows the toast `Hover ⧉ to copy; /copy-that help`.
+
+### No ⧉ under replies
+
+- Fullscreen is off. copy-that says so once with the toast `⧉ needs fullscreen; use /copy-that`. Turn it on with `/tui fullscreen`.
+- Another mod draws replies before copy-that. See [load order](../../README.md#load-order).
+- After the first settled reply, copy-that then leaves this status line, and every `/copy-that` answer repeats it: `Put copy-that first in CLAUDE_CODE_PLUGIN_DIRS (a plugin listed earlier draws replies)`.
 - The reply is still being written. The marker comes when it ends.
 - The ⧉ is near the top of the screen and the list is cut off. Scroll down a little.
 
-## OSC 52 copies that never arrive
+### OSC 52 copies that never arrive
 
 - iTerm2: turn on "Applications in terminal may access clipboard" in Settings, General, Selection.
 - tmux: `set -g set-clipboard on`.
@@ -117,6 +124,6 @@ copy-that works alone, with the same list on rows Claude Code draws itself. With
 - Whether the list fits above the ⧉ is judged from the transcript, not the screen, since a mod can't see where its row sits after scrolling.
 - While the pointer is on the list, the ⧉ under it isn't drawn. The engine does this.
 - The list closes as soon as the pointer leaves its margin. The hover API has no close delay.
-- A background agent report that reached the session only as a message copy-that can't read gives no chip, and `/copy-that output` says so.
+- Some background agent reports reach the session in a form copy-that can't read. Those get no chip, and `/copy-that output` says so.
 - A block whose language clashes with a command word (`table`, `code`, `reply`, `quote`, an alert type, `file`, `plan`, `output`, `selection`, `help`) is renamed, for example `⧉ table-code`.
 - A quote inside another quote has no chip of its own. A nested quote copies one level shallower.
