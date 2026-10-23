@@ -175,8 +175,9 @@ export function wrap(text: string, cap: number, humps = false): Wrapped {
 function wrapUncached(text: string, cap: number, humps: boolean): Wrapped {
   let isCut = false
   const lines = text.split('\n').flatMap(paragraph => {
-    // A free-standing arrow or slash stays with the word before it, so no line starts with one.
-    const kept = paragraph.replace(/ ([→⇢/|]) /gu, ' $1 ')
+    // A free-standing arrow stays with the word before it, so no line starts with one; a slash or bar
+    // between alternatives stays with the word after it, so no line ends on one.
+    const kept = paragraph.replace(/ ([→⇢]) /gu, ' $1 ').replace(/ ([/|]) /gu, ' $1 ')
     const tokens = kept.split(' ').filter(t => t !== '').flatMap(token => pieces(token, cap, humps)).map(token => {
       const isGlued = token.startsWith(GLUED)
       const shown = cut(isGlued ? token.slice(1) : token, cap)
@@ -410,9 +411,11 @@ function uncut(text: string): number {
 function itemsOf(sequence: Sequence): { items: Item[]; numbers: Map<Message, string> } {
   const items: Item[] = []
   const numbers = new Map<Message, string>()
+  // with labels above, numbers right-align so 9 and 10 end in the same column
+  const digits = labelsAbove ? Math.max(0, ...sequence.steps.map(step => (step.kind === 'message' ? String(step.number ?? '').length : 0))) : 0
   for (const step of sequence.steps) {
     if (step.kind === 'message') {
-      const number = step.number === undefined ? undefined : String(step.number)
+      const number = step.number === undefined ? undefined : String(step.number).padStart(digits, '\u2007')
       if (number) numbers.set(step, number)
       const text = number ? (step.text === '' ? number : `${number}${GLUE}${step.text}`) : step.text
       const fullWidth = widest(wrap(text, Number.MAX_SAFE_INTEGER).lines)
@@ -1328,6 +1331,8 @@ class Canvas {
   // they carry a colour, so a hue always means "this one is talking"
   rank = new Map<number, number>()
   boxedNotes = false
+  // self-calls that leave a blank row under them, so the next label doesn't read as their own
+  spaced = new Set<Step>()
   stub?: number
 
   constructor(readonly width: number, readonly plan: Plan, created: Set<string>) {
@@ -1545,11 +1550,11 @@ function drawMessagePainted(canvas: Canvas, plan: Plan, step: Message, text: str
     const lines = wrap(text, room).lines
     lines.forEach((line, i) => {
       const y = canvas.row()
-      if (i === 0) canvas.put(y, at + 1, '↺', 'line')
+      // a right-aligned number's padding goes left of the `↺`, so the glyph always touches its number
+      if (i === 0) canvas.put(y, at + 1 + (number?.match(/^\u2007*/)![0].length ?? 0), '↺', 'line')
       canvas.put(y, writeLabel(canvas, y, i === 0 ? start : start + indent, line, i === 0 ? number : undefined), ' ', 'text')
     })
-    // with labels above, the next message's label would read as this call's second line
-    if (labelsAbove) canvas.row()
+    if (canvas.spaced.has(step) || (labelsAbove && lines.length > 1)) canvas.row()
     return
   }
 
@@ -1610,7 +1615,8 @@ function drawMessagePainted(canvas: Canvas, plan: Plan, step: Message, text: str
   const hang = number ? cellWidth(number) + 1 : 0
   above.forEach((line, i) => {
     const y = canvas.row()
-    const gutter = tail === undefined ? planned.start + 1 : tailAt(planned.start, isTail)
+    // with labels above, a message's number lines up with a self-call's, which sits after its `↺`
+    const gutter = tail === undefined ? planned.start + (labelsAbove ? 2 : 1) : tailAt(planned.start, isTail)
     const at =
       born !== undefined ? x : isRight || labelsAbove ? gutter + (i > 0 ? hang : 0) : Math.max(planned.start + 1, planned.end - lead(isTail) - cellWidth(line))
     canvas.put(y, writeLabel(canvas, y, at, line, i === 0 ? number : undefined), ' ', 'text')
@@ -1820,6 +1826,12 @@ function draw(given: Sequence, width: number, fold: ReadonlySet<string> = new Se
   const created = new Set(sequence.steps.flatMap(step => (step.kind === 'create' ? [step.id] : [])))
   const canvas = new Canvas(width, plan, created)
   canvas.boxedNotes = boxed
+  const isSelfCall = (step: Step | undefined): step is Message => step?.kind === 'message' && step.from === step.to
+  if (labelsAbove)
+    sequence.steps.forEach((step, i) => {
+      const next = sequence.steps[i + 1]
+      if (isSelfCall(step) && !(isSelfCall(next) && next.from === step.from)) canvas.spaced.add(step)
+    })
   for (const step of sequence.steps) {
     const lane = step.kind === 'message' ? plan.lane.get(step.from) : undefined
     if (lane !== undefined && !canvas.rank.has(lane)) canvas.rank.set(lane, canvas.rank.size)

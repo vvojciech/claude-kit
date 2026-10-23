@@ -173,6 +173,15 @@ describe('drawSequence', () => {
     expect(lines.filter(line => /[─╌]/.test(line)).join('')).not.toContain('┼')
   })
 
+  test('with labels above, ends every number in one column and keeps each ↺ next to its number', async () => {
+    const steps = Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? 'A->>A: think' : 'A->>B: ask')).join('\n')
+    const lines = plainRows(drawSequence(parseSequence(`sequenceDiagram\nautonumber\n${steps}`), 80, { labelsAbove: true }).rows)
+    const ends = lines.flatMap(line => [...line.matchAll(/\d+(?= (think|ask))/g)].map(match => match.index! + match[0].length))
+
+    expect(new Set(ends).size).toBe(1)
+    expect(lines.filter(line => line.includes('↺')).every(line => /↺[ \u2007]\d/.test(line))).toBe(true)
+  })
+
   test('keeps a detail line in its box when it fits whole', async () => {
     const { lines, notes } = draw('participant A as Gate API<br/>(offerset_generation v1)\nparticipant B as Store\nA->>B: hi', 80)
 
@@ -458,10 +467,16 @@ describe('wrap', () => {
     expect(wrap('cancel the quote', 6)).toEqual({ lines: ['cancel', 'the', 'quote'], isCut: false })
   })
 
-  test('never starts a line with a free-standing arrow or slash', async () => {
-    const lines = [...wrap('enrichment → quoting → Oracle overlay', 14).lines, ...wrap('422 → EmptyOffersetError / InvalidOffersetError', 26).lines]
+  test('never starts a line with a free-standing arrow', async () => {
+    const lines = wrap('enrichment → quoting → Oracle overlay', 14).lines
 
-    expect(lines.filter(line => /^[→⇢/|]/.test(line))).toEqual([])
+    expect(lines.filter(line => /^[→⇢]/.test(line))).toEqual([])
+  })
+
+  test('never ends a line on a slash between alternatives', async () => {
+    const lines = wrap('422 → EmptyOffersetError / InvalidOffersetError', 26).lines.map(line => line.replace(/\u00a0/g, ' '))
+
+    expect(lines).toEqual(['422 → EmptyOffersetError', '/ InvalidOffersetError'])
   })
 })
 
