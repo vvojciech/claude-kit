@@ -1,12 +1,11 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><link rel="stylesheet" href="terminal.css"><title>copy-that</title>
 <style>
-.gl { display: inline-block; width: 1ch; text-align: center; }
 .mk { display: flex; justify-content: flex-end; position: relative; }
 .menu { position: absolute; right: 0; bottom: 19px; }
-.item { width: 9ch; white-space: pre; background: var(--ground); color: var(--text); height: 19px; }
-.item.hot { background: var(--accent); color: var(--ground); font-weight: bold; }
-.item.hot .lab { text-decoration: underline; text-underline-offset: 3px; }
+.item { width: calc(18 * 8.43px); white-space: pre; background: var(--ground); color: var(--text); height: 19px; }
+.item.hot { color: var(--accent); font-weight: bold; position: relative; }
+.item.hot::after { content: ""; position: absolute; left: 0; right: 0; bottom: 1px; border-bottom: 1px solid var(--accent); }
 </style></head>
 <body>
 <div class="win">
@@ -14,7 +13,7 @@
 <div class="term">
 <div class="prompt"><div class="edge"></div><div class="body">Add a script that seeds the dev database with a few users</div></div>
 <div class="gap"></div>
-<div class="l"><span class="ok">●</span> <span class="s b">Wrote 1 file, edited 1 file</span>  <span class="m gl">⧉</span></div>
+<div class="l"><span class="ok">●</span> <span class="s b">Wrote 1 file, edited 1 file</span>  <span class="m sym">⧉</span></div>
 <div class="l"><span class="m">  ⎿  </span><span class="s">Wrote</span> <span class="s">scripts/seed.ts</span></div>
 <div class="l">     <span class="s">Edited</span> <span class="s">package.json</span></div>
 <div class="gap"></div>
@@ -37,12 +36,16 @@
 <div class="l"><span class="b">await</span> db.user.createMany({ data: users, skipDuplicates: true })</div>
 <div class="mk">
   <div class="menu">
-    <div class="item"> <span class="gl">⧉</span> reply </div>
-    <div class="item"> <span class="gl">⧉</span> bash  </div>
-    <div class="item"> <span class="gl">⧉</span> table </div>
-    <div class="item hot"> <span class="lab"><span class="gl">⧉</span> ts</span>    </div>
+    <div class="item"> <span class="sym">⧉</span> reply          </div>
+    <div class="item"> <span class="sym">⧉</span> bash           </div>
+    <div class="item"> <span class="sym">⧉</span> table          </div>
+    <div class="item hot"> <span class="sym">⧉</span> ts             </div>
   </div>
-  <div class="l"><span class="m gl">⧉</span> </div>
+  <div class="l"> </div>
+  <svg class="ptr" style="right: 60px; bottom: 22px;" viewBox="0 0 13 19"><path d="M1 1 L1 15 L4.5 11.5 L7 17.5 L9.2 16.6 L6.8 10.8 L11.5 10.8 Z" fill="#fff" stroke="#000" stroke-width="1"/></svg>
+</div>
+<div class="gap"></div>
+<div class="input"><div class="l"><span class="m">&gt;</span> </div></div>
 </div>
 </div>
 </div>
