@@ -2,6 +2,8 @@
 
 Claude often answers with a mermaid diagram, and the terminal shows it as a code block you have to picture in your head. mermaid draws each `sequenceDiagram` block as text in place of its fence, between the prose around it. Anything it can't draw stays as source, with a short note saying why.
 
+![A reply about sign-in with a sequence diagram drawn in place: four participants, numbered messages, an activation bar, an alt/else frame, a note and a loop](../../docs/screens/mermaid.png)
+
 ## Install
 
 ```
@@ -9,7 +11,10 @@ Claude often answers with a mermaid diagram, and the terminal shows it as a code
 /plugin install mermaid@vvojciech
 ```
 
-List it after copy-that and before lucid in `CLAUDE_CODE_PLUGIN_DIRS`. lucid draws the reply itself, so a mod listed after it never sees the text.
+## Requirements
+
+- Claude Code 2.1.287 or later.
+- Load order: list it after copy-that and before lucid in `CLAUDE_CODE_PLUGIN_DIRS`. lucid draws the reply itself, so a mod listed after it never sees the text.
 
 ## Features
 
@@ -59,6 +64,10 @@ List it after copy-that and before lucid in `CLAUDE_CODE_PLUGIN_DIRS`. lucid dra
 - A diagram mermaid.live would reject (unknown lines, an unclosed block, an extra `end`, a `deactivate` while inactive) stays as source with each problem and its line number listed under it.
 - Problems mermaid.live accepts, such as `links` lines or a `()` central connection, are listed under the drawn diagram.
 - One bad diagram doesn't stop the others in the same reply from drawing. If drawing throws, the reply falls back to source with the reason.
+
+## Commands
+
+None. Diagrams draw as soon as a reply with a closed `mermaid` fence settles.
 
 ## Known limits
 
