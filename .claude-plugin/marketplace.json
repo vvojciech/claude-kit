@@ -26,6 +26,12 @@
       "source": "./plugins/mermaid",
       "description": "Draws mermaid sequence diagrams from Claude's replies as text in the terminal",
       "version": "0.1.0"
+    },
+    {
+      "name": "peek",
+      "source": "./plugins/peek",
+      "description": "Shows images inline in the transcript: pasted, read, written and linked in replies, with a button to open each in Preview and /peek to put an image on the clipboard",
+      "version": "0.1.0"
     }
   ]
 }

@@ -7,6 +7,7 @@ Claude Code plugins I use every day. So far they are mods that change the interf
 /plugin install lucid@vvojciech
 /plugin install copy-that@vvojciech
 /plugin install mermaid@vvojciech
+/plugin install peek@vvojciech
 ```
 
 ## lucid
@@ -28,3 +29,9 @@ Claude often answers with a mermaid diagram, and the terminal shows it as a code
 Anything mermaid itself would reject stays as source, with the problems listed under it. Other diagram types aren't drawn yet.
 
 List it after copy-that and before lucid in `CLAUDE_CODE_PLUGIN_DIRS`. lucid draws the reply itself, so a mod listed after it never sees the text.
+
+## peek
+
+Claude Code shows images as text: `[Image #1]`, `Read image`, or a markdown link's alt text. peek draws a small thumbnail under each one, for images you paste, images Claude reads or writes, and local `![alt](path)` images in replies, with a `⤢ open` button that opens the file in Preview. `/peek <path>`, `/peek last` or the `⧉ clip` button on a dragged-in path puts the image on the clipboard, so ctrl+v attaches it.
+
+Pictures need Claude Code 2.1.305 or later, fullscreen rendering, and iTerm2, kitty or Ghostty outside tmux. Anywhere else each image is one line with the open button. It wraps other mods' rows, so it works alongside lucid and copy-that.
