@@ -76,10 +76,12 @@ class Grid {
       for (let x = 0; x < Math.min(width, row.length); x++) {
         const cell = row[x]!
         const char = cell.char ?? glyph(cell)
+        // a dotted edge is dimmed as well as dashed, so a run too short to show a gap still reads dotted
+        const ink = cell.char === undefined && cell.stroke === 'dotted' ? 'frame' : cell.ink
         if (char === '') continue
         const last = runs.at(-1)
-        if (last && last.ink === cell.ink && last.lane === cell.lane) last.text += char
-        else runs.push({ text: char, ink: cell.ink, ...(cell.lane === undefined ? {} : { lane: cell.lane }) })
+        if (last && last.ink === ink && last.lane === cell.lane) last.text += char
+        else runs.push({ text: char, ink, ...(cell.lane === undefined ? {} : { lane: cell.lane }) })
       }
       const end = runs.at(-1)
       if (end) end.text = end.text.trimEnd()
@@ -323,10 +325,13 @@ function drawNode(grid: Grid, v: Vertex, x: number, y: number, width: number, he
   const rule = shape === 'database' ? '═' : '─'
   grid.write(x, y, tl + rule.repeat(width - 2) + tr, 'frame')
   grid.write(x, y + height - 1, bl + rule.repeat(width - 2) + br, 'frame')
+  // a decision taller than three rows keeps slanting sides: ╱ above its tip, < at it, ╲ below
+  const isSlanted = shape === 'diamond' || shape === 'hexagon'
   for (let k = 1; k < height - 1; k++) {
-    const middle = shape === 'diamond' || shape === 'hexagon' ? k === Math.ceil((height - 2) / 2) : true
-    grid.put(x, y + k, middle ? sl : '│', 'frame')
-    grid.put(x + width - 1, y + k, middle ? sr : '│', 'frame')
+    const side = 2 * k - (height - 1)
+    const [l, r] = !isSlanted ? [sl, sr] : side < 0 ? ['╱', '╲'] : side === 0 ? [sl, sr] : ['╲', '╱']
+    grid.put(x, y + k, l, 'frame')
+    grid.put(x + width - 1, y + k, r, 'frame')
     for (let i = 1; i < width - 1; i++) grid.put(x + i, y + k, ' ', 'name')
   }
   const lift = Math.floor((height - 2 - v.lines.length) / 2)
@@ -371,11 +376,20 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       const mine = list.filter(r => r.edge.stroke === stroke)
       return mine.reduce((sum, r) => sum + centre(r.path[1]!), 0) / mine.length
     }
-    const strokes = [...new Set(list.map(r => r.edge.stroke))].sort((a, b) => toward(a) - toward(b))
-    strokes.forEach((stroke, k) => {
-      const at = Math.max(v.at + 1, Math.min(v.at + v.cross - 2, centre(v) + 2 * k - (strokes.length - 1)))
-      for (const r of list) if (r.edge.stroke === stroke) leaving.set(r, at)
-    })
+    // the stroke most edges share keeps the middle; each other stroke steps out toward where it heads
+    const count = (stroke: Stroke) => list.filter(r => r.edge.stroke === stroke).length
+    const strokes = [...new Set(list.map(r => r.edge.stroke))]
+    const main = [...strokes].sort((a, b) => count(b) - count(a) || Number(b === 'solid') - Number(a === 'solid'))[0]!
+    const step = across ? 2 : 4
+    const others = strokes.filter(stroke => stroke !== main).sort((a, b) => toward(a) - toward(b))
+    const lefts = others.filter(stroke => toward(stroke) < centre(v)).reverse()
+    const rights = others.filter(stroke => toward(stroke) >= centre(v))
+    const place = (stroke: Stroke, at: number) => {
+      for (const r of list) if (r.edge.stroke === stroke) leaving.set(r, Math.max(v.at + 1, Math.min(v.at + v.cross - 2, at)))
+    }
+    place(main, centre(v))
+    lefts.forEach((stroke, k) => place(stroke, centre(v) - step * (k + 1)))
+    rights.forEach((stroke, k) => place(stroke, centre(v) + step * (k + 1)))
   }
   // a long edge's placeholders follow its port when that is a cell or two off their middle, so the
   // edge runs straight down instead of stepping aside under its box
@@ -474,10 +488,10 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const [x1, y1] = xy(m1, k1)
     grid.line(x0, y0, x1, y1, stroke)
   }
-  const head = (m: number, k: number, forward: boolean) => {
+  const head = (m: number, k: number, forward: boolean, stroke: Stroke = 'solid') => {
     const [x, y] = xy(m, k)
     const ahead = forward !== reversed
-    grid.put(x, y, across ? (ahead ? HEADS.right : HEADS.left) : ahead ? HEADS.down : HEADS.up, 'line')
+    grid.put(x, y, across ? (ahead ? HEADS.right : HEADS.left) : ahead ? HEADS.down : HEADS.up, stroke === 'dotted' ? 'frame' : 'line')
   }
   const labels: Array<{ route: Route; m: number; k: number; lines: string[] }> = []
   for (const p of placed) {
@@ -510,8 +524,8 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     if (border?.char === '═') border.char = reversed ? '╧' : '╤'
     else if (border?.char === '─' || border?.char === '│') border.char = across ? (reversed ? '┤' : '├') : reversed ? '┴' : '┬'
     const landingAt = crossAt(route, path.length - 1)
-    if (route.edge.head) head(bandStart[last.rank]! - 1, landingAt, true)
-    if (route.edge.tail) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false)
+    if (route.edge.head) head(bandStart[last.rank]! - 1, landingAt, true, stroke)
+    if (route.edge.tail) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false, stroke)
   }
   // a loop leaves its source through the side facing out, runs up its lane and comes into its
   // target's same side: right of a top-down chart, under a left-right one

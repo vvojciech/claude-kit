@@ -99,6 +99,35 @@ describe('drawFlow top-down', () => {
     expect([...border].filter(ch => ch === '┬')).toHaveLength(2)
   })
 
+  test('dims every cell of a dotted edge, corners and head included, so even a short one reads as dotted', async () => {
+    const { drawn } = draw('flowchart LR\nA -.-> B')
+    const runs = drawn!.rows.flat().filter(run => /[─╌┐┘┌└▶├┤╎]/.test(run.text) && !/[A-Z]/.test(run.text))
+    const between = runs.filter(run => run.text.includes('▶') || run.text.includes('╌'))
+
+    expect(between.length).toBeGreaterThan(0)
+    expect(between.every(run => run.ink === 'frame')).toBe(true)
+  })
+
+  test('keeps the main stroke centred under a box and puts another stroke four cells out toward its target', async () => {
+    const { lines } = draw('flowchart TD\nA[Rate the request now] --> B[Main]\nA -.-> C[Side]')
+    const border = [...lines[2]!]
+    const ports = border.flatMap((ch, i) => (ch === '┬' ? [i] : []))
+
+    expect(ports).toHaveLength(2)
+    expect(ports[1]! - ports[0]!).toBe(4)
+  })
+
+  test('keeps a tall diamond\'s sides slanted on every row', async () => {
+    const { lines } = draw('flowchart LR\nA --> D{Ok?}\nB --> D\nC --> D')
+    const top = rowOf(lines, '╱───')
+    const left = lines[top]!.indexOf('╱')
+    const bottom = lines.findIndex((line, i) => i > top && [...line][left] === '╲' && line.includes('───'))
+    const sides = lines.slice(top + 1, bottom).map(line => [...line][left])
+
+    expect(sides.length).toBeGreaterThan(1)
+    expect(sides.every(ch => ch === '╱' || ch === '╲' || ch === '<')).toBe(true)
+  })
+
   test('draws a dotted edge with dotted strokes and a thick one heavy', async () => {
     const { lines } = draw('flowchart TD\nA -.-> B\nB ==> C')
 
