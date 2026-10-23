@@ -65,3 +65,6 @@ body { padding: 28px; width: fit-content; }
 .input { border-top: 1px solid #3a3833; border-bottom: 1px solid #3a3833; }
 .sym { font-family: "Apple Symbols", Menlo, monospace; font-size: 17px; display: inline-block; width: 8.43px; text-align: center; line-height: 19px; }
 .ptr { position: absolute; width: 13px; height: 19px; pointer-events: none; }
+.cell { display: inline-block; width: 8.43px; overflow: visible; }
+.row { display: flex; justify-content: space-between; }
+.tile .term { max-height: 380px; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent); }

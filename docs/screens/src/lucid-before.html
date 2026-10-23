@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="terminal.css"><title>without lucid</title>
+<style>
+.term { color: #f2f2f2; }
+.d { color: #9a9a9a; }
+.w { color: #f2f2f2; }
+.g { color: #4eba65; }
+.r { color: #ff6b80; }
+.c { color: #b1b9f9; }
+.ask { background: #3b3b3b; color: #f2f2f2; white-space: pre; }
+</style></head>
+<body>
+<div class="win">
+<div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><div class="title">~/project</div></div>
+<div class="term">
+<div class="l ask">❯ Why does the login form reject some valid emails?                                          </div>
+<div class="gap"></div>
+<div class="l d">  Read <span class="b w">2</span> files, searched for <span class="b w">1</span> pattern</div>
+<div class="gap"></div>
+<div class="l"><span class="r">●</span> <span class="b">Bash</span>(npm test login)</div>
+<div class="l"><span class="d">  <span class="cell">⎿</span>  </span><span class="r">Error: Exit code 1</span></div>
+<div class="l"><span class="r">     1 failing: accepts plus-addressed emails</span></div>
+<div class="l"><span class="r">     expected false to be true</span></div>
+<div class="gap"></div>
+<div class="l"><span class="g">●</span> <span class="b">Update</span>(src/lib/validate.ts)</div>
+<div class="gap"></div>
+<div class="l"><span class="g">●</span> <span class="b">Bash</span>(npm run dev)</div>
+<div class="l"><span class="d">  <span class="cell">⎿</span>  Running in the background (↓ to manage)</span></div>
+<div class="gap"></div>
+<div class="l"><span class="w">●</span> The validator stopped at <span class="c">+</span>, so <span class="c">ana+test@example.com</span> failed. The check lives in</div>
+<div class="l">  <span class="c">src/lib/validate.ts:12</span>.</div>
+<div class="gap"></div>
+<div class="l">  ┌──────────┬───────┬─────────┐</div>
+<div class="l">  │ <span class="b">Suite</span>    │ <span class="b">Tests</span> │ <span class="b">Failing</span> │</div>
+<div class="l">  ├──────────┼───────┼─────────┤</div>
+<div class="l">  │ login    │ 14    │ 0       │</div>
+<div class="l">  ├──────────┼───────┼─────────┤</div>
+<div class="l">  │ signup   │ 9     │ 0       │</div>
+<div class="l">  └──────────┴───────┴─────────┘</div>
+</div>
+</div>
+</body></html>
