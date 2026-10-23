@@ -407,6 +407,9 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   // A solid edge claims its spot first; the others take the nearest spot a cell clear of every
   // arrow already placed. A decision's arrows keep off its slanted corners.
   const landing = new Map<Route, number>()
+  // a left-right decision takes its main arrow at its tip; another arriving from above drops onto
+  // its top with a head of its own, so no two arrows share one
+  const ontoTop = new Set<Route>()
   for (const [v, list] of portIn) {
     const from = (route: Route) => through(route, route.path.length - 2)
     const inset = v.node!.shape === 'diamond' || v.node!.shape === 'hexagon' ? (across ? 1 : 2) : 1
@@ -414,7 +417,13 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const hi = v.at + v.cross - 1 - inset
     const apart = across ? 2 : 3
     if (across && (v.node!.shape === 'diamond' || v.node!.shape === 'hexagon')) {
-      for (const route of list) landing.set(route, centre(v))
+      const ranked = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(from(a) - centre(v)) - Math.abs(from(b) - centre(v)))
+      ranked.forEach((route, i) => {
+        landing.set(route, centre(v))
+        const above = from(route) < v.at - 1
+        const clear = ranks[v.rank]!.every(w => w === v || w.at + w.cross <= from(route) || w.at > v.at)
+        if (i > 0 && above && clear) ontoTop.add(route)
+      })
       continue
     }
     const want = (route: Route) => Math.max(lo, Math.min(hi, list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route)))
@@ -527,6 +536,15 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       const lane = channelStart[c]! + 1 + (p.tracks[c] ?? 0)
       const end = channelStart[c + 1] === undefined && c + 1 === ranks.length - 1 ? bandStart[c + 1]! - 1 : bandStart[c + 1]! - 1
       if (!v.node) segment(bandStart[c]!, a, bandStart[c]! + bandSize[c]! - 1, a, stroke)
+      if (i === path.length - 2 && ontoTop.has(route)) {
+        const target = path[i + 1]!
+        const mid = bandStart[c + 1]! + Math.floor(target.main / 2)
+        segment(from, a, mid, a, stroke)
+        segment(mid, a, mid, target.at - 1, stroke)
+        const [hx, hy] = xy(mid, target.at - 1)
+        if (route.edge.head) grid.put(hx, hy, HEADS.down, 'line')
+        continue
+      }
       const turn = a === b ? from : lane
       segment(from, a, turn, a, stroke)
       segment(turn, a, turn, b, stroke)
@@ -544,7 +562,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     if (border?.char === '═') border.char = reversed ? '╧' : '╤'
     else if (border?.char === '─' || border?.char === '│') border.char = across ? (reversed ? '┤' : '├') : reversed ? '┴' : '┬'
     const landingAt = crossAt(route, path.length - 1)
-    if (route.edge.head) head(bandStart[last.rank]! - 1, landingAt, true)
+    if (route.edge.head && !ontoTop.has(route)) head(bandStart[last.rank]! - 1, landingAt, true)
     if (route.edge.tail) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false)
   }
   // a loop leaves its source through the side facing out, runs up its lane and comes into its

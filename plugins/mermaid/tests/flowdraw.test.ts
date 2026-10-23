@@ -160,12 +160,15 @@ describe('drawFlow left-right', () => {
     expect(lines.filter(line => [...line][border] === '├')).toHaveLength(2)
   })
 
-  test('runs every edge into a left-right decision through its tip, as Mermaid converges them', async () => {
+  test('runs the main edge into a left-right decision\'s tip and drops another onto its top with a head of its own', async () => {
     const { lines } = draw('flowchart LR\nE[Rate] --> F{Any?}\nE -.-> K[Side]\nK -.-> F')
+    const top = rowOf(lines, '╱───')
     const tip = lines.find(line => line.includes('<'))!
 
-    expect(tip).toMatch(/Rate *├─+[┤┴┬]?─*▶</)
-    expect(lines.filter(line => line.includes('▶╱') || line.includes('▶╲'))).toHaveLength(0)
+    expect(tip).toMatch(/Rate *├─+▶</)
+    expect(lines[top - 1]).toContain('▼')
+    expect([...lines[top - 1]!].indexOf('▼')).toBeGreaterThan([...lines[top]!].indexOf('╱'))
+    expect([...lines[top - 1]!].indexOf('▼')).toBeLessThan([...lines[top]!].indexOf('╲'))
   })
 
   test('writes an edge label above the line into its target', async () => {
