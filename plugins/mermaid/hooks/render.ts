@@ -66,6 +66,8 @@ const STEP_MOST = 48
 // A dashed return needs enough dashes beside its label to read as dashed.
 const DASHES = 3
 const LEADER = 1
+// the fewest stroke cells an arrow keeps when a label shares its row
+const ARROW_MIN = 3
 const COLS_PER_ROW = 12
 const ACTOR = '☺ '
 const plain = (text: string) => text.replace(/\u00a0/g, ' ')
@@ -1489,37 +1491,23 @@ function drawMessage(canvas: Canvas, plan: Plan, step: Message, text: string, wr
   const heads = HEADS[step.arrow]
 
   if (from === to) {
-    const x = c[from]! + canvas.offset(from)
-    const short = wrapped.lines.length === 1 ? wrapped.lines[0]! : undefined
-    const nextLane = from < plan.lanes.length - 1 ? c[from + 1]! - 1 : canvas.width
-    const shortStop = isSpilling(step, plan.nested) ? canvas.width : nextLane
-    if (short !== undefined && !wrapped.isCut && x + 3 + cellWidth(number ? `${number} ${short}` : short) < shortStop) {
-      // a call to itself with a one-line label takes one row, like a reflexive arrow; a call that
-      // activates its own lane lights the nested bar on that same row
-      if (arrival.lightsLane === from) canvas.depth[from]! += 1
-      const at = c[from]! + canvas.offset(from)
-      const y = canvas.row()
-      canvas.put(y, at + 1, '↺', 'line')
-      canvas.put(y, writeLabel(canvas, y, at + 3, short, number), ' ', 'text')
-      return
-    }
-    const upper = canvas.row()
+    // a call to itself is one `↺` row, its label beside it and any wrapped lines hanging under the
+    // label text; a call that activates its own lane lights the nested bar on that same row
     if (arrival.lightsLane === from) canvas.depth[from]! += 1
-    const low = c[from]! + canvas.offset(from)
-    const lower = canvas.row()
-    const reach = Math.max(low - x + 1, 1)
-    const start = x + reach + 3
+    const at = c[from]! + canvas.offset(from)
+    const start = at + 3
     const isSpill = isSpilling(step, plan.nested)
     const stop = isSpill
-      ? c.reduce((most, at, i) => (i !== from && canvas.alive[i] && canvas.depth[i]! > 0 && at > start && at < most ? at - 1 : most), canvas.width)
+      ? c.reduce((most, lane, i) => (i !== from && canvas.alive[i] && canvas.depth[i]! > 0 && lane > start && lane < most ? lane - 1 : most), canvas.width)
       : from < plan.lanes.length - 1 ? c[from + 1]! - 1 : canvas.width
-    const room = Math.max(1, stop - start)
-    const lines = isSpill ? wrap(text, room).lines : wrapped.lines.some(line => cellWidth(line) > room) ? wrap(text, room).lines : wrapped.lines
-    canvas.write(upper, x + 1, `${stroke.repeat(reach)}╮`, 'line')
-    canvas.write(lower, low + 1, `${heads.left || stroke}${stroke.repeat(reach - (low - x) - 1)}╯`, 'line')
+    // later lines hang under the label text, past the number, so they wrap to the room left there
+    const indent = number ? cellWidth(number) + 1 : 0
+    const room = Math.max(1, stop - start - indent)
+    const lines = wrapped.lines.every(line => cellWidth(line) < room) ? wrapped.lines : wrap(text, room).lines
     lines.forEach((line, i) => {
-      const y = i === 0 ? upper : i === 1 ? lower : canvas.row()
-      canvas.put(y, writeLabel(canvas, y, start, line, i === 0 ? number : undefined), ' ', 'text')
+      const y = canvas.row()
+      if (i === 0) canvas.put(y, at + 1, '↺', 'line')
+      canvas.put(y, writeLabel(canvas, y, i === 0 ? start : start + indent, line, i === 0 ? number : undefined), ' ', 'text')
     })
     return
   }
@@ -1564,7 +1552,7 @@ function drawMessage(canvas: Canvas, plan: Plan, step: Message, text: string, wr
         above = cellWidth(`${last} ${mark}`) <= room ? [...above.slice(0, -1), `${last} ${mark}`] : [...above, mark]
       }
     } else above = wrapped.lines
-    const fits = (line: string) => line !== '' && tailAt(planned.start, true) + cellWidth(line) + dashes <= reach(true)
+    const fits = (line: string) => line !== '' && tailAt(planned.start, true) + cellWidth(line) + Math.max(dashes, ARROW_MIN) <= reach(true)
     if (born === undefined && !wrapped.isCut && above.every(line => cellWidth(line) <= room)) {
       const fitted = balanced({ lines: above, isCut: false }, text, reach(true) - tailAt(planned.start, true) - dashes)
       if (fitted.lines.every(line => cellWidth(line) <= room)) above = fitted.lines
@@ -1573,9 +1561,22 @@ function drawMessage(canvas: Canvas, plan: Plan, step: Message, text: string, wr
     if (born === undefined && end !== undefined && fits(end)) {
       tail = { text: end, number: above.length === 1 ? number : undefined, isTight: true }
       above = above.slice(0, -1)
+    } else if (born === undefined && end !== undefined && !wrapped.isCut && above.length > 1) {
+      // a wrapped label whose last line is too wide for the span hands its trailing words to the
+      // arrow row, so it ends on its arrow at the same row count; a one-line label stays whole
+      // it splits only after a comma, never inside `key = value`, and keeps a readable arrow
+      const words = end.split(' ')
+      for (let k = 1; k < words.length; k++) {
+        const suffix = words.slice(k).join(' ')
+        if (!words[k - 1]!.endsWith(',') || !fits(suffix)) continue
+        above = [...above.slice(0, -1), words.slice(0, k).join(' ')]
+        tail = { text: suffix, isTight: true }
+        break
+      }
     }
   }
-  const isTail = tail?.isTight ?? false
+  // every label line starts at the same gutter, whether or not its arrow shares the row
+  const isTail = tail?.isTight ?? true
   above.forEach((line, i) => {
     const y = canvas.row()
     const at =
@@ -1619,14 +1620,18 @@ function placeNote(canvas: Canvas, plan: Plan, step: Note, over: number[], wrapp
   const b = over.at(-1)!
   const isWide = step.side === 'over' && a !== b
   const span = c[b]! - c[a]! + 3
-  // a note over two lanes owns its rows, so it widens over idle lanes and wraps only at the edge
-  const lines = isWide && widest(wrapped.lines) + 2 > canvas.width ? wrap(wrapped.lines.join('\n'), Math.max(1, canvas.width - 2)).lines : wrapped.lines
+  // a note over two lanes widens past them but stops short of the next lifeline either side, so it
+  // never reads as covering a participant it doesn't name; past that room it wraps
+  const left = a > 0 ? c[a - 1]! + canvas.offset(a - 1) + 2 : 0
+  const right = b < plan.lanes.length - 1 ? c[b + 1]! - 1 : canvas.width
+  const room = Math.max(span, right - left)
+  const lines = isWide && widest(wrapped.lines) + 2 > room ? wrap(wrapped.lines.join('\n'), Math.max(1, room - 2)).lines : wrapped.lines
   const text = widest(lines)
   const bw = isWide ? Math.max(span, text + 2) : noteWidth(step, text)
   const x =
     step.side === 'left' ? c[a]! - 1 - bw
     : step.side === 'right' ? c[b]! + canvas.offset(b) + 2
-    : isWide ? Math.max(0, Math.min(c[a]! - 1 - Math.floor((bw - span) / 2), canvas.width - bw))
+    : isWide ? Math.max(left, Math.min(c[a]! - 1 - Math.floor((bw - span) / 2), right - bw))
     : c[a]! - half(bw)
   return { x, bw, lines: lines.length > 0 ? lines : [''] }
 }

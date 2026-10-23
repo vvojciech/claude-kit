@@ -92,10 +92,17 @@ describe('drawSequence', () => {
     expect(lines.at(-1)).toBe('  │       │↺ think')
   })
 
-  test('draws a self-message with a multi-line label as a loop with its label beside it', async () => {
+  test('wraps a numbered self-message so its hanging lines never pass the right edge', async () => {
+    const { lines } = draw('autonumber\nA->>B: x\nB->>B: OfferSetBuilder: pipeline route by business_unit/quoting_operation/vertical/rating_type', 30)
+
+    expect(lines.filter(line => [...line].length > 30)).toEqual([])
+    expect(lines.join(' ')).toContain('rating_type')
+  })
+
+  test('hangs the later lines of a multi-line self-message under its label', async () => {
     const { lines } = draw('A->>B: hi\nB->>B: think<br/>it over')
 
-    expect(lines.slice(-2)).toEqual(['  │       │─╮ think', '  │       │◀╯ it over'])
+    expect(lines.slice(-2)).toEqual(['  │       │↺ think', '  │       │  it over'])
   })
 
   test('draws a one-line note as one tinted row covering the lifelines it spans', async () => {
@@ -243,7 +250,7 @@ describe('drawSequence', () => {
   test('labels box groups above their participants, rails their sides and breaks lines at <br/>', async () => {
     const { lines } = draw('box Team\nparticipant A\nparticipant B\nend\nA->>B: hi<br/>there')
 
-    expect(lines).toEqual(['╭─ Team ──────╮', '╭───╮     ╭───╮', '│ A │     │ B │', '╰─┬─╯     ╰─┬─╯', '┆ │ hi      │ ┆', '┆ │ there ─▶│ ┆'])
+    expect(lines).toEqual(['╭─ Team ──────╮', '╭───╮     ╭───╮', '│ A │     │ B │', '╰─┬─╯     ╰─┬─╯', '┆ │ hi      │ ┆', '┆ │ there   │ ┆', '┆ │────────▶│ ┆'])
   })
 
   test('measures wide characters by terminal cells', async () => {
