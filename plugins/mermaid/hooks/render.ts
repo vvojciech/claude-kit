@@ -575,7 +575,10 @@ function measure(sequence: Sequence, lanes: Participant[], items: Item[], states
       // widest line is a floor on the span while it takes no more than a third of the width
       const natural = widest(step.text.split('\n')) + 2
       if (limit === undefined) gap(a, b, (labelWidth.get(step) ?? 0) - 1)
-      else if (natural <= Math.floor(limit / 3)) gap(a, b, natural - 1)
+      // the note may spread to the lifelines either side of its span, so its floor is shared
+      // across those gaps rather than forcing one gap wide
+      // placeNote leaves two cells inside each neighbouring lifeline, so the floor matches that room
+      else if (natural <= Math.floor(limit / 3)) gap(a > 0 ? a - 1 : a, b < last ? b + 1 : b, natural - 1 + (a > 0 ? 3 : 0) + (b < last ? 3 : 0))
       if (a === 0) edge('left', 1)
       if (b === last) edge('right', 1)
     }
@@ -1033,6 +1036,11 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
     }
     names.forEach((_, i) => {
       if (nameCut(lanes[i]!, names[i]!)) widen(() => names[i]!, cap => (names[i] = cap), fullNames[i]!, tried => tried.rows > plan.rows)
+    })
+    // spare width also goes to a box whose name folds inside an identifier (`offerset_` /
+    // `generation`), as long as no row is spent on it
+    names.forEach((_, i) => {
+      if (fullHeader(lanes[i]!, names[i]!).some(line => /(_|::)$/.test(line))) widen(() => names[i]!, cap => (names[i] = cap), fullNames[i]!, tried => tried.rows > plan.rows)
     })
     const narrow = items
       .filter(item => !states.get(item.step)!.isHidden && !states.get(item.step)!.inline && states.get(item.step)!.cap < item.maxCap)
@@ -1503,7 +1511,7 @@ function drawMessage(canvas: Canvas, plan: Plan, step: Message, text: string, wr
     // later lines hang under the label text, past the number, so they wrap to the room left there
     const indent = number ? cellWidth(number) + 1 : 0
     const room = Math.max(1, stop - start - indent)
-    const lines = wrapped.lines.every(line => cellWidth(line) < room) ? wrapped.lines : wrap(text, room).lines
+    const lines = wrap(text, room).lines
     lines.forEach((line, i) => {
       const y = canvas.row()
       if (i === 0) canvas.put(y, at + 1, '↺', 'line')
@@ -1564,11 +1572,14 @@ function drawMessage(canvas: Canvas, plan: Plan, step: Message, text: string, wr
     } else if (born === undefined && end !== undefined && !wrapped.isCut && above.length > 1) {
       // a wrapped label whose last line is too wide for the span hands its trailing words to the
       // arrow row, so it ends on its arrow at the same row count; a one-line label stays whole
-      // it splits only after a comma, never inside `key = value`, and keeps a readable arrow
+      // it splits at a space outside parentheses and away from `=`, so `(rating_type = full_rating)`
+      // stays whole, and keeps a readable arrow
       const words = end.split(' ')
+      const opens = (text: string) => [...text].reduce((depth, ch) => depth + (ch === '(' ? 1 : ch === ')' ? -1 : 0), 0)
       for (let k = 1; k < words.length; k++) {
         const suffix = words.slice(k).join(' ')
-        if (!words[k - 1]!.endsWith(',') || !fits(suffix)) continue
+        const isClean = opens(words.slice(0, k).join(' ')) <= 0 && words[k] !== '=' && words[k - 1] !== '='
+        if (!isClean || !fits(suffix)) continue
         above = [...above.slice(0, -1), words.slice(0, k).join(' ')]
         tail = { text: suffix, isTight: true }
         break
@@ -1625,7 +1636,11 @@ function placeNote(canvas: Canvas, plan: Plan, step: Note, over: number[], wrapp
   const left = a > 0 ? c[a - 1]! + canvas.offset(a - 1) + 2 : 0
   const right = b < plan.lanes.length - 1 ? c[b + 1]! - 1 : canvas.width
   const room = Math.max(span, right - left)
-  const lines = isWide && widest(wrapped.lines) + 2 > room ? wrap(wrapped.lines.join('\n'), Math.max(1, room - 2)).lines : wrapped.lines
+  const source = step.text.split('\n')
+  const lines =
+    isWide && widest(source) + 2 <= room ? source
+    : isWide && widest(wrapped.lines) + 2 > room ? wrap(wrapped.lines.join('\n'), Math.max(1, room - 2)).lines
+    : wrapped.lines
   const text = widest(lines)
   const bw = isWide ? Math.max(span, text + 2) : noteWidth(step, text)
   const x =
