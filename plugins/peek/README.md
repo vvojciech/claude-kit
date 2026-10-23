@@ -2,6 +2,8 @@
 
 Claude Code shows an image as a line of text: `[Image #1]`, `Read image (412KB)`, or the alt text of a markdown link. peek draws a small thumbnail of the picture under that row, with a `⤢ open` button that opens the original in Preview. `/peek` gets an image onto the clipboard so ctrl+v attaches it.
 
+![Thumbnails under a pasted image, a Read row and a Bash row, each with its name, pixel size and a ⤢ open button, and a band above the prompt showing a dragged-in path with ⧉ clip](../../docs/screens/peek.png)
+
 ## Install
 
 ```
@@ -51,7 +53,11 @@ Types live in `types/index.d.ts`.
 
 `⤢ open` runs `open -a Preview` on the original file, and plain `open` if Preview refuses. If both fail you get a toast with the reason.
 
-### Adding images
+### Band above the prompt
+
+While you type, a strip above the prompt shows the images in the draft: each `[Image #N]` you pasted, and any bare image path, such as one iTerm2 pastes when you drag a file in. A bare path gets a `⧉ clip` button that puts it on the clipboard, so ctrl+v turns it into a real attachment.
+
+## Commands
 
 A mod can't attach image bytes to a prompt, so peek puts the image on the macOS clipboard and you press ctrl+v:
 
@@ -60,10 +66,6 @@ A mod can't attach image bytes to a prompt, so peek puts the image on the macOS 
 - `/peek clipboard-check` says whether the clipboard already holds an image.
 
 The image goes on the clipboard as PNG and a toast says `Image on clipboard: press ctrl+v`. This replaces whatever was on the clipboard.
-
-### Band above the prompt
-
-While you type, a strip above the prompt shows the images in the draft: each `[Image #N]` you pasted, and any bare image path, such as one iTerm2 pastes when you drag a file in. A bare path gets a `⧉ clip` button that puts it on the clipboard, so ctrl+v turns it into a real attachment.
 
 ## Known limits
 
