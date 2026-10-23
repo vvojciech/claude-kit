@@ -108,7 +108,7 @@ When copy-that is working, the first reply that gets a ⧉ in a session also sho
 
 - Fullscreen is off. copy-that says so once with the toast `⧉ needs fullscreen; use /copy-that`. Turn it on with `/tui fullscreen`.
 - Another mod draws replies before copy-that. See [load order](../../README.md#load-order).
-- After the first settled reply, copy-that then leaves this status line, and every `/copy-that` answer repeats it: `Put copy-that first in CLAUDE_CODE_PLUGIN_DIRS (a plugin listed earlier draws replies)`.
+  In that case, after the first settled reply copy-that leaves this status line, and every `/copy-that` answer repeats it: `Put copy-that first in CLAUDE_CODE_PLUGIN_DIRS (a plugin listed earlier draws replies)`.
 - The reply is still being written. The marker comes when it ends.
 - The ⧉ is near the top of the screen and the list is cut off. Scroll down a little.
 
