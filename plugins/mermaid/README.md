@@ -1,6 +1,6 @@
 # mermaid
 
-Claude sometimes answers with a diagram written in Mermaid, a text format for diagrams. Claude Code shows that as a code block you have to picture in your head. This mod draws each Mermaid `sequenceDiagram` as boxes and arrows in its place, between the prose around it. Anything it can't draw stays as source, with a short note saying why.
+Claude sometimes answers with a diagram written in Mermaid, a text format for diagrams. Claude Code shows that as a code block you have to picture in your head. This mod draws each Mermaid `sequenceDiagram` and `flowchart` as boxes and arrows in its place, between the prose around it. Anything it can't draw stays as source, with a short note saying why.
 
 ![A reply about sign-in with a sequence diagram drawn in place: four participants in their own colours, numbered messages, an activation bar, an alt/else frame, a boxed note and a loop.](../../docs/screens/mermaid.png)
 
@@ -38,9 +38,19 @@ See [load order](../../README.md#load-order) for how to set the order.
 - Autonumbers are dimmed and sit beside their label.
 - A created participant starts at its `create` row, and a destroyed one ends in a box.
 
+### Flowcharts
+
+- `flowchart` and `graph`, in `TD`, `TB`, `BT`, `LR` and `RL`.
+- Nodes are laid out in ranks. Long edges run straight and short detours bend round them.
+- Shapes: `[box]`, `(rounded)`, `([stadium])`, `((circle))`, `{decision}` with slanted corners, `{{hexagon}}`, `[(database)]` with doubled ends, and `>flag]`.
+- Edges `-->`, `---`, `-.->` (dimmed and dashed), `==>` (heavy), `<-->` and `~~~` (invisible), with `|label|` or `-- label -->` text, chains and `&`.
+- Each arrow into a box gets its own spot on the border, and each stroke leaves through its own port. Boxes grow when they need more room for that.
+- An edge that closes a cycle loops round the outside of the chart on a lane of its own: right of a top-down chart, under a left-right one.
+- `classDef`, `class`, `style`, `click` and `linkStyle` lines are read and skipped.
+
 ### Syntax
 
-- `sequenceDiagram` only, in a closed ```` ```mermaid ```` or `~~~mermaid` fence. Fences inside lists and blockquotes are found too.
+- `sequenceDiagram` in a closed ```` ```mermaid ```` or `~~~mermaid` fence. Fences inside lists and blockquotes are found too.
 - `participant` and `actor`, with `as` aliases, quoted names and `@{ type, alias }` metadata in JSON or YAML form.
 - Participant types `queue`, `database`, `entity`, `boundary`, `control` and `collections`, each marked by a glyph before the name.
 - `create` and `destroy`.
@@ -70,7 +80,8 @@ See [load order](../../README.md#load-order) for how to set the order.
 ### Fallbacks
 
 - A fence still streaming shows as a plain code block until it closes, so a half-written diagram never flashes.
-- Other diagram types stay as source with `mermaid: flowchart not drawn yet, sequenceDiagram only` under them.
+- Other diagram types stay as source with `mermaid: pie not drawn yet, sequenceDiagram and flowchart only` under them.
+- A flowchart too wide for the terminal, even with its labels wrapped, stays as source with the width it needs.
 - An empty fence says there is no diagram type.
 - A diagram mermaid.live would reject (unknown lines, an unclosed block, an extra `end`, a `deactivate` while inactive) stays as source with each problem and its line number listed under it.
 - Problems mermaid.live accepts, such as `links` lines or a `()` central connection, are listed under the drawn diagram.
@@ -88,6 +99,8 @@ None. A diagram draws as soon as its `mermaid` fence closes.
 - mermaid.live would reject it. The problems are listed under the block.
 
 ## Known limits
+
+- Flowchart subgraphs are read but not framed, and a node that links to itself is listed under the chart instead of drawn.
 
 - `link`, `links`, `properties` and `details` lines are not drawn.
 - Box and `rect` colours are dropped. `rect` uses one fixed shade.
