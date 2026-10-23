@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
-import { settleCapability } from './capability'
+import { UNRESOLVED, openFor, pictureFor } from './api'
+import { probe, settleCapability } from './capability'
 import { ARGUMENT_HINT, COMMAND, DESCRIPTION, parseCommand, runPeek } from './commands'
 import { itemsFor, maxColumnsFor, picturesFor, withThumbs } from './draws'
 import type { Frame, Wanted } from './draws'
@@ -58,6 +59,23 @@ function keep($: EngineInterface, drawn: RenderElement, error: unknown): RenderE
 }
 
 export const register: Register = on => {
+  on('engine.create', async (_$, e, next) => ({
+    ...(await next(e)),
+    peek: { picture: async () => UNRESOLVED, open: async () => ({ error: 'peek is not ready' }) },
+  }))
+
+  on('peek.picture', async ($, e) => {
+    const picture = await pictureFor(hostOf($), e, await placesFor($))
+    if ('key' in picture && e.requestId !== undefined) probe($, e.requestId, picture.key, picture.source)
+    return { value: picture }
+  }).catch(() => ({ value: UNRESOLVED }))
+
+  on('peek.open', async ($, e) => {
+    const opened = await openFor(hostOf($), e, await placesFor($))
+    if (opened.error !== undefined) $.ui.toast(opened.error)
+    return { value: opened }
+  }).catch(() => ({ value: { error: 'peek could not open the image' } }))
+
   on('session.start', async ($, e, next) => {
     places = undefined
     await settleCapability($)

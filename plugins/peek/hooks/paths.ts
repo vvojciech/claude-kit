@@ -34,7 +34,7 @@ function unwrap(src: string): string {
   return src.startsWith('<') && src.endsWith('>') ? src.slice(1, -1) : src
 }
 
-function fromFileUrl(src: string): string {
+export function fromFileUrl(src: string): string {
   return src.startsWith('file://') ? decodeURI(src.slice('file://'.length)) : src
 }
 
