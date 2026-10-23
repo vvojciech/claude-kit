@@ -7,7 +7,8 @@ type On = Parameters<TestBody>[1]
 type Surface = 'terminal' | 'desktop'
 
 const SEQUENCE = 'The flow:\n\n```mermaid\nsequenceDiagram\nparticipant C as Bazaar\nC->>Gate: rate\nGate-->>C: quotes\n```\n\nThat is all.'
-const FLOWCHART = 'Before.\n\n```mermaid\nflowchart LR\nA-->B\n```'
+const FLOWCHART = 'Before.\n\n```mermaid\nflowchart LR\nA[Start]-->B[Stop]\n```'
+const PIE = 'Before.\n\n```mermaid\npie\n"a": 1\n```'
 
 function beneath(on: On, seen: { text: string; isFirst: boolean }[] = [], theme?: string) {
   on('ui.render', ($, e) => {
@@ -63,12 +64,24 @@ test('leaves a reply without mermaid as drawn', async ($, on) => {
   await ui.unmount()
 })
 
-test('keeps a flowchart as source and says it is not drawn yet beneath it', async ($, on) => {
+test('draws a flowchart in place of its fence', async ($, on) => {
   beneath(on)
   const ui = await mount($, FLOWCHART)
   const all = await texts(ui)
-  expect(all[0]).toBe('engine: Before.\n\n```mermaid\nflowchart LR\nA-->B\n```')
-  expect(all[1]).toBe(notDrawn('flowchart'))
+  expect(all[0]).toBe('engine: Before.')
+  expect(all.some(t => t.includes('Start'))).toBe(true)
+  expect(all.some(t => t.includes('Stop'))).toBe(true)
+  expect(all.some(t => t.includes('flowchart LR'))).toBe(false)
+  await ui.unmount()
+})
+
+test('keeps another kind of diagram as source and says it is not drawn yet beneath it', async ($, on) => {
+  beneath(on)
+  const ui = await mount($, PIE)
+  const all = await texts(ui)
+  expect(all[0]).toBe('engine: Before.\n\n```mermaid\npie\n"a": 1\n```')
+  expect(all[1]).toBe(notDrawn('pie'))
+  expect(notDrawn('pie')).toBe('mermaid: pie not drawn yet, sequenceDiagram and flowchart only')
   await ui.unmount()
 })
 

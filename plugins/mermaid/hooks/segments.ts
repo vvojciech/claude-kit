@@ -1,4 +1,4 @@
-export type Segment = { kind: 'text'; text: string } | { kind: 'sequence'; source: string; fence: string } | { kind: 'other'; type: string }
+export type Segment = { kind: 'text'; text: string } | { kind: 'sequence' | 'flow'; source: string; fence: string } | { kind: 'other'; type: string }
 
 export type Fence = { from: number; to: number; source: string; indent: number; quotes: number }
 
@@ -145,9 +145,9 @@ export function segmentsOf(markdown: string, typeOf: (source: string) => string)
     pending.push(...lines.slice(at, fence.from))
     at = fence.to + 1
     const type = typeOf(fence.source)
-    if (type === 'sequence') {
+    if (type === 'sequence' || type === 'flow') {
       flush()
-      parts.push({ kind: 'sequence', source: fence.source, fence: raw.join('\n') })
+      parts.push({ kind: type, source: fence.source, fence: raw.join('\n') })
     } else {
       pending.push(...raw)
       flush()

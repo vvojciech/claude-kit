@@ -2,7 +2,8 @@ import { expect, test } from 'claude-code/testing'
 
 import { fencesOf, segmentsOf } from '../hooks/segments'
 
-const typeOf = (source: string) => (source.trim().startsWith('sequenceDiagram') ? 'sequence' : (source.trim().split(/\s+/)[0] ?? ''))
+const typeOf = (source: string) =>
+  source.trim().startsWith('sequenceDiagram') ? 'sequence' : /^(flowchart|graph)\b/.test(source.trim()) ? 'flow' : (source.trim().split(/\s+/)[0] ?? '')
 
 test('splits text around a sequence fence and trims the blank lines it leaves', () => {
   expect(segmentsOf('Before.\n\n```mermaid\nsequenceDiagram\nA->>B: x\n```\n\nAfter.', typeOf)).toEqual([
@@ -17,10 +18,17 @@ test('keeps two diagrams in order with nothing between them', () => {
   expect(segmentsOf(two, typeOf).map(s => s.kind)).toEqual(['sequence', 'sequence'])
 })
 
-test('keeps another kind of diagram as source, marked after it', () => {
+test('splits a flowchart out as its own part', () => {
   expect(segmentsOf('```mermaid\nflowchart LR\nA-->B\n```\nTail.', typeOf)).toEqual([
-    { kind: 'text', text: '```mermaid\nflowchart LR\nA-->B\n```' },
-    { kind: 'other', type: 'flowchart' },
+    { kind: 'flow', source: 'flowchart LR\nA-->B', fence: '```mermaid\nflowchart LR\nA-->B\n```' },
+    { kind: 'text', text: 'Tail.' },
+  ])
+})
+
+test('keeps another kind of diagram as source, marked after it', () => {
+  expect(segmentsOf('```mermaid\npie\n"a": 1\n```\nTail.', typeOf)).toEqual([
+    { kind: 'text', text: '```mermaid\npie\n"a": 1\n```' },
+    { kind: 'other', type: 'pie' },
     { kind: 'text', text: 'Tail.' },
   ])
 })

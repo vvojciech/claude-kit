@@ -1,5 +1,7 @@
 import type { EngineInterface, Elements, Register, RenderElement, RenderInputOf, RenderNode } from 'claude-code'
 
+import { isFlow, parseFlow } from './flow'
+import { drawFlow } from './flowdraw'
 import { isSequence, kindOf, parseSequence } from './parse'
 import type { Sequence } from './parse'
 import { drawSequence } from './render'
@@ -57,7 +59,7 @@ function styles(tint: string): Styles {
 }
 
 export const notDrawn = (kind: string) =>
-  kind === '' ? 'mermaid: no diagram type' : `mermaid: ${kind} not drawn yet, sequenceDiagram only`
+  kind === '' ? 'mermaid: no diagram type' : `mermaid: ${kind} not drawn yet, sequenceDiagram and flowchart only`
 
 let tint: Promise<string> | undefined
 
@@ -118,6 +120,25 @@ function notice({ Box, Text }: Kit, kind: string, key: string): RenderNode {
 
 type Shown = { node: RenderNode; source?: undefined } | { source: string[] }
 
+function flowPart(kit: Kit, style: Styles, chosen: Look, part: { source: string }, width: number, key: string): Shown {
+  const flow = parseFlow(part.source)
+  if (flow.nodes.length === 0 || flow.problems.length > 0) return { source: flow.problems.length > 0 ? flow.problems : ['mermaid: no nodes in this flowchart'] }
+  const drawn = drawFlow(flow, width)
+  if (!drawn) return { source: [`mermaid: this flowchart needs more than ${width} columns`] }
+  const { Box, Text } = kit
+  return {
+    node: (
+      <Box key={key} flexDirection="column" paddingLeft={INDENT}>
+        {drawn.rows.map((runs, i) => row(kit, style, chosen, runs, `${key}-row-${i}`))}
+        {drawn.notes.length > 0 && <Text key={`${key}-gap`}> </Text>}
+        {drawn.notes.map(note => (
+          <Text dimColor>{note}</Text>
+        ))}
+      </Box>
+    ),
+  }
+}
+
 function sequencePart($: EngineInterface, kit: Kit, style: Styles, chosen: Look, part: { source: string }, width: number, key: string): Shown {
   try {
     const sequence = parseSequence(part.source)
@@ -143,8 +164,8 @@ async function drawParts($: EngineInterface, e: AssistantRender, next: (e: Assis
       const element = await next({ ...e, props: { ...e.props, text: part.text, isFirstOfReply: isFirst } })
       isFirst = false
       drawn.push(<kit.Box key={key}>{element}</kit.Box>)
-    } else if (part.kind === 'sequence') {
-      const shown = sequencePart($, kit, style, chosen, part, width, key)
+    } else if (part.kind === 'sequence' || part.kind === 'flow') {
+      const shown = part.kind === 'sequence' ? sequencePart($, kit, style, chosen, part, width, key) : flowPart(kit, style, chosen, part, width, key)
       if (shown.source) {
         const source = await next({ ...e, props: { ...e.props, text: part.fence, isFirstOfReply: isFirst } })
         isFirst = false
@@ -169,8 +190,8 @@ async function drawParts($: EngineInterface, e: AssistantRender, next: (e: Assis
 export const register: Register = on => {
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.isSummary) return next(e)
-    const parts = segmentsOf(e.props.text, source => (isSequence(source) ? 'sequence' : kindOf(source)))
-    if (!parts.some(part => part.kind === 'sequence' || part.kind === 'other')) return next(e)
+    const parts = segmentsOf(e.props.text, source => (isSequence(source) ? 'sequence' : isFlow(source) ? 'flow' : kindOf(source)))
+    if (!parts.some(part => part.kind !== 'text')) return next(e)
     try {
       return await drawParts($, e as AssistantRender, next as (e: AssistantRender) => Promise<RenderElement>, parts)
     } catch (error) {
