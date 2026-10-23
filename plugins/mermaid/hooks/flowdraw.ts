@@ -298,16 +298,17 @@ const CORNERS: Record<Shape, Corners> = {
   circle: ['╭', '╮', '╰', '╯', '(', ')'],
   diamond: ['╱', '╲', '╲', '╱', '<', '>'],
   hexagon: ['╱', '╲', '╲', '╱', '<', '>'],
-  database: ['╭', '╮', '╰', '╯', '│', '│'],
+  database: ['╒', '╕', '╘', '╛', '│', '│'],
   flag: ['┌', '┐', '└', '┘', '>', '│'],
 }
 
 function drawNode(grid: Grid, v: Vertex, x: number, y: number, width: number, height: number) {
   const shape = v.node!.shape
   const [tl, tr, bl, br, sl, sr] = CORNERS[shape]
-  const top = shape === 'database' ? '═' : '─'
-  grid.write(x, y, tl + top.repeat(width - 2) + tr, 'frame')
-  grid.write(x, y + height - 1, bl + '─'.repeat(width - 2) + br, 'frame')
+  // a database's doubled top and bottom stand in for the cylinder's curved ends
+  const rule = shape === 'database' ? '═' : '─'
+  grid.write(x, y, tl + rule.repeat(width - 2) + tr, 'frame')
+  grid.write(x, y + height - 1, bl + rule.repeat(width - 2) + br, 'frame')
   for (let k = 1; k < height - 1; k++) {
     const middle = shape === 'diamond' || shape === 'hexagon' ? k === Math.ceil((height - 2) / 2) : true
     grid.put(x, y + k, middle ? sl : '│', 'frame')
@@ -458,7 +459,8 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     // the line leaves through the border, so the border shows where: ┬ under a box, ├ beside it
     const [bx, by] = xy(bandStart[first.rank]! + first.main - 1, crossAt(route, 0))
     const border = grid.cells[by]?.[bx]
-    if (border?.char === '─' || border?.char === '│' || border?.char === '═') border.char = across ? (reversed ? '┤' : '├') : reversed ? '┴' : '┬'
+    if (border?.char === '═') border.char = reversed ? '╧' : '╤'
+    else if (border?.char === '─' || border?.char === '│') border.char = across ? (reversed ? '┤' : '├') : reversed ? '┴' : '┬'
     const landingAt = crossAt(route, path.length - 1)
     if (route.edge.head) head(bandStart[last.rank]! - 1, landingAt, true)
     if (route.edge.tail) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false)

@@ -51,6 +51,13 @@ describe('drawFlow top-down', () => {
     expect(lines[1]).toMatch(/^< +Ok\? +>$/)
   })
 
+  test('draws a database with doubled top and bottom borders', async () => {
+    const { lines } = draw('flowchart TD\nA[(Store)] --> B')
+
+    expect(lines[0]).toMatch(/^╒═+╕$/)
+    expect(lines[2]).toMatch(/^╘═+╤═+╛$/)
+  })
+
   test('loops an edge back up a cycle round the right of the chart, out of its source\'s side into its target\'s', async () => {
     const { lines } = draw('flowchart TD\nA --> B\nB --> C\nB --> D\nD --> B')
     const b = rowOf(lines, ' B ')
