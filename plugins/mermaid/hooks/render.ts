@@ -417,7 +417,7 @@ function itemsOf(sequence: Sequence): { items: Item[]; numbers: Map<Message, str
       const text = number ? (step.text === '' ? number : `${number}${GLUE}${step.text}`) : step.text
       const fullWidth = widest(wrap(text, Number.MAX_SAFE_INTEGER).lines)
       const isSelf = step.from === step.to
-      items.push({ step, text, number, fullWidth, maxCap: fullWidth, minCap: HARD_CAP, wordCap: wordKeep(text), pieceCap: 0, canInline: !isSelf, isFrame: false })
+      items.push({ step, text, number, fullWidth, maxCap: fullWidth, minCap: HARD_CAP, wordCap: wordKeep(text), pieceCap: 0, canInline: !isSelf && !labelsAbove, isFrame: false })
     } else if (step.kind === 'note') {
       const fullWidth = widest(wrap(step.text, Number.MAX_SAFE_INTEGER).lines)
       items.push({ step, text: step.text, fullWidth, maxCap: fullWidth, minCap: HARD_CAP, wordCap: wordKeep(step.text), pieceCap: 0, canInline: false, isFrame: false })
@@ -1234,13 +1234,13 @@ function allocate(sequence: Sequence, lanes: Participant[], items: Item[], tree:
     const extra = (step.arrow === 'both' ? 1 : 0) + (step.isDashed ? DASHES : 0) + 5
     if (spillRoom(item) !== undefined) {
       const isOne = !item.text.includes('\n') && item.fullWidth + extra <= room
-      Object.assign(state, { inline: isOne, tight: isOne, cap: item.maxCap })
+      Object.assign(state, { inline: isOne && item.canInline, tight: isOne && item.canInline, cap: item.maxCap })
       return
     }
     const wrapped = wrap(item.text, state.cap)
     const fits = (line: string) => line !== '' && cellWidth(line) + extra <= room
     const shown = balanced(wrapped, item.text, room - extra)
-    if (fits(shown.lines.at(-1) ?? '') && widest(shown.lines) <= state.cap) {
+    if (item.canInline && fits(shown.lines.at(-1) ?? '') && widest(shown.lines) <= state.cap) {
       state.cap = Math.max(widest(shown.lines), item.pieceCap)
       state.inline = true
       state.tight = true
@@ -1596,7 +1596,7 @@ function drawMessagePainted(canvas: Canvas, plan: Plan, step: Message, text: str
       if (fitted.lines.every(line => cellWidth(line) <= room)) above = fitted.lines
     }
     const end = above.at(-1)
-    if (born === undefined && end !== undefined && fits(end)) {
+    if (!labelsAbove && born === undefined && end !== undefined && fits(end)) {
       tail = { text: end, number: above.length === 1 ? number : undefined, isTight: true }
       above = above.slice(0, -1)
     }
@@ -1735,16 +1735,19 @@ function drawHidden(canvas: Canvas, plan: Plan, step: Message, text: string, num
 
 // read by draw() while a call to drawSequence is under way
 let boxed = false
+// every label sits above a stroke that runs the whole way from sender to receiver
+let labelsAbove = false
 
 const cache = new Map<string, { rows: Run[][]; notes: string[] }>()
 
-export type DrawOptions = { boxedNotes?: boolean }
+export type DrawOptions = { boxedNotes?: boolean; labelsAbove?: boolean }
 
 export function drawSequence(sequence: Sequence, width: number, options: DrawOptions = {}): { rows: Run[][]; notes: string[] } {
-  const key = `${width}\u0000${options.boxedNotes ? 1 : 0}\u0000${JSON.stringify(sequence)}`
+  const key = `${width}\u0000${options.boxedNotes ? 1 : 0}${options.labelsAbove ? 1 : 0}\u0000${JSON.stringify(sequence)}`
   const hit = cache.get(key)
   if (hit) return hit
   boxed = options.boxedNotes === true
+  labelsAbove = options.labelsAbove === true
   const drawn = draw(sequence, width)
   if (cache.size > 64) cache.delete(cache.keys().next().value!)
   cache.set(key, drawn)

@@ -93,7 +93,7 @@ function problems({ Box, Text }: Kit, lines: string[], key: string): RenderNode 
 
 function diagram(kit: Kit, style: Styles, chosen: Look, sequence: Sequence, width: number, key: string): RenderNode {
   const { Box, Text } = kit
-  const { rows, notes } = drawSequence(sequence, width, { boxedNotes: chosen.boxnote })
+  const { rows, notes } = drawSequence(sequence, width, { boxedNotes: chosen.boxnote, labelsAbove: true })
   return (
     <Box key={key} flexDirection="column" paddingLeft={INDENT}>
       {rows.map((runs, i) => row(kit, style, chosen, runs, `${key}-row-${i}`))}

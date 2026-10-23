@@ -152,6 +152,18 @@ describe('drawSequence', () => {
     }
   })
 
+  test('with labels above, puts every label over a stroke that runs from sender to receiver', async () => {
+    const sequence = parseSequence('sequenceDiagram\nA->>B: hi\nB->>C: next\nC-->>A: done')
+    const lines = plainRows(drawSequence(sequence, 80, { labelsAbove: true }).rows)
+    const [a, b, c] = columnsOf(lines[2]!, '┬')
+    const strokes = lines.slice(3).filter(line => /[─╌]/.test(line))
+
+    expect(strokes).toHaveLength(3)
+    for (const line of strokes) expect(line).not.toMatch(/[a-z]/)
+    expect([...strokes[0]!].slice(a! + 1, b!).join('')).toMatch(/^─+▶$/)
+    expect([...strokes[2]!].slice(a! + 1, c!).join('')).toMatch(/^◀[╌┼]+$/)
+  })
+
   test('keeps a detail line in its box when it fits whole', async () => {
     const { lines, notes } = draw('participant A as Gate API<br/>(offerset_generation v1)\nparticipant B as Store\nA->>B: hi', 80)
 
