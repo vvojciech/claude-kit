@@ -1,6 +1,8 @@
 # lucid
 
-lucid redraws the Claude Code transcript: replies, your prompts and tool rows. It uses warm greys with one orange accent, keeps every text colour at WCAG AA contrast, and folds tool calls into short rows that say what happened. Text you select with the mouse pastes as clean prose, and code pastes exactly as written.
+lucid redraws the Claude Code transcript: replies, your prompts and tool rows. The aim is a quieter transcript. It uses warm greys with one orange accent, keeps every text colour at WCAG AA contrast, and folds tool calls into short rows that say what happened. Text you select with the mouse pastes as clean prose, and code pastes exactly as written.
+
+![lucid drawing a prompt, a folded tool group, a failed test run, a running dev server, then a reply with a heading, a task list, a code block and a table](../../docs/screens/lucid.png)
 
 ## Install
 
@@ -8,6 +10,12 @@ lucid redraws the Claude Code transcript: replies, your prompts and tool rows. I
 /plugin marketplace add vvojciech/claude-kit
 /plugin install lucid@vvojciech
 ```
+
+## Requirements
+
+- Claude Code 2.1.287 or later.
+- Optional: peek, to draw local images where they sit in a reply.
+- Optional: copy-that, to copy the markdown source behind a reply. List copy-that before lucid in `CLAUDE_CODE_PLUGIN_DIRS`.
 
 ## Features
 
@@ -89,6 +97,10 @@ Types live in `types/index.d.ts`.
 - Replies use the full terminal width with no left gutter.
 - The prompt panel spans the whole row.
 - Widths are measured in terminal cells, so emoji and wide characters count as two.
+
+## Commands
+
+None. lucid starts drawing as soon as it loads, and follows `/theme` from then on.
 
 ## Rows left to stock
 
