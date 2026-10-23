@@ -1,6 +1,6 @@
 # claude-kit
 
-Claude Code plugins I use every day. So far they are mods that change the interface, which need Claude Code 2.1.287 or later. Skills and other plugins will live here too.
+Claude Code plugins I use every day. So far they are mods that change the interface, and they need Claude Code 2.1.287 or later. Skills and other plugins will live here too.
 
 ```
 /plugin marketplace add vvojciech/claude-kit
@@ -10,28 +10,28 @@ Claude Code plugins I use every day. So far they are mods that change the interf
 /plugin install peek@vvojciech
 ```
 
-## lucid
+Each one works on its own. To run them together, load copy-that first and mermaid before lucid. The pages below say why.
 
-A quieter transcript. Warm greys, a single orange accent, and contrast that stays readable on both dark and light terminals. It follows `/theme`, including the ANSI themes. Tool calls collapse into short past-tense rows, like `Ran 2 commands, read 1 file`, and failures and background work get their own marks.
+## [lucid](plugins/lucid/README.md)
 
-When you select text with the mouse, prose pastes as prose and code pastes exactly as written. If you want the markdown source instead, use copy-that.
+[![lucid](docs/screens/lucid.png)](plugins/lucid/README.md)
 
-## copy-that
+A quieter transcript in warm greys with one orange accent, where tool calls fold into short rows like `Read 2 files, searched for 1 pattern`.
 
-Claude Code renders markdown, so a mouse selection gives you the rendered text, not what Claude wrote. copy-that adds a dim `⧉` at the end of each reply and on each tool row. Hover it and pick what to copy: the whole reply as markdown, a single code block without its fences, a table as GFM, a file Claude read or wrote, a plan, or a tool's output. `/copy-that help` lists the same thing as commands for the keyboard.
+## [copy-that](plugins/copy-that/README.md)
 
-It works with lucid or with the stock renderer. List it first in `CLAUDE_CODE_PLUGIN_DIRS`, or install it first, so it wraps whichever renderer draws the reply.
+[![copy-that](docs/screens/copy-that.png)](plugins/copy-that/README.md)
 
-## mermaid
+Copies the raw markdown, code blocks, tables, files, plans and tool output behind a reply from a ⧉ menu or `/copy-that`.
 
-Claude often answers with a mermaid diagram, and the terminal shows it as a code block you have to picture in your head. mermaid draws each `sequenceDiagram` block in place of its fence: participants, arrows, activations, notes, loop/alt frames, boxes, create and destroy. Long labels wrap inside the diagram. Only when the pane is too narrow to fit every participant does it become a numbered one-line-per-message list.
+## [mermaid](plugins/mermaid/README.md)
 
-Anything mermaid itself would reject stays as source, with the problems listed under it. Other diagram types aren't drawn yet.
+[![mermaid](docs/screens/mermaid.png)](plugins/mermaid/README.md)
 
-List it after copy-that and before lucid in `CLAUDE_CODE_PLUGIN_DIRS`. lucid draws the reply itself, so a mod listed after it never sees the text.
+Draws mermaid sequence diagrams in the terminal in place of their code fence.
 
-## peek
+## [peek](plugins/peek/README.md)
 
-Claude Code shows images as text: `[Image #1]`, `Read image`, or a markdown link's alt text. peek draws a small thumbnail under each one, for images you paste, images Claude reads or writes, and local `![alt](path)` images in replies, with a `⤢ open` button that opens the file in Preview. `/peek <path>`, `/peek last` or the `⧉ clip` button on a dragged-in path puts the image on the clipboard, so ctrl+v attaches it.
+[![peek](docs/screens/peek.png)](plugins/peek/README.md)
 
-Pictures need Claude Code 2.1.305 or later, fullscreen rendering, and iTerm2, kitty or Ghostty outside tmux. Anywhere else each image is one line with the open button. It wraps other mods' rows, so it works alongside lucid and copy-that.
+Shows a thumbnail under each image in the transcript, with `⤢ open` for Preview and `/peek` to put an image on the clipboard.
