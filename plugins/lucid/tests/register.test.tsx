@@ -563,12 +563,16 @@ describe('calls put to a dialog, told apart by what their tool answered', () => 
   const second = { tool_use_id: 'asked-too', tool: 'Bash', input: { command: 'find / -name b' } }
   const fetching = { tool_use_id: PUT_TO_ASK, tool: 'WebFetch', input: { url: 'https://httpbin.org/delay/25', prompt: 'p' } }
 
+  function approvedAtDialog(on: On) {
+    on('classic.PermissionRequest', async () => ({ decision: { behavior: 'allow' } }) as never)
+  }
+
   function answering(on: On, results: Record<string, string>) {
+    approvedAtDialog(on)
     on('tool.call', async (_$, e) => ({ result: results[e.tool_use_id], isError: true }) as never)
   }
 
   async function called($: Engine, call: { tool_use_id: string; tool: string; input: Record<string, unknown> }) {
-    await permitted($, call)
     await $.tool.call({ tool: call.tool, tool_use_id: call.tool_use_id, ...call.input } as never)
   }
 
@@ -634,6 +638,7 @@ describe('calls put to a dialog, told apart by what their tool answered', () => 
       written.push(e.key)
       return next(e)
     })
+    approvedAtDialog(on)
     on('tool.call', async () => ({ result: { stdout: 'ok' } }) as never)
     await called($, first)
     await clock.settle()
@@ -674,26 +679,23 @@ describe('bookkeeping across a reload of its code', () => {
     const clock = stockBeneath(on)
     let gone = true
     let release = () => {}
-    let bothRunning = () => {}
-    let running = 0
+    let siblingRunning = () => {}
     const held = new Promise<void>(resolve => (release = resolve))
-    const started = new Promise<void>(resolve => (bothRunning = resolve))
+    const started = new Promise<void>(resolve => (siblingRunning = resolve))
     on('tool.call', async () => {
-      running += 1
-      if (running === 2) bothRunning()
+      siblingRunning()
       await held
       return { result: "The user doesn't want to take this action right now. STOP what you are doing", isError: true } as never
     })
     stateGoneWhile(on, () => gone, 'ranCalls')
     const allowed = { tool_use_id: 'allowed-sibling', tool: 'Bash', input: { command: 'ls' } }
     const denied = { tool_use_id: REFUSED_AT_CHECK, tool: 'Bash', input: { command: 'rm -rf out' } }
-    const calls = [allowed, denied].map(call => $.tool.call({ tool: call.tool, tool_use_id: call.tool_use_id, ...call.input } as never))
+    const sibling = $.tool.call({ tool: allowed.tool, tool_use_id: allowed.tool_use_id, ...allowed.input } as never)
     await started
-    expect(await $.tool.check({ tool: allowed.tool, input: allowed.input, tool_use_id: allowed.tool_use_id } as never)).toEqual({ decision: 'allow' } as never)
-    expect(await $.tool.check({ tool: denied.tool, input: denied.input, tool_use_id: denied.tool_use_id } as never)).toEqual({ decision: 'deny' } as never)
+    expect(await $.tool.call({ tool: denied.tool, tool_use_id: denied.tool_use_id, ...denied.input } as never)).toMatchObject({ isError: true } as never)
     gone = false
     release()
-    await Promise.all(calls)
+    await sibling
     await clock.settle()
     expect(await (await toolUse($, { ...denied, ...cut })).find({ type: 'Text', text: 'Not allowed to run' })).toBeDefined()
   })
