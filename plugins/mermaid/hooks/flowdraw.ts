@@ -218,6 +218,14 @@ function layout(flow: Flow, cap: number): Layout {
     path.push(b)
     routes.push({ edge, path })
   }
+  // a box is long enough along its sides to give each arriving edge and each leaving stroke a port
+  // of its own, two cells apart, so no two of them share a line
+  for (const v of vertices) {
+    if (!v.node) continue
+    const arriving = routes.filter(r => r.path.at(-1) === v).length
+    const strokes = new Set(routes.filter(r => r.path[0] === v).map(r => r.edge.stroke)).size
+    v.cross = Math.max(v.cross, 2 * Math.max(arriving, strokes) + 1)
+  }
   const top = Math.max(0, ...vertices.map(v => v.rank))
   const ranks: Vertex[][] = Array.from({ length: top + 1 }, () => [])
   for (const v of vertices) ranks[v.rank]!.push(v)
@@ -321,7 +329,8 @@ function drawNode(grid: Grid, v: Vertex, x: number, y: number, width: number, he
     grid.put(x + width - 1, y + k, middle ? sr : '│', 'frame')
     for (let i = 1; i < width - 1; i++) grid.put(x + i, y + k, ' ', 'name')
   }
-  v.lines.forEach((line, k) => grid.write(x + Math.floor((width - cellWidth(line)) / 2), y + 1 + k, line, 'name'))
+  const lift = Math.floor((height - 2 - v.lines.length) / 2)
+  v.lines.forEach((line, k) => grid.write(x + Math.floor((width - cellWidth(line)) / 2), y + 1 + lift + k, line, 'name'))
 }
 
 const HEADS = { up: '▲', down: '▼', left: '◀', right: '▶' } as const
@@ -386,8 +395,9 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const lo = v.at + 1
     const hi = v.at + v.cross - 2
     const at = list.map(route => Math.max(lo, Math.min(hi, list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route))))
-    for (let i = 1; i < at.length; i++) at[i] = Math.max(at[i]!, at[i - 1]! + 3)
-    for (let i = at.length - 1; i >= 0; i--) at[i] = Math.min(at[i]!, i === at.length - 1 ? hi : at[i + 1]! - 3)
+    const apart = across ? 2 : 3
+    for (let i = 1; i < at.length; i++) at[i] = Math.max(at[i]!, at[i - 1]! + apart)
+    for (let i = at.length - 1; i >= 0; i--) at[i] = Math.min(at[i]!, i === at.length - 1 ? hi : at[i + 1]! - apart)
     list.forEach((route, i) => landing.set(route, Math.max(lo, at[i]!)))
   }
   const crossAt = (route: Route, i: number) => (i === route.path.length - 1 ? landing.get(route)! : through(route, i))

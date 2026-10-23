@@ -123,6 +123,16 @@ describe('drawFlow left-right', () => {
     expect(lines[rowOf(lines, 'Start')]).toMatch(/Start ├─+▶│ Stop/)
   })
 
+  test('grows a box tall enough to give each stroke and each arrow a row of its own', async () => {
+    const { lines } = draw('flowchart LR\nE[Rate] --> F{Any?}\nE -.-> K[Side]\nK -.-> F')
+    const border = lines[rowOf(lines, 'Rate')]!.indexOf('Rate') + 'Rate'.length + 1
+
+    const edge = [...lines.find(line => line.includes('╱'))!].indexOf('╱')
+
+    expect(lines.filter(line => [...line][edge - 1] === '▶')).toHaveLength(2)
+    expect(lines.filter(line => [...line][border] === '├')).toHaveLength(2)
+  })
+
   test('writes an edge label above the line into its target', async () => {
     const { lines } = draw('flowchart LR\nA -->|go| B')
 
