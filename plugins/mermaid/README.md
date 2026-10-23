@@ -67,7 +67,7 @@ Claude often answers with a mermaid diagram, and the terminal shows it as a code
 
 ## Commands
 
-None. Diagrams draw as soon as a reply with a closed `mermaid` fence settles.
+None. A diagram draws as soon as its `mermaid` fence closes.
 
 ## Known limits
 
