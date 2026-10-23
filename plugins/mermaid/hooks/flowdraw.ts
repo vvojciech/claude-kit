@@ -352,7 +352,25 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const span = Math.max(1, v.cross - 2)
     list.forEach((route, i) => landing.set(route, list.length === 1 ? centre(v) : v.at + 1 + Math.round(((i + 1) * span) / (list.length + 1)) - (span > list.length ? 0 : 1)))
   }
-  const crossAt = (route: Route, i: number) => (i === route.path.length - 1 ? landing.get(route)! : centre(route.path[i]!))
+  // edges of one stroke fan out of a shared port at the middle; a dotted or thick edge from the same
+  // box leaves through a port of its own beside it, so its stroke shows from the border on
+  const leaving = new Map<Route, number>()
+  const outOf = new Map<Vertex, Route[]>()
+  for (const route of routes) if (route.path[0]!.node) outOf.set(route.path[0]!, [...(outOf.get(route.path[0]!) ?? []), route])
+  for (const [v, list] of outOf) {
+    // ports sit in the order of where their edges head, so two strokes never cross under the box
+    const toward = (stroke: Stroke) => {
+      const mine = list.filter(r => r.edge.stroke === stroke)
+      return mine.reduce((sum, r) => sum + centre(r.path[1]!), 0) / mine.length
+    }
+    const strokes = [...new Set(list.map(r => r.edge.stroke))].sort((a, b) => toward(a) - toward(b))
+    strokes.forEach((stroke, k) => {
+      const at = Math.max(v.at + 1, Math.min(v.at + v.cross - 2, centre(v) + 2 * k - (strokes.length - 1)))
+      for (const r of list) if (r.edge.stroke === stroke) leaving.set(r, at)
+    })
+  }
+  const crossAt = (route: Route, i: number) =>
+    i === route.path.length - 1 ? landing.get(route)! : i === 0 ? (leaving.get(route) ?? centre(route.path[0]!)) : centre(route.path[i]!)
   const placed: Placed[] = routes.map(route => ({ route, tracks: [] }))
   for (let c = 0; c < channels.length; c++) {
     const spans: Array<{ p: Placed; lo: number; hi: number; owner: string }> = []
@@ -362,7 +380,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       const a = crossAt(p.route, i)
       const b = crossAt(p.route, i + 1)
       if (a === b) continue
-      spans.push({ p, lo: Math.min(a, b), hi: Math.max(a, b), owner: p.route.path[i]!.key })
+      spans.push({ p, lo: Math.min(a, b), hi: Math.max(a, b), owner: `${p.route.path[i]!.key}:${i === 0 ? crossAt(p.route, 0) : ''}` })
     }
     // edges fanning out of one node share a track; others take the first track they don't overlap
     const used: Array<Array<{ lo: number; hi: number; owner: string }>> = []

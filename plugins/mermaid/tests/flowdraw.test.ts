@@ -83,6 +83,13 @@ describe('drawFlow top-down', () => {
     expect(last).toMatch(/^\s*└─+┘$/)
   })
 
+  test('gives a dotted edge its own port out of a box, apart from the solid fan-out', async () => {
+    const { lines } = draw('flowchart TD\nA[Rate the request] --> B\nA --> C\nA -.-> D')
+    const border = lines[2]!
+
+    expect([...border].filter(ch => ch === '┬')).toHaveLength(2)
+  })
+
   test('draws a dotted edge with dotted strokes and a thick one heavy', async () => {
     const { lines } = draw('flowchart TD\nA -.-> B\nB ==> C')
 
