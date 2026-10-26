@@ -128,7 +128,8 @@ function boxOf(node: FlowNode, cap: number, across: boolean): Pick<Vertex, 'line
   const lines = node.label.split('\n').flatMap(part => wrap(part, cap).lines).map(line => line.replace(/ /g, ' '))
   const text = Math.max(1, ...lines.map(cellWidth))
   const pad = node.shape === 'diamond' || node.shape === 'hexagon' || node.shape === 'circle' ? 3 : 2
-  const width = text + 2 * pad
+  // top-down, a box is an odd number of cells wide, so it has one middle column for its stems
+  const width = text + 2 * pad + (!across && (text + 2 * pad) % 2 === 0 ? 1 : 0)
   const height = lines.length + 2
   return { lines, main: across ? width : height, cross: across ? height : width }
 }
@@ -391,6 +392,19 @@ function layout(flow: Flow, cap: number): Layout {
         if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
       })
   }
+  // a parent of several children sits over the middle of their span when its neighbours leave room,
+  // so its fan-out bar is even on both sides
+  for (const list of [...ranks].reverse())
+    list.forEach((v, i) => {
+      const kids = downs.get(v) ?? []
+      // a parent starting a long edge stays over it, so the long edge keeps running straight
+      if (!v.node || kids.length < 2 || kids.some(k => !k.node)) return
+      const middle = (Math.min(...kids.map(centre)) + Math.max(...kids.map(centre))) / 2
+      const want = Math.round(middle) - Math.floor(v.cross / 2)
+      const left = list[i - 1]
+      const right = list[i + 1]
+      if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
+    })
   // a box outside a subgraph that sits within the span of the subgraph's frame moves past it, along
   // with the boxes beyond it in its rank, so the frame never takes it in
   for (const group of flow.groups) {
@@ -510,6 +524,15 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       for (const r of list) if (r.edge.stroke === stroke) leaving.set(r, Math.max(v.at + 1, Math.min(v.at + v.cross - 2, at)))
     }
     place(main, centre(v))
+    // a short edge fanning out beside a long one leaves through its own port, toward where it heads,
+    // so the long edge's line never doubles as the short one's way out
+    const long = list.filter(r => r.edge.stroke === main && r.path.length > 2)
+    const short = list.filter(r => r.edge.stroke === main && r.path.length === 2)
+    if (long.length > 0 && short.length > 0) {
+      const side = short.reduce((sum, r) => sum + centre(r.path[1]!), 0) / short.length < centre(v) ? -1 : 1
+      const at = Math.max(v.at + 1, Math.min(v.at + v.cross - 2, centre(v) + side * Math.max(2, Math.floor(v.cross / 4))))
+      for (const r of short) leaving.set(r, at)
+    }
     lefts.forEach((stroke, k) => place(stroke, centre(v) - step * (k + 1)))
     rights.forEach((stroke, k) => place(stroke, centre(v) + step * (k + 1)))
   }
@@ -836,7 +859,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     if (members.length === 0) continue
     // a cell of edge runs between a frame and the boxes it holds, so a head lands inside the frame
     const lo = Math.min(...members.map(v => bandStart[v.rank]!)) - 3
-    const hi = Math.max(...members.map(v => bandStart[v.rank]! + bandSize[v.rank]!)) + 1
+    const hi = Math.max(...members.map(v => bandStart[v.rank]! + bandSize[v.rank]!)) + 2
     const near = Math.min(...members.map(v => v.at)) - 2
     const title = ` ${group.label} `
     // top-down, the frame is at least wide enough for its title

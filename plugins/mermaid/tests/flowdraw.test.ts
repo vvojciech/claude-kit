@@ -16,7 +16,7 @@ describe('drawFlow top-down', () => {
   test('stacks a box over the box it points to, joined by a line ending in ▼', async () => {
     const { lines } = draw('flowchart TD\nA[Start] --> B[Stop]')
 
-    expect(lines).toEqual(['┌───────┐', '│ Start │', '└───┬───┘', '    │', '    ▼', '┌──────┐', '│ Stop │', '└──────┘'])
+    expect(lines).toEqual(['┌───────┐', '│ Start │', '└───┬───┘', '    │', '    ▼', '┌───────┐', '│ Stop  │', '└───────┘'])
   })
 
   test('sets siblings side by side under their parent, the lines joining on one rail', async () => {
@@ -216,7 +216,8 @@ describe('drawFlow declared order', () => {
     const twilio = rowOf(lines, 'Twilio')
     const nearest = (row: number, glyph: string, name: string) =>
       [...lines[row]!].flatMap((ch, i) => (ch === glyph ? [i] : [])).sort((a, b) => Math.abs(a - colOf(lines, name)) - Math.abs(b - colOf(lines, name)))[0]
-    const flexorStem = [...lines[rowOf(lines, 'Flexor') + 1]!].indexOf('┬')
+    const flexor = colOf(lines, 'Flexor')
+    const flexorStem = Math.max(...[...lines[rowOf(lines, 'Flexor') + 1]!].flatMap((ch, i) => (ch === '┬' && Math.abs(i - flexor - 3) < 6 ? [i] : [])))
 
     const heads = [...lines[twilio - 2]!].flatMap((ch, i) => (ch === '▼' ? [i] : []))
 
@@ -232,6 +233,32 @@ describe('drawFlow declared order', () => {
     const middle = colOf(lines, 'Renewal offer') + 'Renewal offer'.length / 2
 
     expect(Math.abs(head - middle)).toBeLessThanOrEqual(2)
+  })
+
+  test('draws top-down boxes an odd number of cells wide, so stems and heads sit on the exact middle', async () => {
+    const { lines } = draw('flowchart TD\nA[Draft] --> B[Review]')
+    for (const row of [0, rowOf(lines, 'Review') - 1]) {
+      const top = [...lines[row]!]
+      expect((top.lastIndexOf('┐') - top.indexOf('┌')) % 2).toBe(0)
+    }
+    const top = [...lines[0]!]
+    expect([...lines[2]!].indexOf('┬')).toBe((top.indexOf('┌') + top.lastIndexOf('┐')) / 2)
+  })
+
+  test('centres a parent over the span of its children', async () => {
+    const { lines } = draw('graph TD\nA[Chopin] --> Q[Quid]\nA --> O[OKaaS]\nA --> C[CMAS]\nQ --> R[Rater]\nQ --> E[Earnix]\nO --> F[Flexor]\nC --> G[account-api-gw]', 117)
+    for (const [parent, bar] of [['Chopin', 4], ['Quid', rowOf(lines, 'Quid') + 3]] as const) {
+      const stem = [...lines[rowOf(lines, parent) + 1]!].indexOf('┬')
+      const bus = [...lines[bar]!]
+      const ends = bus.flatMap((ch, i) => ('┌┐'.includes(ch) ? [i] : [])).filter(i => Math.abs(i - stem) < 30)
+      expect(Math.abs(stem - (Math.min(...ends) + Math.max(...ends)) / 2)).toBeLessThanOrEqual(1)
+    }
+  })
+
+  test('sends a short edge out of its own port when the box also starts a long edge', async () => {
+    const { lines } = draw('flowchart TD\nF[Flexor] --> I[Idiophone]\nF --> T[Twilio]\nI --> T')
+
+    expect([...lines[2]!].filter(ch => ch === '┬')).toHaveLength(2)
   })
 
   test('keeps a decision\'s branches in declared order', async () => {
