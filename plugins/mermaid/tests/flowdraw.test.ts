@@ -247,7 +247,8 @@ describe('drawFlow declared order', () => {
 
   test('centres a parent over the span of its children', async () => {
     const { lines } = draw('graph TD\nA[Chopin] --> Q[Quid]\nA --> O[OKaaS]\nA --> C[CMAS]\nQ --> R[Rater]\nQ --> E[Earnix]\nO --> F[Flexor]\nC --> G[account-api-gw]', 117)
-    for (const [parent, bar] of [['Chopin', 4], ['Quid', rowOf(lines, 'Quid') + 3]] as const) {
+    expect(lines[4]).toMatch(/┼/)
+    for (const [parent, bar] of [['Quid', rowOf(lines, 'Quid') + 3]] as const) {
       const stem = [...lines[rowOf(lines, parent) + 1]!].indexOf('┬')
       const bus = [...lines[bar]!]
       const ends = bus.flatMap((ch, i) => ('┌┐'.includes(ch) ? [i] : [])).filter(i => Math.abs(i - stem) < 30)

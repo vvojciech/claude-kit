@@ -402,7 +402,9 @@ function layout(flow: Flow, cap: number): Layout {
       const kids = downs.get(v) ?? []
       // a parent starting a long edge stays over it, so the long edge keeps running straight
       if (!v.node || kids.length < 2 || kids.some(k => !k.node)) return
-      const middle = (Math.min(...kids.map(centre)) + Math.max(...kids.map(centre))) / 2
+      // with an odd number of children it sits over the middle one, whose edge then runs straight
+      const sorted = [...kids].sort((a, b) => centre(a) - centre(b))
+      const middle = kids.length % 2 === 1 ? centre(sorted[(kids.length - 1) / 2]!) : (centre(sorted[0]!) + centre(sorted.at(-1)!)) / 2
       const want = Math.round(middle) - Math.floor(v.cross / 2)
       const left = list[i - 1]
       const right = list[i + 1]
