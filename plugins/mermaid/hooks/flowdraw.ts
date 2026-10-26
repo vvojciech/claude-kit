@@ -267,9 +267,10 @@ function layout(flow: Flow, cap: number): Layout {
     const strokes = new Set(routes.filter(r => r.path[0] === v).map(r => r.edge.stroke)).size
     v.cross = Math.max(v.cross, 2 * Math.max(arriving, strokes) + 1)
   }
-  // each loop leaving or entering a box gets a row of its own on the box's outer side
+  // each loop leaving a box gets a row of its own on the box's outer side; loops coming into one
+  // box share a row and a head, joined like any other merge
   for (const v of vertices) {
-    const n = loops.filter(loop => loop.from === v || loop.to === v).length
+    const n = loops.filter(loop => loop.from === v).length + (loops.some(loop => loop.to === v) ? 1 : 0)
     if (n > 1) v.main = Math.max(v.main, 2 * n + 1)
   }
   const top = Math.max(0, ...vertices.map(v => v.rank))
@@ -581,10 +582,11 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   }
   // loops nest outside the chart, the shortest innermost, each on a lane of its own
   loops.sort((a, b) => Math.abs(a.from.rank - a.to.rank) - Math.abs(b.from.rank - b.to.rank))
-  // top-down, a labelled loop's lane leaves room after it for its label, so the label sits by its own line
-  const after = (k: number) => (across ? 0 : Math.max(0, ...labelOf(loops[k]!.edge).map(w => cellWidth(w) + 1)))
-  const laneAt = (k: number) => crossTotal + 1 + 2 * k + loops.slice(0, k).reduce((sum, _, i) => sum + after(i), 0)
-  const loopRoom = loops.length === 0 ? 0 : laneAt(loops.length - 1) - crossTotal + 1 + after(loops.length - 1)
+  // top-down, a labelled loop's lane stands far enough out for its label to sit on the run leaving
+  // its source, short of the lane, where it can only belong to that loop
+  const before = (k: number) => (across ? 0 : Math.max(0, ...labelOf(loops[k]!.edge).map(w => cellWidth(w) + 2)))
+  const laneAt = (k: number) => crossTotal + 1 + 2 * k + loops.slice(0, k + 1).reduce((sum, _, i) => sum + before(i), 0)
+  const loopRoom = loops.length === 0 ? 0 : laneAt(loops.length - 1) - crossTotal + 1
   const total = across ? mainTotal : crossTotal + loopRoom
   if (total > width || (across && crossTotal + loopRoom > 400)) return undefined
 
@@ -653,16 +655,19 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   }
   // a loop leaves its source through the side facing out, runs up its lane and comes into its
   // target's same side: right of a top-down chart, under a left-right one
-  const slots = new Map<Vertex, Loop[]>()
-  for (const loop of loops) for (const v of [loop.from, loop.to]) slots.set(v, [...(slots.get(v) ?? []), loop])
-  // an outer loop arrives above an inner one and leaves below it, so their runs never cross
-  for (const [v, list] of slots) list.sort((x, y) => (x.to === v ? -1000 - loops.indexOf(x) : loops.indexOf(x)) - (y.to === v ? -1000 - loops.indexOf(y) : loops.indexOf(y)))
+  // a box's loop rows: the shared way in on top, then each way out, the inner loop first
+  const slots = new Map<Vertex, Array<Loop | 'in'>>()
+  for (const loop of loops) {
+    if (!slots.has(loop.to)) slots.set(loop.to, [])
+    if (!slots.get(loop.to)!.includes('in')) slots.get(loop.to)!.unshift('in')
+    slots.set(loop.from, [...(slots.get(loop.from) ?? []), loop])
+  }
   loops.forEach((loop, k) => {
     const lane = laneAt(k)
     // loops on one box spread along its side, so no two share an arrow or a stub
     const row = (v: Vertex) => {
       const list = slots.get(v)!
-      const i = list.indexOf(loop) + (loop.from === v && loop.to === v ? 1 : 0)
+      const i = list.indexOf(loop.to === v ? 'in' : loop)
       const start = bandStart[v.rank]! + (reversed ? bandSize[v.rank]! - v.main : 0)
       return list.length === 1 ? start + Math.floor(v.main / 2) : start + Math.round(((i + 1) * (v.main - 1)) / (list.length + 1))
     }
@@ -694,7 +699,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
         k: across ? side(loop.from) + lines.length : side(loop.from) - 1,
         lines,
         // top-down, it moves right of its lane when the run is too short to hold it
-        spots: across ? undefined : [[a - 1, side(loop.from) + 1], [Math.round((a + b) / 2) - Math.floor(lines.length / 2), lane + 2]],
+        spots: across ? undefined : [[a - lines.length, side(loop.from) + 1], [Math.round((a + b) / 2) - Math.floor(lines.length / 2), lane + 2]],
       })
   })
   // each subgraph is framed round its members, unless a box outside it would land inside the frame

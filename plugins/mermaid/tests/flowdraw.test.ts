@@ -149,9 +149,12 @@ describe('drawFlow labels and cycles', () => {
     const td = draw(source, 120).lines
     const draft = td.slice(0, rowOf(td, 'Review'))
 
-    expect(td.join('\n')).toContain('changes')
-    expect(draft.filter(line => line.includes('◀'))).toHaveLength(2)
-    expect(draft.some(line => line.includes('┼'))).toBe(false)
+    const review = td[rowOf(td, 'Review')]!
+    const lane = review.indexOf('┘')
+
+    expect(draft.filter(line => line.includes('◀'))).toHaveLength(1)
+    expect(td.findIndex(line => line.includes('└'))).toBe(2)
+    expect(td.slice(0, rowOf(td, 'Review')).filter(line => /changes|requested/.test(line)).every(line => line.search(/changes|requested/) < lane)).toBe(true)
     expect(draw(source.replace('TD', 'LR'), 160).drawn).toBeDefined()
   })
 })
