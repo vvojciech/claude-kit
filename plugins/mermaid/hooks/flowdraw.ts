@@ -556,7 +556,8 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const inset = v.node!.shape === 'diamond' || v.node!.shape === 'hexagon' ? (across ? 1 : 2) : 1
     const lo = v.at + inset
     const hi = v.at + v.cross - 1 - inset
-    const apart = across ? 2 : 3
+    // separate heads into one box sit five cells apart top-down, so neither reads as part of the other
+    const apart = across ? 2 : Math.min(5, Math.max(3, Math.floor((hi - lo) / Math.max(1, list.length - 1))))
     if (across && (v.node!.shape === 'diamond' || v.node!.shape === 'hexagon')) {
       const ranked = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(from(a) - centre(v)) - Math.abs(from(b) - centre(v)))
       ranked.forEach((route, i) => {
@@ -571,8 +572,12 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     }
     // a bus lands where one of its edges already runs straight in near the box's middle, so that edge
     // never steps aside; with none that close it lands mid-box
+    // a long edge keeps out of a bus: it lands on its own straight line with its own head, so its
+    // line never doubles as another edge's way in
+    const isLong = (route: Route) => route.path.length > 2
     const bus = (route: Route) => {
-      const mine = list.filter(r => r.edge.stroke === route.edge.stroke)
+      if (isLong(route)) return undefined
+      const mine = list.filter(r => r.edge.stroke === route.edge.stroke && !isLong(r))
       if (mine.length < 2) return undefined
       const straight = mine.map(from).filter(at => Math.abs(at - centre(v)) <= 2).sort((a, b) => Math.abs(a - centre(v)) - Math.abs(b - centre(v)))
       return straight[0] ?? centre(v)
@@ -584,7 +589,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     for (const route of first) {
       // edges of one stroke join on one bus into the box and share its head, which sits mid-box
       // when more than one of them comes in
-      const shared = joined.get(route.edge.stroke)
+      const shared = isLong(route) ? undefined : joined.get(route.edge.stroke)
       if (shared !== undefined) {
         landing.set(route, shared)
         continue
@@ -596,8 +601,17 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
         if (free(want(route) + toward * d)) at = want(route) + toward * d
         else if (free(want(route) - toward * d)) at = want(route) - toward * d
       }
+      // with no spot far enough from the others, it takes the one furthest from them on the side its
+      // line comes from, so it never crosses another head's line
+      if (!free(at) && taken.length > 0) {
+        const room = (x: number) => Math.min(...taken.map(t => Math.abs(t - x)))
+        const near = Math.min(...taken.map(t => Math.abs(t - from(route))))
+        const own = taken.find(t => Math.abs(t - from(route)) === near)!
+        const side = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).filter(x => x !== own && Math.sign(x - own) === Math.sign(from(route) - own))
+        at = side.reduce((best, x) => (room(x) > room(best) ? x : best), side[0] ?? at)
+      }
       taken.push(at)
-      joined.set(route.edge.stroke, at)
+      if (!isLong(route)) joined.set(route.edge.stroke, at)
       landing.set(route, at)
     }
   }
