@@ -296,6 +296,13 @@ describe('drawFlow subgraphs', () => {
     expect(lines.join('\n')).not.toMatch(/[▼▲]/)
   })
 
+  test('ends an arrow into a framed box inside the frame, with a cell between frame and head', async () => {
+    const { lines } = draw('flowchart LR\nA[Before] --> L\nsubgraph G [Group]\nL[Lead] --> M[More]\nend', 120)
+    const row = lines[rowOf(lines, 'Lead')]!
+
+    expect(row).toMatch(/┼─+▶│ Lead/)
+  })
+
   test('keeps the members of a subgraph side by side in a rank', async () => {
     const { lines } = draw('flowchart TD\nR --> A & X & B\nsubgraph G [Group]\nA\nB\nend')
     const row = lines[rowOf(lines, ' A ')]!

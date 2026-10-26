@@ -820,7 +820,8 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   for (const group of flow.groups) {
     const members = plan.vertices.filter(v => v.node?.group === group.id)
     if (members.length === 0) continue
-    const lo = Math.min(...members.map(v => bandStart[v.rank]!)) - 2
+    // a cell of edge runs between a frame and the boxes it holds, so a head lands inside the frame
+    const lo = Math.min(...members.map(v => bandStart[v.rank]!)) - 3
     const hi = Math.max(...members.map(v => bandStart[v.rank]! + bandSize[v.rank]!)) + 1
     const near = Math.min(...members.map(v => v.at)) - 2
     const title = ` ${group.label} `
