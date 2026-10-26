@@ -166,6 +166,15 @@ describe('drawFlow cycles', () => {
   })
 })
 
+describe('drawFlow ordering', () => {
+  test('keeps siblings beside each other when that saves a crossing', async () => {
+    const { lines } = draw('graph TD\nA[Chopin] --> Q[Quid]\nA --> O[OKaaS]\nA --> C[CMAS]\nQ --> R[Rater]\nQ --> E[Earnix]\nO --> F[Flexor]\nF --> I[Idiophone]\nF --> T[Twilio]\nI --> T\nC --> G[Gateway]\nG --> P[PIMMS]')
+    const row = lines[rowOf(lines, 'Rater')]!
+
+    expect(row.indexOf('Earnix')).toBeLessThan(row.indexOf('Flexor'))
+  })
+})
+
 describe('drawFlow left-right', () => {
   test('sets the target to the right of its source with ▶ on the line between', async () => {
     const { lines } = draw('flowchart LR\nA[Start] --> B[Stop]')

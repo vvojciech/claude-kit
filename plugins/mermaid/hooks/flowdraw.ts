@@ -270,7 +270,18 @@ function layout(flow: Flow, cap: number): Layout {
   ranks.forEach(list => list.forEach((v, i) => (v.order = i)))
   // barycentre sweeps cut crossings; ties keep the order the source gave
   const mean = (list: Vertex[] | undefined) => (list && list.length > 0 ? list.reduce((s, v) => s + v.order, 0) / list.length : undefined)
-  for (let sweep = 0; sweep < 8; sweep++) {
+  // every sweep is scored by the crossings it leaves, and the best order seen is the one kept
+  const crossings = () => {
+    let count = 0
+    for (const list of ranks) {
+      const pairs = list.flatMap(u => (downs.get(u) ?? []).map(v => [u.order, v.order] as const))
+      for (let i = 0; i < pairs.length; i++)
+        for (let j = i + 1; j < pairs.length; j++) if ((pairs[i]![0] - pairs[j]![0]) * (pairs[i]![1] - pairs[j]![1]) < 0) count++
+    }
+    return count
+  }
+  let best = { count: crossings(), order: vertices.map(v => v.order) }
+  for (let sweep = 0; sweep < 16; sweep++) {
     const down = sweep % 2 === 0
     const order = down ? ranks.slice(1) : ranks.slice(0, -1).reverse()
     for (const list of order) {
@@ -279,7 +290,11 @@ function layout(flow: Flow, cap: number): Layout {
       keyed.forEach(({ v }, i) => (v.order = i))
       list.sort((a, b) => a.order - b.order)
     }
+    const count = crossings()
+    if (count < best.count) best = { count, order: vertices.map(v => v.order) }
   }
+  vertices.forEach((v, i) => (v.order = best.order[i]!))
+  for (const list of ranks) list.sort((a, b) => a.order - b.order)
   // a box a loop leaves or enters goes last in its rank, on the side the loop's lane runs, so the
   // loop never runs through a neighbour
   const looped = new Set(loops.flatMap(loop => [loop.from, loop.to]))
