@@ -35,6 +35,12 @@ describe('drawFlow top-down', () => {
     expect([...columns]).toHaveLength(1)
   })
 
+  test('never lands two heads side by side on a decision a long edge runs into', async () => {
+    const { lines } = draw('flowchart TD\n    A[Customer submits REQ] --> B{Trade supported?}\n    B -->|no| C[Decline]\n    B -->|yes| D[Enrich risk profile]\n    D --> E[Rate with Tarif]\n    E --> F{Any quotes?}\n    F -->|none| G[PL limit fallback]\n    G --> E\n    F -->|some| H[Apply filter overrides]\n    H --> I[(Persist offerset)]\n    I --> J([Show QCP])\n    E -.-> K[Oracle overlay]\n    K -.-> F', 117)
+
+    expect(lines.some(line => /▼▼/.test(line))).toBe(false)
+  })
+
   test('keeps a long edge straight and lets the short detour bend round it', async () => {
     const { lines } = draw('flowchart TD\nE[Rate the request] --> F{Any quotes?}\nE -.-> K[Side check]\nK -.-> F')
     const leaves = [...lines[rowOf(lines, 'Rate the request') + 1]!].lastIndexOf('┬')
@@ -42,6 +48,7 @@ describe('drawFlow top-down', () => {
     const above = lines.slice(rowOf(lines, 'Rate the request') + 2, lands - 1)
 
     expect(above.every(line => '│▼'.includes([...line][leaves] ?? ''))).toBe(true)
+    expect(lines[lands - 1]).not.toMatch(/▼▼/)
   })
 
   test('writes an edge label beside the line into its target', async () => {
@@ -223,6 +230,8 @@ describe('drawFlow declared order', () => {
 
     expect(heads).toContain(flexorStem)
     expect(heads).toHaveLength(2)
+    expect(heads[0]).toBeLessThan(flexorStem)
+    expect(lines.slice(rowOf(lines, 'Idiophone'), twilio).some(line => line.includes('┼'))).toBe(false)
     expect(nearest(rowOf(lines, 'OKaaS') + 1, '┬', 'OKaaS')).toBe(nearest(rowOf(lines, 'Flexor') - 2, '▼', 'Flexor'))
   })
 

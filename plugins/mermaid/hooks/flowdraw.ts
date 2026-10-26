@@ -407,8 +407,9 @@ function layout(flow: Flow, cap: number): Layout {
         // a dotted side edge doesn't pull a box off its main line: it centres over its solid children
         const all = downs.get(v) ?? []
         const kids = (solid.get(v)?.length ?? 0) > 0 && all.length > 1 ? solid.get(v)! : all
-        // a parent starting a long edge stays over it, so the long edge keeps running straight
-        if (!v.node || all.length < 2 || kids.some(k => !k.node)) return
+        // a parent starting a long edge, or one a long edge comes into, stays on it, so the long
+        // edge keeps running straight
+        if (!v.node || all.length < 2 || kids.some(k => !k.node) || (ups.get(v) ?? []).some(u => !u.node)) return
         if (kids.length === 1) {
           v.at = centre(kids[0]!) - Math.floor(v.cross / 2)
           for (let k = i + 1; k < list.length; k++) list[k]!.at = Math.max(list[k]!.at, list[k - 1]!.at + list[k - 1]!.cross + gap)
@@ -642,20 +643,17 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
         continue
       }
       const free = (at: number) => at >= lo && at <= hi && taken.every(t => Math.abs(t - at) >= apart)
-      let at = want(route)
-      for (let d = 0; !free(at) && d <= v.cross; d++) {
-        const toward = from(route) >= want(route) ? 1 : -1
-        if (free(want(route) + toward * d)) at = want(route) + toward * d
-        else if (free(want(route) - toward * d)) at = want(route) - toward * d
-      }
-      // with no spot far enough from the others, it takes the one furthest from them on the side its
-      // line comes from, so it never crosses another head's line
-      if (!free(at) && taken.length > 0) {
-        const room = (x: number) => Math.min(...taken.map(t => Math.abs(t - x)))
-        const near = Math.min(...taken.map(t => Math.abs(t - from(route))))
-        const own = taken.find(t => Math.abs(t - from(route)) === near)!
-        const side = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).filter(x => x !== own && Math.sign(x - own) === Math.sign(from(route) - own))
-        at = side.reduce((best, x) => (room(x) > room(best) ? x : best), side[0] ?? at)
+      // it only looks on the side of the heads already placed that its line comes from, so it never
+      // crosses another head's line; with no spot there far enough off, it takes the furthest one
+      const near = taken.length === 0 ? undefined : taken.reduce((a, t) => (Math.abs(t - from(route)) < Math.abs(a - from(route)) ? t : a))
+      const onSide = (x: number) => near === undefined || from(route) === near || (x !== near && Math.sign(x - near) === Math.sign(from(route) - near))
+      const spots = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).filter(onSide)
+      const room = (x: number) => (taken.length === 0 ? Infinity : Math.min(...taken.map(t => Math.abs(t - x))))
+      let at = spots.filter(free).sort((x, y) => Math.abs(x - want(route)) - Math.abs(y - want(route)))[0] ?? spots.reduce((best, x) => (room(x) > room(best) ? x : best), spots[0] ?? want(route))
+      // heads side by side read as one; past the other head is better than that
+      if (room(at) < 2) {
+        const all = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
+        at = all.filter(free).sort((x, y) => Math.abs(x - want(route)) - Math.abs(y - want(route)))[0] ?? all.reduce((best, x) => (room(x) > room(best) ? x : best), at)
       }
       taken.push(at)
       if (!isLong(route)) joined.set(route.edge.stroke, at)
