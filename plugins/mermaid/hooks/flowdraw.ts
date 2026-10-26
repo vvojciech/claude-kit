@@ -368,7 +368,17 @@ function layout(flow: Flow, cap: number): Layout {
   // an only child sits straight under an only-child parent whenever its neighbours leave room, so
   // a chain runs down one column instead of jogging by a cell at each step
   const only = (v: Vertex, near: Map<Vertex, Vertex[]>) => (near.get(v)?.length === 1 ? near.get(v)![0] : undefined)
-  for (let pass = 0; pass < 2; pass++)
+  for (let pass = 0; pass < 2; pass++) {
+    // a parent with one child that couldn't move under it moves over the child instead
+    for (const list of [...ranks].reverse())
+      list.forEach((v, i) => {
+        const d = only(v, downs)
+        if (!v.node || !d || only(d, ups) !== v || centre(d) === centre(v)) return
+        const want = centre(d) - Math.floor(v.cross / 2)
+        const left = list[i - 1]
+        const right = list[i + 1]
+        if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
+      })
     for (const list of ranks)
       list.forEach((v, i) => {
         // a box also lines up under a long edge coming into it, which then never steps aside
@@ -380,6 +390,7 @@ function layout(flow: Flow, cap: number): Layout {
         const right = list[i + 1]
         if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
       })
+  }
   // a box outside a subgraph that sits within the span of the subgraph's frame moves past it, along
   // with the boxes beyond it in its rank, so the frame never takes it in
   for (const group of flow.groups) {
@@ -558,8 +569,15 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       })
       continue
     }
-    const many = (route: Route) => list.filter(r => r.edge.stroke === route.edge.stroke).length > 1
-    const want = (route: Route) => Math.max(lo, Math.min(hi, (list.length === 1 && route.path.at(-2)!.node) || many(route) ? centre(v) : from(route)))
+    // a bus lands where one of its edges already runs straight into the box, the one nearest the
+    // middle, so that edge never steps aside; with none over the box it lands mid-box
+    const bus = (route: Route) => {
+      const mine = list.filter(r => r.edge.stroke === route.edge.stroke)
+      if (mine.length < 2) return undefined
+      const straight = mine.map(from).filter(at => at >= lo && at <= hi).sort((a, b) => Math.abs(a - centre(v)) - Math.abs(b - centre(v)))
+      return straight[0] ?? centre(v)
+    }
+    const want = (route: Route) => Math.max(lo, Math.min(hi, bus(route) ?? (list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route))))
     const first = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(want(a) - from(a)) - Math.abs(want(b) - from(b)))
     const taken: number[] = []
     const joined = new Map<Stroke, number>()

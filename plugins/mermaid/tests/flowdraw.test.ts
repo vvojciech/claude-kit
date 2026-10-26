@@ -210,6 +210,18 @@ describe('drawFlow declared order', () => {
     expect(lines[draft]).toMatch(/▶│ Draft │◀/)
   })
 
+  test('lands a bus on the column of the edge already running straight in, and sets a lone parent over its only child', async () => {
+    const source = 'graph TD\nA[Chopin] --> Q[Quid]\nA --> O[OKaaS]\nA --> C[CMAS]\nQ --> R[Rater]\nQ --> E[Earnix]\nO --> F[Flexor]\nF --> I[Idiophone]\nF --> T[Twilio]\nI --> T\nC --> G[account-api-gw]\nG --> P[PIMMS]'
+    const { lines } = draw(source, 117)
+    const twilio = rowOf(lines, 'Twilio')
+    const nearest = (row: number, glyph: string, name: string) =>
+      [...lines[row]!].flatMap((ch, i) => (ch === glyph ? [i] : [])).sort((a, b) => Math.abs(a - colOf(lines, name)) - Math.abs(b - colOf(lines, name)))[0]
+    const flexorStem = [...lines[rowOf(lines, 'Flexor') + 1]!].indexOf('┬')
+
+    expect([...lines[twilio - 2]!].indexOf('▼')).toBe(flexorStem)
+    expect(nearest(rowOf(lines, 'OKaaS') + 1, '┬', 'OKaaS')).toBe(nearest(rowOf(lines, 'Flexor') - 2, '▼', 'Flexor'))
+  })
+
   test('keeps a decision\'s branches in declared order', async () => {
     const { lines } = draw('flowchart TD\nA[Start] --> F{Any?}\nF -->|none| G[Fallback]\nG --> A\nF -->|some| H[Apply]')
     const row = lines[rowOf(lines, 'Fallback')]!
