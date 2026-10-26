@@ -401,6 +401,7 @@ const CORNERS: Record<Shape, Corners> = {
   hexagon: ['╱', '╲', '╲', '╱', '<', '>'],
   database: ['╒', '╕', '╘', '╛', '│', '│'],
   flag: ['┌', '┐', '└', '┘', '>', '│'],
+  subroutine: ['╓', '╖', '╙', '╜', '║', '║'],
 }
 
 function drawNode(grid: Grid, v: Vertex, x: number, y: number, width: number, height: number) {
@@ -648,6 +649,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const [bx, by] = xy(bandStart[first.rank]! + first.main - 1, crossAt(route, 0))
     const border = grid.cells[by]?.[bx]
     if (border?.char === '═') border.char = reversed ? '╧' : '╤'
+    else if (border?.char === '║') border.char = reversed ? '╢' : '╟'
     else if (border?.char === '─' || border?.char === '│') border.char = across ? (reversed ? '┤' : '├') : reversed ? '┴' : '┬'
     const landingAt = crossAt(route, path.length - 1)
     if (route.edge.head && !ontoTop.has(route)) head(bandStart[last.rank]! - 1, landingAt, true)

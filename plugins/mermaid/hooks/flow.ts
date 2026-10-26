@@ -3,7 +3,7 @@
 // a problem so the caller can show the source instead of a wrong drawing.
 
 export type Direction = 'TD' | 'LR' | 'BT' | 'RL'
-export type Shape = 'box' | 'round' | 'stadium' | 'diamond' | 'circle' | 'database' | 'hexagon' | 'flag'
+export type Shape = 'box' | 'round' | 'stadium' | 'diamond' | 'circle' | 'database' | 'hexagon' | 'flag' | 'subroutine'
 export type FlowNode = { id: string; label: string; shape: Shape; group?: string }
 export type Stroke = 'solid' | 'dotted' | 'thick' | 'invisible'
 export type FlowEdge = { from: string; to: string; label: string; stroke: Stroke; head: boolean; tail: boolean }
@@ -19,7 +19,7 @@ const SHAPES: Array<[string, string, Shape]> = [
   ['((', '))', 'circle'],
   ['([', '])', 'stadium'],
   ['[(', ')]', 'database'],
-  ['[[', ']]', 'box'],
+  ['[[', ']]', 'subroutine'],
   ['{{', '}}', 'hexagon'],
   ['[/', '/]', 'box'],
   ['[\\', '\\]', 'box'],

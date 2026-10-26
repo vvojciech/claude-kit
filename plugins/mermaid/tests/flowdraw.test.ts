@@ -60,6 +60,13 @@ describe('drawFlow top-down', () => {
     expect(lines[1]).toMatch(/^< +Ok\? +>$/)
   })
 
+  test('draws a subroutine with doubled sides', async () => {
+    const { lines } = draw('flowchart TD\nA[[Call it]]')
+
+    expect(lines).toEqual(['╓─────────╖', '║ Call it ║', '╙─────────╜'])
+    expect(draw('flowchart LR\nA[[Call it]] --> B').lines[1]).toMatch(/║ Call it ╟─+▶/)
+  })
+
   test('draws a database with doubled top and bottom borders', async () => {
     const { lines } = draw('flowchart TD\nA[(Store)] --> B')
 

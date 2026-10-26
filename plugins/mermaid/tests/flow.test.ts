@@ -20,7 +20,7 @@ describe('parseFlow', () => {
   })
 
   test('reads node shapes and labels', async () => {
-    const { nodes } = parseFlow('flowchart TD\nA[Start] --> B{Is it?}\nB --> C(Round)\nC --> D([Stadium])\nD --> E[(Store)]\nE --> F((Hub))\nF --> G{{Prep}}')
+    const { nodes } = parseFlow('flowchart TD\nA[Start] --> B{Is it?}\nB --> C(Round)\nC --> D([Stadium])\nD --> E[(Store)]\nE --> F((Hub))\nF --> G{{Prep}}\nG --> H[[Call]]')
 
     expect(nodes.map(n => [n.id, n.label, n.shape])).toEqual([
       ['A', 'Start', 'box'],
@@ -30,6 +30,7 @@ describe('parseFlow', () => {
       ['E', 'Store', 'database'],
       ['F', 'Hub', 'circle'],
       ['G', 'Prep', 'hexagon'],
+      ['H', 'Call', 'subroutine'],
     ])
   })
 
