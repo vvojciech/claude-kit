@@ -255,6 +255,15 @@ describe('drawFlow declared order', () => {
     }
   })
 
+  test('keeps a lone parent over a child that was centred over its own children', async () => {
+    const { lines } = draw('flowchart TD\n    A[Customer submits REQ] --> B{Trade supported?}\n    B -->|no| C[Decline]\n    B -->|yes| D[Enrich risk profile]\n    D --> E[Rate with Tarif]\n    E --> F{Any quotes?}\n    F -->|none| G[PL limit fallback]\n    G --> E\n    F -->|some| H[Apply filter overrides]\n    H --> I[(Persist offerset)]\n    I --> J([Show QCP])\n    E -.-> K[Oracle overlay]\n    K -.-> F', 117)
+    const stem = [...lines[2]!].indexOf('┬')
+    const head = [...lines[rowOf(lines, 'Trade supported') - 2]!].indexOf('▼')
+
+    expect(head).toBe(stem)
+    expect(lines.slice(3, rowOf(lines, 'Trade supported') - 2).every(line => line.trim() === '│')).toBe(true)
+  })
+
   test('sends a short edge out of its own port when the box also starts a long edge', async () => {
     const { lines } = draw('flowchart TD\nF[Flexor] --> I[Idiophone]\nF --> T[Twilio]\nI --> T')
 

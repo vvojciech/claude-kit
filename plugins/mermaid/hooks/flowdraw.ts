@@ -369,8 +369,8 @@ function layout(flow: Flow, cap: number): Layout {
   // an only child sits straight under an only-child parent whenever its neighbours leave room, so
   // a chain runs down one column instead of jogging by a cell at each step
   const only = (v: Vertex, near: Map<Vertex, Vertex[]>) => (near.get(v)?.length === 1 ? near.get(v)![0] : undefined)
-  for (let pass = 0; pass < 2; pass++) {
-    // a parent with one child that couldn't move under it moves over the child instead
+  // a parent with one child moves over that child when the child couldn't move under it
+  const overChild = () => {
     for (const list of [...ranks].reverse())
       list.forEach((v, i) => {
         const d = only(v, downs)
@@ -380,6 +380,9 @@ function layout(flow: Flow, cap: number): Layout {
         const right = list[i + 1]
         if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
       })
+  }
+  for (let pass = 0; pass < 2; pass++) {
+    overChild()
     for (const list of ranks)
       list.forEach((v, i) => {
         // a box also lines up under a long edge coming into it, which then never steps aside
@@ -405,6 +408,8 @@ function layout(flow: Flow, cap: number): Layout {
       const right = list[i + 1]
       if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
     })
+  // centring a box can leave its lone parent a cell off; the parent follows it
+  overChild()
   // a box outside a subgraph that sits within the span of the subgraph's frame moves past it, along
   // with the boxes beyond it in its rank, so the frame never takes it in
   for (const group of flow.groups) {
