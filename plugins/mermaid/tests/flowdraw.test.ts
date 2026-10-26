@@ -222,6 +222,15 @@ describe('drawFlow declared order', () => {
     expect(nearest(rowOf(lines, 'OKaaS') + 1, '┬', 'OKaaS')).toBe(nearest(rowOf(lines, 'Flexor') - 2, '▼', 'Flexor'))
   })
 
+  test('keeps a bus mid-box when the only straight edge would land near a corner', async () => {
+    const { lines } = draw('flowchart TD\n    Start([Policy expiring]) --> Auto{HV vertical?}\n    Auto -->|no| CoCo[Auto renewal via CoCo]\n    Auto -->|yes| ARWI[ARWI with consultant]\n    CoCo --> Rate[Premium adjustment]\n    ARWI --> Full[Full rating]\n    Rate --> Offer[Renewal offer]\n    Full --> Offer\n    Offer --> Accept{Customer accepts?}\n    Accept -->|yes| Bind[Bind renewal]\n    Accept -->|no| Lapse[Lapse policy]\n    Accept -->|changes| MTA[Manual renewal in backoffice]\n    MTA --> Full\n    Bind --> Docs[[Generate documents]]\n    Docs --> Done([Done])\n    Lapse --> Done', 117)
+    const offer = rowOf(lines, 'Renewal offer')
+    const head = [...lines[offer - 2]!].indexOf('▼')
+    const middle = colOf(lines, 'Renewal offer') + 'Renewal offer'.length / 2
+
+    expect(Math.abs(head - middle)).toBeLessThanOrEqual(2)
+  })
+
   test('keeps a decision\'s branches in declared order', async () => {
     const { lines } = draw('flowchart TD\nA[Start] --> F{Any?}\nF -->|none| G[Fallback]\nG --> A\nF -->|some| H[Apply]')
     const row = lines[rowOf(lines, 'Fallback')]!

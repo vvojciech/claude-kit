@@ -569,12 +569,12 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       })
       continue
     }
-    // a bus lands where one of its edges already runs straight into the box, the one nearest the
-    // middle, so that edge never steps aside; with none over the box it lands mid-box
+    // a bus lands where one of its edges already runs straight in near the box's middle, so that edge
+    // never steps aside; with none that close it lands mid-box
     const bus = (route: Route) => {
       const mine = list.filter(r => r.edge.stroke === route.edge.stroke)
       if (mine.length < 2) return undefined
-      const straight = mine.map(from).filter(at => at >= lo && at <= hi).sort((a, b) => Math.abs(a - centre(v)) - Math.abs(b - centre(v)))
+      const straight = mine.map(from).filter(at => Math.abs(at - centre(v)) <= 2).sort((a, b) => Math.abs(a - centre(v)) - Math.abs(b - centre(v)))
       return straight[0] ?? centre(v)
     }
     const want = (route: Route) => Math.max(lo, Math.min(hi, bus(route) ?? (list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route))))
