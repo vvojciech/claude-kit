@@ -67,6 +67,19 @@ describe('drawFlow top-down', () => {
     expect(draw('flowchart LR\nA[[Call it]] --> B').lines[1]).toMatch(/║ Call it ╟─+▶/)
   })
 
+  test('rounds a tall stadium only at its middle row', async () => {
+    const { lines } = draw('flowchart TD\nA([Twilio<br/>Flex<br/>UI])')
+
+    expect(lines.filter(line => line.startsWith('('))).toHaveLength(1)
+    expect(lines.filter(line => line.startsWith('│'))).toHaveLength(2)
+  })
+
+  test('keeps a one-word edge label whole', async () => {
+    const { lines } = draw('flowchart LR\nA -->|prospect_data_collected| B', 120)
+
+    expect(lines.join('\n')).toContain('prospect_data_collected')
+  })
+
   test('draws a database with doubled top and bottom borders', async () => {
     const { lines } = draw('flowchart TD\nA[(Store)] --> B')
 

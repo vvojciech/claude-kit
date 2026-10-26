@@ -415,7 +415,10 @@ function drawNode(grid: Grid, v: Vertex, x: number, y: number, width: number, he
   const isSlanted = shape === 'diamond' || shape === 'hexagon'
   for (let k = 1; k < height - 1; k++) {
     const side = 2 * k - (height - 1)
-    const [l, r] = !isSlanted ? [sl, sr] : side < 0 ? ['╱', '╲'] : side === 0 ? [sl, sr] : ['╲', '╱']
+    // a tall stadium or circle rounds only at its middle row, its other rows straight
+    const isRounded = shape === 'stadium' || shape === 'circle'
+    const middle = side === 0 || (height % 2 === 0 && side === -1)
+    const [l, r] = isSlanted ? (side < 0 ? ['╱', '╲'] : side === 0 ? [sl, sr] : ['╲', '╱']) : isRounded && !middle ? ['│', '│'] : [sl, sr]
     grid.put(x, y + k, l, 'frame')
     grid.put(x + width - 1, y + k, r, 'frame')
     for (let i = 1; i < width - 1; i++) grid.put(x + i, y + k, ' ', 'name')
@@ -440,7 +443,9 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   const plan = layout(flow, cap)
   const { ranks, routes, loops, across, reversed } = plan
   const labelCap = Math.max(8, Math.min(cap, 20))
-  const labelOf = (edge: FlowEdge) => (edge.label === '' ? [] : edge.label.split('\n').flatMap(part => wrap(part, labelCap).lines).map(l => l.replace(/ /g, ' ')))
+  // a one-word label (an event or field name) stays whole rather than splitting mid-identifier
+  const labelOf = (edge: FlowEdge) =>
+    edge.label === '' ? [] : edge.label.split('\n').flatMap(part => (!/\s/.test(part) && cellWidth(part) <= 32 ? [part] : wrap(part, labelCap).lines)).map(l => l.replace(/\u00a0/g, ' '))
 
   // each channel between rank r and r+1 holds a track per edge that changes cross position there
   const channels = ranks.slice(0, -1).map(() => ({ tracks: 0, label: 0 }))
