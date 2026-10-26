@@ -259,8 +259,9 @@ function layout(flow: Flow, cap: number): Layout {
   }
   // a box is long enough along its sides to give each arriving edge and each leaving stroke a port
   // of its own, two cells apart, so no two of them share a line
+  // (left to right, extra strokes and arrows use a box's top and bottom instead, so it never grows)
   for (const v of vertices) {
-    if (!v.node) continue
+    if (!v.node || across) continue
     // edges into a left-right decision all meet at its tip, so they need no room along its sides
     const meets = across && (v.node.shape === 'diamond' || v.node.shape === 'hexagon')
     const arriving = meets ? 1 : routes.filter(r => r.path.at(-1) === v).length
@@ -482,6 +483,28 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     lefts.forEach((stroke, k) => place(stroke, centre(v) - step * (k + 1)))
     rights.forEach((stroke, k) => place(stroke, centre(v) + step * (k + 1)))
   }
+  // left to right, a stroke other than a box's main one leaves through its top or bottom, toward
+  // where it heads, and runs along that row; the box keeps its height and its side keeps one port
+  const off = new Map<Route, number>()
+  if (across)
+    for (const [v, list] of outOf) {
+      const count = (stroke: Stroke) => list.filter(r => r.edge.stroke === stroke).length
+      const main = [...new Set(list.map(r => r.edge.stroke))].sort((x, y) => count(y) - count(x) || Number(y === 'solid') - Number(x === 'solid'))[0]
+      for (const route of list) {
+        if (route.edge.stroke === main) {
+          leaving.set(route, centre(v))
+          continue
+        }
+        const row = centre(route.path[1]!)
+        const up = row < v.at
+        const [lo, hi] = up ? [row, v.at] : [v.at + v.cross, row]
+        const clear = ranks[v.rank]!.every(w => w === v || w.at + w.cross <= lo || w.at > hi)
+        if ((up || row >= v.at + v.cross) && clear) {
+          off.set(route, up ? v.at - 1 : v.at + v.cross)
+          leaving.set(route, row)
+        }
+      }
+    }
   // a long edge's placeholders follow its port when that is a cell or two off their middle, so the
   // edge runs straight down instead of stepping aside under its box
   const through = (route: Route, i: number) => {
@@ -495,22 +518,24 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   // A solid edge claims its spot first; the others take the nearest spot a cell clear of every
   // arrow already placed. A decision's arrows keep off its slanted corners.
   const landing = new Map<Route, number>()
-  // a left-right decision takes its main arrow at its tip; another arriving from above drops onto
-  // its top with a head of its own, so no two arrows share one
-  const ontoTop = new Set<Route>()
+  // left to right, a box takes its main arrow on its side; another arriving from above or below
+  // drops onto its top or bottom with a head of its own, so no two arrows share one
+  const onto = new Map<Route, 'top' | 'bottom'>()
   for (const [v, list] of portIn) {
     const from = (route: Route) => through(route, route.path.length - 2)
     const inset = v.node!.shape === 'diamond' || v.node!.shape === 'hexagon' ? (across ? 1 : 2) : 1
     const lo = v.at + inset
     const hi = v.at + v.cross - 1 - inset
     const apart = across ? 2 : 3
-    if (across && (v.node!.shape === 'diamond' || v.node!.shape === 'hexagon')) {
+    if (across) {
       const ranked = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(from(a) - centre(v)) - Math.abs(from(b) - centre(v)))
       ranked.forEach((route, i) => {
         landing.set(route, centre(v))
-        const above = from(route) < v.at - 1
-        const clear = ranks[v.rank]!.every(w => w === v || w.at + w.cross <= from(route) || w.at > v.at)
-        if (i > 0 && above && clear) ontoTop.add(route)
+        const row = from(route)
+        const side = row < v.at - 1 ? 'top' : row > v.at + v.cross ? 'bottom' : undefined
+        const [lo, hi] = side === 'top' ? [row, v.at] : [v.at + v.cross, row]
+        const clear = ranks[v.rank]!.every(w => w === v || w.at + w.cross <= lo || w.at > hi)
+        if (i > 0 && side && clear) onto.set(route, side)
       })
       continue
     }
@@ -630,13 +655,34 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       const lane = channelStart[c]! + 1 + pad + (p.tracks[c] ?? 0)
       const end = channelStart[c + 1] === undefined && c + 1 === ranks.length - 1 ? bandStart[c + 1]! - 1 : bandStart[c + 1]! - 1
       if (!v.node) segment(bandStart[c]!, a, bandStart[c]! + bandSize[c]! - 1, a, stroke)
-      if (i === path.length - 2 && ontoTop.has(route)) {
+      if (i === 0 && off.has(route)) {
+        const row = off.get(route)!
+        const m = bandStart[c]! + Math.max(1, v.main - 3)
+        segment(m, row, m, b, stroke)
+        // its label rides along the row it runs on, just past the turn
+        const said = labelOf(route.edge)
+        if (said.length > 0 && i === path.length - 2) labels.push({ route, m: m + 2, k: b, lines: said })
+        if (i === path.length - 2 && onto.has(route)) {
+          const target = path[i + 1]!
+          const mid = bandStart[c + 1]! + Math.floor(target.main / 2)
+          const edge = onto.get(route) === 'top' ? target.at - 1 : target.at + target.cross
+          segment(m, b, mid, b, stroke)
+          segment(mid, b, mid, edge, stroke)
+          const [hx, hy] = xy(mid, edge)
+          if (route.edge.head) grid.put(hx, hy, onto.get(route) === 'top' ? HEADS.down : HEADS.up, 'line')
+        } else segment(m, b, i === path.length - 2 ? end : bandStart[c + 1]! + bandSize[c + 1]! - 1, b, stroke)
+        continue
+      }
+      if (i === path.length - 2 && onto.has(route)) {
         const target = path[i + 1]!
         const mid = bandStart[c + 1]! + Math.floor(target.main / 2)
+        const edge = onto.get(route) === 'top' ? target.at - 1 : target.at + target.cross
+        const said = labelOf(route.edge)
+        if (said.length > 0) labels.push({ route, m: from + 1, k: a, lines: said })
         segment(from, a, mid, a, stroke)
-        segment(mid, a, mid, target.at - 1, stroke)
-        const [hx, hy] = xy(mid, target.at - 1)
-        if (route.edge.head) grid.put(hx, hy, HEADS.down, 'line')
+        segment(mid, a, mid, edge, stroke)
+        const [hx, hy] = xy(mid, edge)
+        if (route.edge.head) grid.put(hx, hy, onto.get(route) === 'top' ? HEADS.down : HEADS.up, 'line')
         continue
       }
       const turn = a === b ? from : lane
@@ -651,13 +697,19 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const last = path.at(-1)!
     const first = path[0]!
     // the line leaves through the border, so the border shows where: ┬ under a box, ├ beside it
-    const [bx, by] = xy(bandStart[first.rank]! + first.main - 1, crossAt(route, 0))
+    const exit = off.get(route)
+    const [bx, by] = exit !== undefined ? xy(bandStart[first.rank]! + Math.max(1, first.main - 3), exit < first.at ? first.at : first.at + first.cross - 1) : xy(bandStart[first.rank]! + first.main - 1, crossAt(route, 0))
+    if (exit !== undefined) {
+      const cell = grid.cells[by]?.[bx]
+      if (cell) cell.char = exit < first.at ? '┴' : '┬'
+    }
     const border = grid.cells[by]?.[bx]
-    if (border?.char === '═') border.char = reversed ? '╧' : '╤'
+    if (exit !== undefined) void 0
+    else if (border?.char === '═') border.char = reversed ? '╧' : '╤'
     else if (border?.char === '║') border.char = reversed ? '╢' : '╟'
     else if (border?.char === '─' || border?.char === '│') border.char = across ? (reversed ? '┤' : '├') : reversed ? '┴' : '┬'
     const landingAt = crossAt(route, path.length - 1)
-    if (route.edge.head && !ontoTop.has(route)) head(bandStart[last.rank]! - 1, landingAt, true)
+    if (route.edge.head && !onto.has(route)) head(bandStart[last.rank]! - 1, landingAt, true)
     if (route.edge.tail) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false)
   }
   // a loop leaves its source through the side facing out, runs up its lane and comes into its

@@ -247,13 +247,21 @@ describe('drawFlow left-right', () => {
     expect(lines[rowOf(lines, 'Start')]).toMatch(/Start ├─+▶│ Stop/)
   })
 
-  test('grows a box tall enough to give each stroke and each arrow a row of its own', async () => {
+  test('sends a second stroke out of the box\'s top or bottom toward its target, so the box keeps its height', async () => {
     const { lines } = draw('flowchart LR\nE[Rate] --> F[Any]\nE -.-> K[Side]\nK -.-> F')
-    const border = lines[rowOf(lines, 'Rate')]!.indexOf('Rate') + 'Rate'.length + 1
-    const edge = lines[rowOf(lines, 'Any')]!.indexOf('Any') - 2
+    const top = rowOf(lines, 'Rate') - 1
+    const bottom = rowOf(lines, 'Rate') + 1
 
-    expect(lines.filter(line => [...line][edge - 1] === '▶')).toHaveLength(2)
-    expect(lines.filter(line => [...line][border] === '├')).toHaveLength(2)
+    expect(lines[top]).toMatch(/┌──┴?.*┐|┌─*┴─*┐/)
+    expect(lines[bottom]).toMatch(/└─+┘/)
+    expect(lines[top]! + lines[bottom]!).toMatch(/[┴┬]/)
+  })
+
+  test('keeps the label on an edge that leaves through a box\'s top or bottom', async () => {
+    const { lines } = draw('flowchart LR\nR[Router] -->|captured| L[Lead]\nR -.->|collected| D[(Store)]\nL --> X[Next]', 160)
+
+    expect(lines.join('\n')).toContain('captured')
+    expect(lines.join('\n')).toContain('collected')
   })
 
   test('runs the main edge into a left-right decision\'s tip and drops another onto its top with a head of its own', async () => {
