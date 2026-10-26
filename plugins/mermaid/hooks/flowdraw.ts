@@ -518,8 +518,8 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   // A solid edge claims its spot first; the others take the nearest spot a cell clear of every
   // arrow already placed. A decision's arrows keep off its slanted corners.
   const landing = new Map<Route, number>()
-  // left to right, a box takes its main arrow on its side; another arriving from above or below
-  // drops onto its top or bottom with a head of its own, so no two arrows share one
+  // left to right, a decision takes its main arrow at its tip; another arriving from above or below
+  // drops onto its top or bottom with a head of its own, never onto a slanted side
   const onto = new Map<Route, 'top' | 'bottom'>()
   for (const [v, list] of portIn) {
     const from = (route: Route) => through(route, route.path.length - 2)
@@ -527,7 +527,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const lo = v.at + inset
     const hi = v.at + v.cross - 1 - inset
     const apart = across ? 2 : 3
-    if (across) {
+    if (across && (v.node!.shape === 'diamond' || v.node!.shape === 'hexagon')) {
       const ranked = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(from(a) - centre(v)) - Math.abs(from(b) - centre(v)))
       ranked.forEach((route, i) => {
         landing.set(route, centre(v))
@@ -544,8 +544,9 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const taken: number[] = []
     const joined = new Map<Stroke, number>()
     for (const route of first) {
-      // edges of one stroke join on one bus into the box and share its head
-      const shared = joined.get(route.edge.stroke)
+      // left to right, edges of one stroke join on one bus into the box's side and share its head;
+      // top-down, each keeps a head of its own
+      const shared = across ? joined.get(route.edge.stroke) : undefined
       if (shared !== undefined) {
         landing.set(route, shared)
         continue

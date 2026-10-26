@@ -236,11 +236,19 @@ describe('drawFlow subgraphs', () => {
     expect(lines[bottom]).toContain('┼')
   })
 
-  test('joins edges of one stroke into a box on one bus with a single head', async () => {
+  test('gives each edge into a top-down box its own head, at least three cells apart', async () => {
     const { lines } = draw('flowchart TD\nA[Left] --> C[Done]\nB[Right] --> C')
-    const above = lines[rowOf(lines, 'Done') - 2]!
+    const heads = [...lines[rowOf(lines, 'Done') - 2]!].flatMap((ch, i) => (ch === '▼' ? [i] : []))
 
-    expect([...above].filter(ch => ch === '▼')).toHaveLength(1)
+    expect(heads).toHaveLength(2)
+    expect(heads[1]! - heads[0]!).toBeGreaterThanOrEqual(3)
+  })
+
+  test('joins edges of one stroke into a left-right box at one port on its side', async () => {
+    const { lines } = draw('flowchart LR\nA[Top] --> C[Done]\nB[Low] --> C\nX[Up] --> A\nX --> B')
+
+    expect(lines.join('\n').split('▶│ Done').length - 1).toBe(1)
+    expect(lines.join('\n')).not.toMatch(/[▼▲]/)
   })
 
   test('keeps the members of a subgraph side by side in a rank', async () => {
