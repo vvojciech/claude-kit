@@ -42,10 +42,11 @@ See [load order](../../README.md#load-order) for how to set the order.
 
 - `flowchart` and `graph`, in `TD`, `TB`, `BT`, `LR` and `RL`.
 - Nodes are laid out in ranks. Long edges run straight and short detours bend round them.
-- Shapes: `[box]`, `(rounded)`, `([stadium])`, `((circle))`, `{decision}` with slanted corners, `{{hexagon}}`, `[(database)]` with doubled ends, and `>flag]`.
+- Shapes: `[box]`, `(rounded)`, `([stadium])`, `((circle))`, `{decision}` with slanted corners and `◇` tips, `{{hexagon}}` with `<` `>` tips, `[(database)]` with doubled ends, `[[subroutine]]` with doubled sides, and `>flag]`.
 - Edges `-->`, `---`, `-.->` (dimmed and dashed), `==>` (heavy), `<-->` and `~~~` (invisible), with `|label|` or `-- label -->` text, chains and `&`.
-- Each arrow into a box gets its own spot on the border, and each stroke leaves through its own port. Boxes grow when they need more room for that.
-- An edge that closes a cycle loops round the outside of the chart on a lane of its own: right of a top-down chart, under a left-right one.
+- Edges of one stroke into a box meet on a bus over one arrowhead, and each stroke leaves through its own port. Left to right, extra strokes and arrows use a box's top and bottom.
+- Branches keep the order the source declares them. An edge that closes a cycle loops round the outside of the chart on a lane of its own, on the side its source sits.
+- `subgraph` blocks are framed with their title in the border, and an edge crossing a frame shows a `┼`.
 - `classDef`, `class`, `style`, `click` and `linkStyle` lines are read and skipped.
 
 ### Syntax
@@ -100,7 +101,7 @@ None. A diagram draws as soon as its `mermaid` fence closes.
 
 ## Known limits
 
-- Flowchart subgraphs are read but not framed, and a node that links to itself is listed under the chart instead of drawn.
+- A flowchart node that links to itself is listed under the chart instead of drawn. Nested subgraphs share one frame margin.
 
 - `link`, `links`, `properties` and `details` lines are not drawn.
 - Box and `rect` colours are dropped. `rect` uses one fixed shade.
