@@ -268,10 +268,10 @@ function layout(flow: Flow, cap: number): Layout {
     const strokes = new Set(routes.filter(r => r.path[0] === v).map(r => r.edge.stroke)).size
     v.cross = Math.max(v.cross, 2 * Math.max(arriving, strokes) + 1)
   }
-  // each loop leaving a box gets a row of its own on the box's outer side; loops coming into one
-  // box share a row and a head, joined like any other merge
+  // each loop leaving or entering a box gets a row of its own on the box's outer side, so every loop
+  // keeps its own head
   for (const v of vertices) {
-    const n = loops.filter(loop => loop.from === v).length + (loops.some(loop => loop.to === v) ? 1 : 0)
+    const n = loops.filter(loop => loop.from === v || loop.to === v).length
     if (n > 1) v.main = Math.max(v.main, 2 * n + 1)
   }
   const top = Math.max(0, ...vertices.map(v => v.rank))
@@ -542,7 +542,14 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const want = (route: Route) => Math.max(lo, Math.min(hi, list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route)))
     const first = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(want(a) - from(a)) - Math.abs(want(b) - from(b)))
     const taken: number[] = []
+    const joined = new Map<Stroke, number>()
     for (const route of first) {
+      // edges of one stroke join on one bus into the box and share its head
+      const shared = joined.get(route.edge.stroke)
+      if (shared !== undefined) {
+        landing.set(route, shared)
+        continue
+      }
       const free = (at: number) => at >= lo && at <= hi && taken.every(t => Math.abs(t - at) >= apart)
       let at = want(route)
       for (let d = 0; !free(at) && d <= v.cross; d++) {
@@ -551,6 +558,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
         else if (free(want(route) - toward * d)) at = want(route) - toward * d
       }
       taken.push(at)
+      joined.set(route.edge.stroke, at)
       landing.set(route, at)
     }
   }
@@ -588,9 +596,9 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     channels[into]!.label = Math.max(channels[into]!.label, room)
   }
 
-  // a chart with subgraphs gets two spare rows at each end of every channel: a frame's border runs
-  // on the one by the boxes, and the other keeps it clear of the edges turning beyond
-  const pad = flow.groups.length > 0 ? 2 : 0
+  // a chart with subgraphs gets three spare rows at each end of every channel: a frame's border runs
+  // on the one by the boxes, and the others keep it clear of the edges turning beyond
+  const pad = flow.groups.length > 0 ? 3 : 0
   // main-axis offsets: rank bands and the channels between them
   const bandStart: number[] = []
   const bandSize = ranks.map(list => Math.max(0, ...list.map(v => v.main)))
@@ -714,19 +722,18 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   }
   // a loop leaves its source through the side facing out, runs up its lane and comes into its
   // target's same side: right of a top-down chart, under a left-right one
-  // a box's loop rows: the shared way in on top, then each way out, the inner loop first
-  const slots = new Map<Vertex, Array<Loop | 'in'>>()
-  for (const loop of loops) {
-    if (!slots.has(loop.to)) slots.set(loop.to, [])
-    if (!slots.get(loop.to)!.includes('in')) slots.get(loop.to)!.unshift('in')
-    slots.set(loop.from, [...(slots.get(loop.from) ?? []), loop])
-  }
+  // a box's loop rows: the ways in on top, the outer loop highest, then the ways out, the inner loop
+  // first, so no two loops' runs cross
+  const slots = new Map<Vertex, Loop[]>()
+  for (const loop of loops) for (const v of [loop.to, loop.from]) slots.set(v, [...(slots.get(v) ?? []), loop])
+  const key = (v: Vertex, loop: Loop) => (loop.to === v ? -1000 - loops.indexOf(loop) : loops.indexOf(loop))
+  for (const [v, list] of slots) list.sort((x, y) => key(v, x) - key(v, y))
   loops.forEach((loop, k) => {
     const lane = laneAt(k)
     // loops on one box spread along its side, so no two share an arrow or a stub
     const row = (v: Vertex) => {
       const list = slots.get(v)!
-      const i = list.indexOf(loop.to === v ? 'in' : loop)
+      const i = list.indexOf(loop)
       const start = bandStart[v.rank]! + (reversed ? bandSize[v.rank]! - v.main : 0)
       return list.length === 1 ? start + Math.floor(v.main / 2) : start + Math.round(((i + 1) * (v.main - 1)) / (list.length + 1))
     }
@@ -780,8 +787,14 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const crossed = Array.from({ length: Math.max(x0, x1) - left + 1 }, (_, i) => left + i).filter(x => (grid.cells[top]?.[x]?.mask ?? 0) !== 0)
     const right = Math.max(Math.max(x0, x1), crossed.length > 0 && cellWidth(title) + 3 > crossed[0]! - left ? Math.max(...crossed) + cellWidth(title) + 4 : 0)
     if (right >= width) continue
+    // where an edge crosses the border the crossing is drawn, so neither the edge nor the frame breaks
     const edge = (x: number, y: number, char: string) => {
       if (grid.isFree(x, y)) grid.put(x, y, char, 'frame')
+      else {
+        const cell = grid.cells[y]?.[x]
+        const across = char === '─' ? UP | DOWN : char === '│' ? LEFT | RIGHT : 0
+        if (cell && cell.char === undefined && across !== 0 && (cell.mask & across) === across) cell.mask |= UP | DOWN | LEFT | RIGHT
+      }
     }
     for (let x = left + 1; x < right; x++) {
       edge(x, top, '─')

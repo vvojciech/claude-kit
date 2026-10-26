@@ -172,8 +172,7 @@ describe('drawFlow labels and cycles', () => {
     const review = td[rowOf(td, 'Review')]!
     const lane = review.indexOf('┘')
 
-    expect(draft.filter(line => line.includes('◀'))).toHaveLength(1)
-    expect(td.findIndex(line => line.includes('└'))).toBe(2)
+    expect(draft.filter(line => line.includes('◀'))).toHaveLength(2)
     expect(td.slice(0, rowOf(td, 'Review')).filter(line => /changes|requested/.test(line)).every(line => line.search(/changes|requested/) < lane)).toBe(true)
     expect(draw(source.replace('TD', 'LR'), 160).drawn).toBeDefined()
   })
@@ -213,7 +212,7 @@ describe('drawFlow subgraphs', () => {
     const top = rowOf(lines, 'Services')
     const left = lines[top]!.indexOf('╭')
 
-    expect(lines[top]).toMatch(/^ *╭[─│]*─ Services ─+╮$/)
+    expect(lines[top]).toMatch(/^ *╭[─│┼]*─ Services ─+╮$/)
     expect(top).toBeGreaterThan(rowOf(lines, 'Outside'))
     expect(top).toBeLessThan(rowOf(lines, 'Alpha'))
     for (const name of ['Alpha', 'Beta']) expect(lines[rowOf(lines, name)]![left]).toBe('│')
@@ -226,6 +225,22 @@ describe('drawFlow subgraphs', () => {
     expect(lines.join('\n')).toContain('Ingest')
     expect(lines.join('\n')).toContain('Flexor')
     expect(lines[0]!.trim()).not.toBe('')
+  })
+
+  test('marks where an edge crosses a frame instead of breaking the border', async () => {
+    const { lines } = draw('flowchart TD\nX[Outside] --> A\nsubgraph S [Services]\nA[Alpha] --> B[Beta]\nend\nB --> Y[After]')
+    const top = rowOf(lines, 'Services')
+    const bottom = lines.findIndex((line, i) => i > top && line.includes('╰'))
+
+    expect(lines[top]).toContain('┼')
+    expect(lines[bottom]).toContain('┼')
+  })
+
+  test('joins edges of one stroke into a box on one bus with a single head', async () => {
+    const { lines } = draw('flowchart TD\nA[Left] --> C[Done]\nB[Right] --> C')
+    const above = lines[rowOf(lines, 'Done') - 2]!
+
+    expect([...above].filter(ch => ch === '▼')).toHaveLength(1)
   })
 
   test('keeps the members of a subgraph side by side in a rank', async () => {
