@@ -27,6 +27,8 @@ class Grid {
   cells: Cell[][] = []
 
   at(x: number, y: number): Cell {
+    // off the grid's top or left edge a cell is thrown away, never drawn
+    if (x < 0 || y < 0) return { mask: 0, stroke: 'solid', ink: 'line' }
     while (this.cells.length <= y) this.cells.push([])
     const row = this.cells[y]!
     while (row.length <= x) row.push({ mask: 0, stroke: 'solid', ink: 'line' })
@@ -34,6 +36,7 @@ class Grid {
   }
 
   isFree(x: number, y: number): boolean {
+    if (x < 0 || y < 0) return false
     const cell = this.cells[y]?.[x]
     return cell === undefined || (cell.mask === 0 && cell.char === undefined)
   }
@@ -230,6 +233,11 @@ function layout(flow: Flow, cap: number): Layout {
     const arriving = meets ? 1 : routes.filter(r => r.path.at(-1) === v).length
     const strokes = new Set(routes.filter(r => r.path[0] === v).map(r => r.edge.stroke)).size
     v.cross = Math.max(v.cross, 2 * Math.max(arriving, strokes) + 1)
+  }
+  // each loop leaving or entering a box gets a row of its own on the box's outer side
+  for (const v of vertices) {
+    const n = loops.filter(loop => loop.from === v || loop.to === v).length
+    if (n > 1) v.main = Math.max(v.main, 2 * n + 1)
   }
   const top = Math.max(0, ...vertices.map(v => v.rank))
   const ranks: Vertex[][] = Array.from({ length: top + 1 }, () => [])
@@ -497,8 +505,10 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   }
   // loops nest outside the chart, the shortest innermost, each on a lane of its own
   loops.sort((a, b) => Math.abs(a.from.rank - a.to.rank) - Math.abs(b.from.rank - b.to.rank))
-  const laneAt = (k: number) => crossTotal + 1 + 2 * k
-  const loopRoom = loops.length === 0 ? 0 : 2 * loops.length
+  // top-down, a labelled loop's lane leaves room after it for its label, so the label sits by its own line
+  const after = (k: number) => (across ? 0 : Math.max(0, ...labelOf(loops[k]!.edge).map(w => cellWidth(w) + 1)))
+  const laneAt = (k: number) => crossTotal + 1 + 2 * k + loops.slice(0, k).reduce((sum, _, i) => sum + after(i), 0)
+  const loopRoom = loops.length === 0 ? 0 : laneAt(loops.length - 1) - crossTotal + 1 + after(loops.length - 1)
   const total = across ? mainTotal : crossTotal + loopRoom
   if (total > width || (across && crossTotal + loopRoom > 400)) return undefined
 
@@ -522,7 +532,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     const ahead = forward !== reversed
     grid.put(x, y, across ? (ahead ? HEADS.right : HEADS.left) : ahead ? HEADS.down : HEADS.up, 'line')
   }
-  const labels: Array<{ route: Route; m: number; k: number; lines: string[] }> = []
+  const labels: Array<{ route: Route; m: number; k: number; lines: string[]; spots?: Array<[number, number]> }> = []
   for (const p of placed) {
     const { route } = p
     const stroke = route.edge.stroke
@@ -567,13 +577,23 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   }
   // a loop leaves its source through the side facing out, runs up its lane and comes into its
   // target's same side: right of a top-down chart, under a left-right one
+  const slots = new Map<Vertex, Loop[]>()
+  for (const loop of loops) for (const v of [loop.from, loop.to]) slots.set(v, [...(slots.get(v) ?? []), loop])
+  // an outer loop arrives above an inner one and leaves below it, so their runs never cross
+  for (const [v, list] of slots) list.sort((x, y) => (x.to === v ? -1000 - loops.indexOf(x) : loops.indexOf(x)) - (y.to === v ? -1000 - loops.indexOf(y) : loops.indexOf(y)))
   loops.forEach((loop, k) => {
     const lane = laneAt(k)
-    const middle = (v: Vertex) => bandStart[v.rank]! + (reversed ? bandSize[v.rank]! - v.main : 0) + Math.floor(v.main / 2)
+    // loops on one box spread along its side, so no two share an arrow or a stub
+    const row = (v: Vertex) => {
+      const list = slots.get(v)!
+      const i = list.indexOf(loop) + (loop.from === v && loop.to === v ? 1 : 0)
+      const start = bandStart[v.rank]! + (reversed ? bandSize[v.rank]! - v.main : 0)
+      return list.length === 1 ? start + Math.floor(v.main / 2) : start + Math.round(((i + 1) * (v.main - 1)) / (list.length + 1))
+    }
     const side = (v: Vertex) => v.at + v.cross
     const stroke = loop.edge.stroke
-    const a = middle(loop.from)
-    const b = middle(loop.to)
+    const a = row(loop.from)
+    const b = row(loop.to)
     segment(a, side(loop.from), a, lane, stroke)
     segment(a, lane, b, lane, stroke)
     segment(b, lane, b, side(loop.to), stroke)
@@ -590,7 +610,16 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     if (loop.edge.head) arrow(b, loop.to)
     if (loop.edge.tail) arrow(a, loop.from)
     const lines = labelOf(loop.edge)
-    if (lines.length > 0) labels.push({ route: { edge: loop.edge, path: [] }, m: across ? b + 2 : b - 1, k: across ? side(loop.to) + 1 + lines.length : side(loop.to) + 1 - 2, lines })
+    // a loop's label sits on the run leaving its source, before the run turns up its lane
+    if (lines.length > 0)
+      labels.push({
+        route: { edge: loop.edge, path: [] },
+        m: across ? a + 2 : a,
+        k: across ? side(loop.from) + lines.length : side(loop.from) - 1,
+        lines,
+        // top-down, it moves right of its lane when the run is too short to hold it
+        spots: across ? undefined : [[a - 1, side(loop.from) + 1], [Math.round((a + b) / 2) - Math.floor(lines.length / 2), lane + 2]],
+      })
   })
   const notes: string[] = []
   let footnotes = 0
@@ -609,9 +638,9 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
         grid.write(across && reversed ? x - cellWidth(line) + 1 : x, y, line, 'text')
       })
     const widest = Math.max(...label.lines.map(cellWidth))
-    const tries: Array<[number, number]> = across
+    const tries: Array<[number, number]> = label.spots ?? (across
       ? [[label.m, label.k], [label.m, label.k + label.lines.length + 1]]
-      : [[label.m - 1, label.k + 2], [label.m - 1, label.k - 1 - widest]]
+      : [[label.m - 1, label.k + 2], [label.m - 1, label.k - 1 - widest]])
     const spot = tries.find(([m, k]) => k >= 0 && fits(m, k))
     if (spot) put(...spot)
     else {

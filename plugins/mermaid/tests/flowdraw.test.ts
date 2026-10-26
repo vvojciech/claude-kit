@@ -142,6 +142,20 @@ describe('drawFlow top-down', () => {
   })
 })
 
+describe('drawFlow labels and cycles', () => {
+  test('draws a review loop whose labels would sit above the first row without throwing', async () => {
+    const source = 'flowchart TD\nDraft --> Review\nReview -->|approved| Merged\nReview -->|changes requested| Draft\nMerged --> Deploy{Deploy ok?}\nDeploy -->|no| Rollback\nRollback --> Draft\nDeploy -->|yes| Live'
+
+    const td = draw(source, 120).lines
+    const draft = td.slice(0, rowOf(td, 'Review'))
+
+    expect(td.join('\n')).toContain('changes')
+    expect(draft.filter(line => line.includes('◀'))).toHaveLength(2)
+    expect(draft.some(line => line.includes('┼'))).toBe(false)
+    expect(draw(source.replace('TD', 'LR'), 160).drawn).toBeDefined()
+  })
+})
+
 describe('drawFlow left-right', () => {
   test('sets the target to the right of its source with ▶ on the line between', async () => {
     const { lines } = draw('flowchart LR\nA[Start] --> B[Stop]')
