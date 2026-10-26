@@ -166,6 +166,15 @@ describe('drawFlow cycles', () => {
   })
 })
 
+describe('drawFlow cycle order', () => {
+  test('keeps a node named late in the source between the nodes its edges join', async () => {
+    const { lines } = draw('flowchart TD\nE[Rate] --> F{Any?}\nF -->|none| G[Fallback]\nG --> E\nF -->|some| H[Apply]\nE -.-> K[Overlay]\nK -.-> F')
+
+    expect(rowOf(lines, 'Overlay')).toBeLessThan(rowOf(lines, 'Any?'))
+    expect(rowOf(lines, 'Overlay')).toBeGreaterThan(rowOf(lines, 'Rate'))
+  })
+})
+
 describe('drawFlow ordering', () => {
   test('keeps siblings beside each other when that saves a crossing', async () => {
     const { lines } = draw('graph TD\nA[Chopin] --> Q[Quid]\nA --> O[OKaaS]\nA --> C[CMAS]\nQ --> R[Rater]\nQ --> E[Earnix]\nO --> F[Flexor]\nF --> I[Idiophone]\nF --> T[Twilio]\nI --> T\nC --> G[Gateway]\nG --> P[PIMMS]')

@@ -134,12 +134,27 @@ function boxOf(node: FlowNode, cap: number, across: boolean): Pick<Vertex, 'line
 }
 
 // Edges that close a cycle are laid out reversed, so every rank points one way. The edge turned
-// round is the one written against the flow: on a cycle, from a node to one named before it.
-// Whatever cycle that leaves is broken where a depth-first walk closes it.
+// round is the one against the flow: on a cycle, from a node to one reached before it walking
+// breadth-first from the roots in source order. Whatever cycle that leaves is broken where a
+// depth-first walk closes it.
 function ranksOf(flow: Flow): { rank: Map<string, number>; back: Set<FlowEdge> } {
   const out = new Map<string, FlowEdge[]>(flow.nodes.map(n => [n.id, []]))
   for (const edge of flow.edges) if (edge.from !== edge.to) out.get(edge.from)?.push(edge)
-  const named = new Map(flow.nodes.map((n, i) => [n.id, i]))
+  const named = new Map<string, number>()
+  const into = new Set(flow.edges.filter(e => e.from !== e.to).map(e => e.to))
+  const roots = flow.nodes.filter(n => !into.has(n.id))
+  for (const start of [...roots, ...flow.nodes]) {
+    if (named.has(start.id)) continue
+    named.set(start.id, named.size)
+    const queue = [start.id]
+    while (queue.length > 0) {
+      for (const edge of out.get(queue.shift()!) ?? []) {
+        if (named.has(edge.to)) continue
+        named.set(edge.to, named.size)
+        queue.push(edge.to)
+      }
+    }
+  }
   const reaches = (from: string, to: string) => {
     const seen = new Set([from])
     const queue = [from]
