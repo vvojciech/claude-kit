@@ -97,11 +97,12 @@ describe('drawFlow top-down', () => {
     for (const line of lines.slice(b + 1, d)) expect(line).toMatch(/│$/)
   })
 
-  test('keeps a loop off the other boxes in its source\'s rank by setting that source outermost', async () => {
+  test('runs a loop down the side its source sits on, so it never passes a neighbour', async () => {
     const { lines } = draw('flowchart TD\nA --> B\nB --> C[Loop back]\nB --> D[Carry on]\nC --> A')
     const row = lines[rowOf(lines, 'Loop back')]!
 
-    expect(row.indexOf('Loop back')).toBeGreaterThan(row.indexOf('Carry on'))
+    expect(row.indexOf('Loop back')).toBeLessThan(row.indexOf('Carry on'))
+    expect(row).toMatch(/^ *└─*┤ Loop back │/)
   })
 
   test('loops a back edge under the chart when it runs left to right', async () => {
@@ -172,7 +173,7 @@ describe('drawFlow labels and cycles', () => {
     const review = td[rowOf(td, 'Review')]!
     const lane = review.indexOf('┘')
 
-    expect(draft.filter(line => line.includes('◀'))).toHaveLength(2)
+    expect(draft.filter(line => /[◀▶]/.test(line))).toHaveLength(1)
     expect(td.slice(0, rowOf(td, 'Review')).filter(line => /changes|requested/.test(line)).every(line => line.search(/changes|requested/) < lane)).toBe(true)
     expect(draw(source.replace('TD', 'LR'), 160).drawn).toBeDefined()
   })
@@ -194,6 +195,25 @@ describe('drawFlow cycle order', () => {
 
     expect(rowOf(lines, 'Overlay')).toBeLessThan(rowOf(lines, 'Any?'))
     expect(rowOf(lines, 'Overlay')).toBeGreaterThan(rowOf(lines, 'Rate'))
+  })
+})
+
+describe('drawFlow declared order', () => {
+  test('keeps branches in the order the source declares them, a loop from the first one running down the left', async () => {
+    const source = 'flowchart TD\nDraft --> Review\nReview -->|approved| Merged\nReview -->|changes requested| Draft\nMerged --> Deploy{Deploy ok?}\nDeploy -->|no| Rollback\nRollback --> Draft\nDeploy -->|yes| Live'
+    const { lines } = draw(source, 120)
+    const row = lines[rowOf(lines, 'Rollback')]!
+    const draft = rowOf(lines, 'Draft')
+
+    expect(row.indexOf('Rollback')).toBeLessThan(row.indexOf('Live'))
+    expect(lines[draft]).toMatch(/▶│ Draft │◀/)
+  })
+
+  test('keeps a decision\'s branches in declared order', async () => {
+    const { lines } = draw('flowchart TD\nA[Start] --> F{Any?}\nF -->|none| G[Fallback]\nG --> A\nF -->|some| H[Apply]')
+    const row = lines[rowOf(lines, 'Fallback')]!
+
+    expect(row.indexOf('Fallback')).toBeLessThan(row.indexOf('Apply'))
   })
 })
 
