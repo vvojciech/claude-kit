@@ -274,6 +274,9 @@ function layout(flow: Flow, cap: number): Layout {
   for (const v of vertices) ranks[v.rank]!.push(v)
   const ups = new Map<Vertex, Vertex[]>()
   const downs = new Map<Vertex, Vertex[]>()
+  // the children a box reaches by solid edges: the main line it sits over
+  const solid = new Map<Vertex, Vertex[]>()
+  for (const { edge, path } of routes) if (edge.stroke === 'solid') solid.set(path[0]!, [...(solid.get(path[0]!) ?? []), path[1]!])
   for (const { path } of routes)
     for (let i = 1; i < path.length; i++) {
       ups.set(path[i]!, [...(ups.get(path[i]!) ?? []), path[i - 1]!])
@@ -375,10 +378,11 @@ function layout(flow: Flow, cap: number): Layout {
       list.forEach((v, i) => {
         const d = only(v, downs)
         if (!v.node || !d || only(d, ups) !== v || centre(d) === centre(v)) return
+        // the boxes beside it in its rank move aside to make room, keeping their order
         const want = centre(d) - Math.floor(v.cross / 2)
-        const left = list[i - 1]
-        const right = list[i + 1]
-        if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
+        v.at = want
+        for (let k = i + 1; k < list.length; k++) list[k]!.at = Math.max(list[k]!.at, list[k - 1]!.at + list[k - 1]!.cross + gap)
+        for (let k = i - 1; k >= 0; k--) list[k]!.at = Math.min(list[k]!.at, list[k + 1]!.at - gap - list[k]!.cross)
       })
   }
   for (let pass = 0; pass < 2; pass++) {
@@ -397,21 +401,34 @@ function layout(flow: Flow, cap: number): Layout {
   }
   // a parent of several children sits over the middle of their span when its neighbours leave room,
   // so its fan-out bar is even on both sides
-  for (const list of [...ranks].reverse())
-    list.forEach((v, i) => {
-      const kids = downs.get(v) ?? []
-      // a parent starting a long edge stays over it, so the long edge keeps running straight
-      if (!v.node || kids.length < 2 || kids.some(k => !k.node)) return
-      // with an odd number of children it sits over the middle one, whose edge then runs straight
-      const sorted = [...kids].sort((a, b) => centre(a) - centre(b))
-      const middle = kids.length % 2 === 1 ? centre(sorted[(kids.length - 1) / 2]!) : (centre(sorted[0]!) + centre(sorted.at(-1)!)) / 2
-      const want = Math.round(middle) - Math.floor(v.cross / 2)
-      const left = list[i - 1]
-      const right = list[i + 1]
-      if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
-    })
-  // centring a box can leave its lone parent a cell off; the parent follows it
-  overChild()
+  const overChildren = () => {
+    for (const list of [...ranks].reverse())
+      list.forEach((v, i) => {
+        // a dotted side edge doesn't pull a box off its main line: it centres over its solid children
+        const all = downs.get(v) ?? []
+        const kids = (solid.get(v)?.length ?? 0) > 0 && all.length > 1 ? solid.get(v)! : all
+        // a parent starting a long edge stays over it, so the long edge keeps running straight
+        if (!v.node || all.length < 2 || kids.some(k => !k.node)) return
+        if (kids.length === 1) {
+          v.at = centre(kids[0]!) - Math.floor(v.cross / 2)
+          for (let k = i + 1; k < list.length; k++) list[k]!.at = Math.max(list[k]!.at, list[k - 1]!.at + list[k - 1]!.cross + gap)
+          for (let k = i - 1; k >= 0; k--) list[k]!.at = Math.min(list[k]!.at, list[k + 1]!.at - gap - list[k]!.cross)
+          return
+        }
+        // with an odd number of children it sits over the middle one, whose edge then runs straight
+        const sorted = [...kids].sort((a, b) => centre(a) - centre(b))
+        const middle = kids.length % 2 === 1 ? centre(sorted[(kids.length - 1) / 2]!) : (centre(sorted[0]!) + centre(sorted.at(-1)!)) / 2
+        const want = Math.round(middle) - Math.floor(v.cross / 2)
+        const left = list[i - 1]
+        const right = list[i + 1]
+        if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
+      })
+  }
+  // centring a box can leave its parent a cell off; the two settle together over a few rounds
+  for (let round = 0; round < 3; round++) {
+    overChildren()
+    overChild()
+  }
   // a box outside a subgraph that sits within the span of the subgraph's frame moves past it, along
   // with the boxes beyond it in its rank, so the frame never takes it in
   for (const group of flow.groups) {
@@ -681,9 +698,9 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     channels[into]!.label = Math.max(channels[into]!.label, room)
   }
 
-  // a chart with subgraphs gets three spare rows at each end of every channel: a frame's border runs
+  // a chart with subgraphs gets four spare rows at each end of every channel: a frame's border runs
   // on the one by the boxes, and the others keep it clear of the edges turning beyond
-  const pad = flow.groups.length > 0 ? 3 : 0
+  const pad = flow.groups.length > 0 ? 4 : 0
   // main-axis offsets: rank bands and the channels between them
   const bandStart: number[] = []
   const bandSize = ranks.map(list => Math.max(0, ...list.map(v => v.main)))

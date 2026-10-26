@@ -343,6 +343,21 @@ describe('drawFlow subgraphs', () => {
     expect(row).toMatch(/┼─+▶│ Lead/)
   })
 
+  test('keeps edges turning outside a frame at least three cells clear of it', async () => {
+    const { lines } = draw('flowchart LR\nsubgraph G [Group]\nA[One] --> B[Two]\nA --> C[Three]\nend\nB --> T[Out]\nC --> T', 160)
+    const frame = lines.find(line => line.includes('╮'))!.indexOf('╮')
+    const turns = lines.flatMap(line => [...line].flatMap((ch, i) => ('┐┘├┤'.includes(ch) && i > frame ? [i] : [])))
+
+    expect(Math.min(...turns) - frame).toBeGreaterThanOrEqual(3)
+  })
+
+  test('sets a lone parent level with its only child even when a neighbour has to move aside', async () => {
+    const { lines } = draw('flowchart LR\n    subgraph Ingest\n        W[SB-webhook] --> R[lead-router]\n    end\n    subgraph Flexor\n        L[Lead processor] --> S{Score >= 70?}\n        S -->|yes| H[CBD queue]\n        S -->|no| N[Nurture queue]\n    end\n    R -->|lead_captured| L\n    R -.->|prospect_data_collected| D[(Snowflake)]\n    H --> T([Twilio Flex])\n    N --> T', 200)
+
+    expect(rowOf(lines, 'Lead processor')).toBe(rowOf(lines, 'Score >= 70?'))
+    expect(rowOf(lines, 'lead-router')).toBe(rowOf(lines, 'Lead processor'))
+  })
+
   test('keeps the members of a subgraph side by side in a rank', async () => {
     const { lines } = draw('flowchart TD\nR --> A & X & B\nsubgraph G [Group]\nA\nB\nend')
     const row = lines[rowOf(lines, ' A ')]!
