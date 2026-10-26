@@ -133,15 +133,33 @@ function boxOf(node: FlowNode, cap: number, across: boolean): Pick<Vertex, 'line
   return { lines, main: across ? width : height, cross: across ? height : width }
 }
 
-// Edges that close a cycle are laid out reversed, so every rank points one way.
+// Edges that close a cycle are laid out reversed, so every rank points one way. The edge turned
+// round is the one written against the flow: on a cycle, from a node to one named before it.
+// Whatever cycle that leaves is broken where a depth-first walk closes it.
 function ranksOf(flow: Flow): { rank: Map<string, number>; back: Set<FlowEdge> } {
   const out = new Map<string, FlowEdge[]>(flow.nodes.map(n => [n.id, []]))
   for (const edge of flow.edges) if (edge.from !== edge.to) out.get(edge.from)?.push(edge)
+  const named = new Map(flow.nodes.map((n, i) => [n.id, i]))
+  const reaches = (from: string, to: string) => {
+    const seen = new Set([from])
+    const queue = [from]
+    while (queue.length > 0) {
+      const id = queue.shift()!
+      if (id === to) return true
+      for (const edge of out.get(id) ?? []) if (!back.has(edge) && !seen.has(edge.to)) seen.add(edge.to) && queue.push(edge.to)
+    }
+    return false
+  }
+  // the edge furthest against the flow turns first; one that no longer closes a cycle stays put
   const back = new Set<FlowEdge>()
+  const against = flow.edges.filter(e => e.from !== e.to && named.get(e.to)! < named.get(e.from)!)
+  against.sort((a, b) => named.get(b.from)! - named.get(b.to)! - (named.get(a.from)! - named.get(a.to)!))
+  for (const edge of against) if (reaches(edge.to, edge.from)) back.add(edge)
   const state = new Map<string, 1 | 2>()
   const visit = (id: string) => {
     state.set(id, 1)
     for (const edge of out.get(id) ?? []) {
+      if (back.has(edge)) continue
       const seen = state.get(edge.to)
       if (seen === 1) back.add(edge)
       else if (seen === undefined) visit(edge.to)

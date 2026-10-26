@@ -156,6 +156,16 @@ describe('drawFlow labels and cycles', () => {
   })
 })
 
+describe('drawFlow cycles', () => {
+  test('turns round the edge written against the flow, so a node keeps the rank its first parent gives it', async () => {
+    const source = 'flowchart TD\nA --> B{Pick}\nB --> C[Short path]\nB --> D[Long path]\nC --> E[Merge]\nD --> F[Full]\nF --> E\nE --> G{Accept?}\nG --> H[Change]\nH --> F'
+    const { lines } = draw(source)
+
+    expect(rowOf(lines, 'Full')).toBeLessThan(rowOf(lines, 'Merge'))
+    expect(rowOf(lines, 'Full')).toBeGreaterThan(rowOf(lines, 'Long path'))
+  })
+})
+
 describe('drawFlow left-right', () => {
   test('sets the target to the right of its source with ▶ on the line between', async () => {
     const { lines } = draw('flowchart LR\nA[Start] --> B[Stop]')
