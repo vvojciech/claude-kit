@@ -57,7 +57,8 @@ describe('drawFlow top-down', () => {
     const { lines } = draw('flowchart TD\nA{Ok?} --> B')
 
     expect(lines[0]).toMatch(/^╱─+╲$/)
-    expect(lines[1]).toMatch(/^< +Ok\? +>$/)
+    expect(lines[1]).toMatch(/^◇ +Ok\? +◇$/)
+    expect(draw('flowchart TD\nA{{Prep}} --> B').lines[1]).toMatch(/^< +Prep +>$/)
   })
 
   test('draws a subroutine with doubled sides', async () => {
@@ -145,7 +146,7 @@ describe('drawFlow top-down', () => {
     const sides = lines.slice(top + 1, bottom).map(line => [...line][left])
 
     expect(sides.length).toBeGreaterThan(1)
-    expect(sides.every(ch => ch === '╱' || ch === '╲' || ch === '<')).toBe(true)
+    expect(sides.every(ch => ch === '╱' || ch === '╲' || ch === '◇')).toBe(true)
   })
 
   test('draws a dotted edge with dotted strokes and a thick one heavy', async () => {
@@ -256,12 +257,15 @@ describe('drawFlow subgraphs', () => {
     expect(lines[bottom]).toContain('┼')
   })
 
-  test('gives each edge into a top-down box its own head, at least three cells apart', async () => {
-    const { lines } = draw('flowchart TD\nA[Left] --> C[Done]\nB[Right] --> C')
-    const heads = [...lines[rowOf(lines, 'Done') - 2]!].flatMap((ch, i) => (ch === '▼' ? [i] : []))
+  test('joins edges of one stroke into a box on a bus that meets over one centred head', async () => {
+    const { lines } = draw('flowchart TD\nA[Left side] --> C[Done]\nB[Right side] --> C')
+    const done = rowOf(lines, 'Done')
+    const head = [...lines[done - 2]!].indexOf('▼')
+    const box = lines[done]!
 
-    expect(heads).toHaveLength(2)
-    expect(heads[1]! - heads[0]!).toBeGreaterThanOrEqual(3)
+    expect([...lines[done - 2]!].filter(ch => ch === '▼')).toHaveLength(1)
+    expect(Math.abs(head - (box.indexOf('│') + box.lastIndexOf('│')) / 2)).toBeLessThanOrEqual(1)
+    expect(lines.some(line => /└─+┬─+┘/.test(line))).toBe(true)
   })
 
   test('joins edges of one stroke into a left-right box at one port on its side', async () => {
@@ -310,9 +314,9 @@ describe('drawFlow left-right', () => {
   test('runs the main edge into a left-right decision\'s tip and drops another onto its top with a head of its own', async () => {
     const { lines } = draw('flowchart LR\nE[Rate] --> F{Any?}\nE -.-> K[Side]\nK -.-> F')
     const top = rowOf(lines, '╱───')
-    const tip = lines.find(line => line.includes('<'))!
+    const tip = lines.find(line => line.includes('◇'))!
 
-    expect(tip).toMatch(/Rate *├─+▶</)
+    expect(tip).toMatch(/Rate *├─+▶◇/)
     expect(lines[top - 1]).toContain('▼')
     expect([...lines[top - 1]!].indexOf('▼')).toBeGreaterThan([...lines[top]!].indexOf('╱'))
     expect([...lines[top - 1]!].indexOf('▼')).toBeLessThan([...lines[top]!].indexOf('╲'))

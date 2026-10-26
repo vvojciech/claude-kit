@@ -412,7 +412,8 @@ const CORNERS: Record<Shape, Corners> = {
   round: ['╭', '╮', '╰', '╯', '│', '│'],
   stadium: ['╭', '╮', '╰', '╯', '(', ')'],
   circle: ['╭', '╮', '╰', '╯', '(', ')'],
-  diamond: ['╱', '╲', '╲', '╱', '<', '>'],
+  // a decision's tips are ◇ so it never reads as a {{hexagon}}, which keeps < and >
+  diamond: ['╱', '╲', '╲', '╱', '◇', '◇'],
   hexagon: ['╱', '╲', '╲', '╱', '<', '>'],
   database: ['╒', '╕', '╘', '╛', '│', '│'],
   flag: ['┌', '┐', '└', '┘', '>', '│'],
@@ -557,14 +558,15 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       })
       continue
     }
-    const want = (route: Route) => Math.max(lo, Math.min(hi, list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route)))
+    const many = (route: Route) => list.filter(r => r.edge.stroke === route.edge.stroke).length > 1
+    const want = (route: Route) => Math.max(lo, Math.min(hi, (list.length === 1 && route.path.at(-2)!.node) || many(route) ? centre(v) : from(route)))
     const first = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(want(a) - from(a)) - Math.abs(want(b) - from(b)))
     const taken: number[] = []
     const joined = new Map<Stroke, number>()
     for (const route of first) {
-      // left to right, edges of one stroke join on one bus into the box's side and share its head;
-      // top-down, each keeps a head of its own
-      const shared = across ? joined.get(route.edge.stroke) : undefined
+      // edges of one stroke join on one bus into the box and share its head, which sits mid-box
+      // when more than one of them comes in
+      const shared = joined.get(route.edge.stroke)
       if (shared !== undefined) {
         landing.set(route, shared)
         continue
@@ -591,7 +593,9 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       const a = crossAt(p.route, i)
       const b = crossAt(p.route, i + 1)
       if (a === b) continue
-      spans.push({ p, lo: Math.min(a, b), hi: Math.max(a, b), owner: `${p.route.path[i]!.key}:${i === 0 ? crossAt(p.route, 0) : ''}` })
+      // edges fanning out of one port share a track, and so do edges meeting at one head
+      const meets = i + 1 === p.route.path.length - 1
+      spans.push({ p, lo: Math.min(a, b), hi: Math.max(a, b), owner: meets && landing.get(p.route) !== undefined && [...landing].filter(([r, at]) => r.path.at(-1) === p.route.path.at(-1) && at === b).length > 1 ? `in:${p.route.path.at(-1)!.key}:${b}` : `${p.route.path[i]!.key}:${i === 0 ? crossAt(p.route, 0) : ''}` })
     }
     // edges fanning out of one node share a track; others take the first track they don't overlap
     const used: Array<Array<{ lo: number; hi: number; owner: string }>> = []
