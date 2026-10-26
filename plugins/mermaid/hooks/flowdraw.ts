@@ -97,7 +97,7 @@ class Grid {
 function glyph(cell: Cell): string {
   const mask = cell.mask === UP || cell.mask === DOWN ? UP | DOWN : cell.mask === LEFT || cell.mask === RIGHT ? LEFT | RIGHT : cell.mask
   if (cell.stroke === 'dotted') {
-    if (mask === (UP | DOWN)) return '╎'
+    if (mask === (UP | DOWN)) return '┊'
     if (mask === (LEFT | RIGHT)) return '╌'
   }
   return GLYPHS[cell.stroke === 'thick' ? 'thick' : 'solid'][mask]!
