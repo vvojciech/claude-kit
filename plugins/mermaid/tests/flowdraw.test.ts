@@ -175,6 +175,37 @@ describe('drawFlow ordering', () => {
   })
 })
 
+describe('drawFlow subgraphs', () => {
+  test('frames a subgraph round its members with its title in the top border', async () => {
+    const { lines } = draw('flowchart TD\nX[Outside] --> A\nsubgraph S [Services]\nA[Alpha] --> B[Beta]\nend\nB --> Y[After]')
+    const top = rowOf(lines, 'Services')
+    const left = lines[top]!.indexOf('╭')
+
+    expect(lines[top]).toMatch(/^ *╭[─│]*─ Services ─+╮$/)
+    expect(top).toBeGreaterThan(rowOf(lines, 'Outside'))
+    expect(top).toBeLessThan(rowOf(lines, 'Alpha'))
+    for (const name of ['Alpha', 'Beta']) expect(lines[rowOf(lines, name)]![left]).toBe('│')
+    expect(lines[rowOf(lines, 'After')]![left]).not.toBe('│')
+  })
+
+  test('moves a box that is not a member out of the way of a subgraph\'s frame, and draws no blank rows above the chart', async () => {
+    const { lines } = draw('flowchart LR\nsubgraph In [Ingest]\nW[Webhook] --> R[Router]\nend\nsubgraph Fx [Flexor]\nL[Lead] --> S{Score?}\nS -->|yes| H[Hot]\nS -->|no| N[Cold]\nend\nR --> L\nR -.-> D[(Warehouse)]', 200)
+
+    expect(lines.join('\n')).toContain('Ingest')
+    expect(lines.join('\n')).toContain('Flexor')
+    expect(lines[0]!.trim()).not.toBe('')
+  })
+
+  test('keeps the members of a subgraph side by side in a rank', async () => {
+    const { lines } = draw('flowchart TD\nR --> A & X & B\nsubgraph G [Group]\nA\nB\nend')
+    const row = lines[rowOf(lines, ' A ')]!
+
+    const [a, b, x] = [' A ', ' B ', ' X '].map(name => row.indexOf(name))
+
+    expect(x! > Math.min(a!, b!) && x! < Math.max(a!, b!)).toBe(false)
+  })
+})
+
 describe('drawFlow left-right', () => {
   test('sets the target to the right of its source with ▶ on the line between', async () => {
     const { lines } = draw('flowchart LR\nA[Start] --> B[Stop]')

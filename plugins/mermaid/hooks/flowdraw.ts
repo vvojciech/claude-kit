@@ -294,7 +294,13 @@ function layout(flow: Flow, cap: number): Layout {
     if (count < best.count) best = { count, order: vertices.map(v => v.order) }
   }
   vertices.forEach((v, i) => (v.order = best.order[i]!))
-  for (const list of ranks) list.sort((a, b) => a.order - b.order)
+  // a subgraph's members in one rank sit together, at the place its first member took
+  for (const list of ranks) {
+    const first = new Map<string, number>()
+    for (const v of [...list].sort((a, b) => a.order - b.order)) if (v.node?.group && !first.has(v.node.group)) first.set(v.node.group, v.order)
+    list.sort((a, b) => (a.node?.group ? first.get(a.node.group)! : a.order) - (b.node?.group ? first.get(b.node.group)! : b.order) || a.order - b.order)
+    list.forEach((v, i) => (v.order = i))
+  }
   // a box a loop leaves or enters goes last in its rank, on the side the loop's lane runs, so the
   // loop never runs through a neighbour
   const looped = new Set(loops.flatMap(loop => [loop.from, loop.to]))
@@ -302,7 +308,8 @@ function layout(flow: Flow, cap: number): Layout {
     list.sort((a, b) => Number(looped.has(a)) - Number(looped.has(b)) || a.order - b.order)
     list.forEach((v, i) => (v.order = i))
   }
-  const gap = across ? 1 : 3
+  // a frame needs a cell either side of its members and a cell between it and its neighbour
+  const gap = flow.groups.length > 0 ? 5 : across ? 1 : 3
   for (const list of ranks) {
     let at = 0
     for (const v of list) {
@@ -342,7 +349,25 @@ function layout(flow: Flow, cap: number): Layout {
         const right = list[i + 1]
         if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
       })
-  const least = Math.min(...vertices.map(v => v.at))
+  // a box outside a subgraph that sits within the span of the subgraph's frame moves past it, along
+  // with the boxes beyond it in its rank, so the frame never takes it in
+  for (const group of flow.groups) {
+    const members = vertices.filter(v => v.node?.group === group.id)
+    if (members.length === 0) continue
+    const first = Math.min(...members.map(v => v.rank))
+    const last = Math.max(...members.map(v => v.rank))
+    const near = Math.min(...members.map(v => v.at))
+    const far = Math.max(...members.map(v => v.at + v.cross))
+    for (const list of ranks.slice(first, last + 1)) {
+      list.forEach((v, i) => {
+        if (!v.node || v.node.group === group.id || v.at >= far + 2 || v.at + v.cross <= near - 2) return
+        const shift = v.at + v.cross / 2 >= (near + far) / 2 ? far + gap - v.at : near - gap - (v.at + v.cross)
+        for (const w of shift > 0 ? list.slice(i) : list.slice(0, i + 1)) w.at += shift
+      })
+    }
+  }
+  // a chart with subgraphs keeps two cells clear on its near side for a frame's border
+  const least = Math.min(...vertices.map(v => v.at)) - (flow.groups.length > 0 ? 2 : 0)
   for (const v of vertices) v.at -= least
   return { vertices, ranks, routes, loops, across, reversed }
 }
@@ -516,18 +541,21 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     channels[into]!.label = Math.max(channels[into]!.label, room)
   }
 
+  // a chart with subgraphs gets two spare rows at each end of every channel: a frame's border runs
+  // on the one by the boxes, and the other keeps it clear of the edges turning beyond
+  const pad = flow.groups.length > 0 ? 2 : 0
   // main-axis offsets: rank bands and the channels between them
   const bandStart: number[] = []
   const bandSize = ranks.map(list => Math.max(0, ...list.map(v => v.main)))
   const channelStart: number[] = []
-  let run = 0
+  let run = 2 * pad
   ranks.forEach((_, r) => {
     bandStart.push(run)
     run += bandSize[r]!
     if (r < channels.length) {
       channelStart.push(run)
       // left to right, a head gets a two-cell stub so it never crowds the box it enters
-      run += 1 + channels[r]!.tracks + channels[r]!.label + (across ? 2 : 1)
+      run += 1 + 2 * pad + channels[r]!.tracks + channels[r]!.label + (across ? 2 : 1)
     }
   })
   const mainTotal = run
@@ -576,7 +604,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       const from = v.node ? bandStart[c]! + v.main : bandStart[c]!
       const a = crossAt(route, i)
       const b = crossAt(route, i + 1)
-      const lane = channelStart[c]! + 1 + (p.tracks[c] ?? 0)
+      const lane = channelStart[c]! + 1 + pad + (p.tracks[c] ?? 0)
       const end = channelStart[c + 1] === undefined && c + 1 === ranks.length - 1 ? bandStart[c + 1]! - 1 : bandStart[c + 1]! - 1
       if (!v.node) segment(bandStart[c]!, a, bandStart[c]! + bandSize[c]! - 1, a, stroke)
       if (i === path.length - 2 && ontoTop.has(route)) {
@@ -594,7 +622,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
       segment(turn, b, end, b, stroke)
       if (i === path.length - 2) {
         const lines = labelOf(route.edge)
-        if (lines.length > 0) labels.push({ route, m: channelStart[c]! + 2 + channels[c]!.tracks, k: b, lines })
+        if (lines.length > 0) labels.push({ route, m: channelStart[c]! + 2 + pad + channels[c]!.tracks, k: b, lines })
       }
     }
     const last = path.at(-1)!
@@ -654,6 +682,47 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
         spots: across ? undefined : [[a - 1, side(loop.from) + 1], [Math.round((a + b) / 2) - Math.floor(lines.length / 2), lane + 2]],
       })
   })
+  // each subgraph is framed round its members, unless a box outside it would land inside the frame
+  for (const group of flow.groups) {
+    const members = plan.vertices.filter(v => v.node?.group === group.id)
+    if (members.length === 0) continue
+    const lo = Math.min(...members.map(v => bandStart[v.rank]!)) - 2
+    const hi = Math.max(...members.map(v => bandStart[v.rank]! + bandSize[v.rank]!)) + 1
+    const near = Math.min(...members.map(v => v.at)) - 2
+    const title = ` ${group.label} `
+    // top-down, the frame is at least wide enough for its title
+    const far = Math.max(...members.map(v => v.at + v.cross)) + 1 + (across ? 0 : Math.max(0, near + cellWidth(title) + 5 - Math.max(...members.map(v => v.at + v.cross)) - 1))
+    const inside = (v: Vertex) => v.node && v.node.group !== group.id && bandStart[v.rank]! + v.main > lo && bandStart[v.rank]! < hi && v.at + v.cross > near && v.at < far
+    if (plan.vertices.some(inside) || near < 0 || lo < 0) continue
+    const [x0, y0] = xy(lo, near)
+    const [x1, y1] = xy(hi, far)
+    const [left, top, bottom] = [Math.min(x0, x1), Math.min(y0, y1), Math.max(y0, y1)]
+    // the frame reaches far enough past the last line crossing its top for the title to fit there
+    const crossed = Array.from({ length: Math.max(x0, x1) - left + 1 }, (_, i) => left + i).filter(x => (grid.cells[top]?.[x]?.mask ?? 0) !== 0)
+    const right = Math.max(Math.max(x0, x1), crossed.length > 0 && cellWidth(title) + 3 > crossed[0]! - left ? Math.max(...crossed) + cellWidth(title) + 4 : 0)
+    if (right >= width) continue
+    const edge = (x: number, y: number, char: string) => {
+      if (grid.isFree(x, y)) grid.put(x, y, char, 'frame')
+    }
+    for (let x = left + 1; x < right; x++) {
+      edge(x, top, '─')
+      edge(x, bottom, '─')
+    }
+    for (let y = top + 1; y < bottom; y++) {
+      edge(left, y, '│')
+      edge(right, y, '│')
+    }
+    edge(left, top, '╭')
+    edge(right, top, '╮')
+    edge(left, bottom, '╰')
+    edge(right, bottom, '╯')
+    // the title takes the first stretch of the top border no edge crosses
+    const clear = (at: number) => [...title, '─'].every((_, i) => grid.cells[top]?.[at - 1 + i]?.char === '─' || (at - 1 + i === left && i === 0))
+    const spot = Array.from({ length: Math.max(0, right - left - cellWidth(title) - 1) }, (_, i) => left + 2 + i).find(clear)
+    // with no clear stretch on the border it sits just inside the frame's top corner
+    if (spot !== undefined) grid.write(spot, top, title, 'name')
+    else if ([...title].every((_, i) => grid.isFree(left + 1 + i, top + 1))) grid.write(left + 1, top + 1, title, 'name')
+  }
   const notes: string[] = []
   let footnotes = 0
   for (const label of labels) {
@@ -685,7 +754,11 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
     }
   }
   for (const loop of flow.edges.filter(edge => edge.from === edge.to)) notes.push(`↺ ${loop.from} loops to itself${loop.label ? `: ${loop.label}` : ''}`)
-  return { rows: grid.runs(width), notes }
+  // rows kept clear for frames that were never drawn come off both ends
+  const rows = grid.runs(width)
+  while (rows.length > 0 && rows[0]!.length === 0) rows.shift()
+  while (rows.length > 0 && rows.at(-1)!.length === 0) rows.pop()
+  return { rows, notes }
 }
 
 const SUPERSCRIPT = '⁰¹²³⁴⁵⁶⁷⁸⁹'
