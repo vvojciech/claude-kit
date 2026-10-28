@@ -19,7 +19,7 @@ Drawn with lucid loaded. At rest a single ⧉ sits at the bottom right of the re
 - Fullscreen rendering (`/tui fullscreen`) for the ⧉ markers. `/copy-that` works without it.
 - A clipboard route: `pbcopy` on macOS, `wl-copy` (from wl-clipboard), `xclip` or `xsel` on Linux, or a terminal that takes OSC 52.
 
-copy-that works alone, with the same list on rows Claude Code draws itself. With lucid or another mod that draws replies, copy-that has to load first. See [load order](../../README.md#load-order) for how to set it.
+copy-that works alone, with the same list on rows Claude Code draws itself. With lucid or another mod that draws replies, copy-that has to load first. See [load order](#load-order) for how to set it.
 
 ## Features
 
@@ -98,6 +98,7 @@ copy-that works alone, with the same list on rows Claude Code draws itself. With
 - An alert goes by its type, such as `/copy-that note`.
 - A chip named by digits, such as `⧉ 123`, needs R first: `/copy-that 1 123`.
 - `/copy-that bash 2` is the second bash block in the reply. `/copy-that bash #2` is the second bash call in the latest group that has one.
+- Quote a name with spaces: `/copy-that "my file.md"`, `/copy-that "my file.md" #2`.
 - `/copy-that selection` copies the markdown source of what you selected, even when the selection starts or ends inside bold text or a link. When the selected text appears in more than one place, it copies nothing and asks you to select more.
 
 ## Troubleshooting
@@ -107,7 +108,7 @@ When copy-that is working, the first reply that gets a ⧉ in a session also sho
 ### No ⧉ under replies
 
 - Fullscreen is off. copy-that says so once with the toast `⧉ needs fullscreen; use /copy-that`. Turn it on with `/tui fullscreen`.
-- Another mod draws replies before copy-that. See [load order](../../README.md#load-order).
+- Another mod draws replies before copy-that. See [load order](#load-order).
   In that case, after the first settled reply copy-that leaves this status line, and every `/copy-that` answer repeats it: `Put copy-that first in CLAUDE_CODE_PLUGIN_DIRS (a plugin listed earlier draws replies)`.
 - The reply is still being written. The marker comes when it ends.
 - The ⧉ is near the top of the screen and the list is cut off. Scroll down a little.
@@ -127,3 +128,7 @@ When copy-that is working, the first reply that gets a ⧉ in a session also sho
 - Some background agent reports reach the session in a form copy-that can't read. Those get no chip, and `/copy-that output` says so.
 - A block whose language clashes with a command word (`table`, `code`, `reply`, `quote`, an alert type, `file`, `plan`, `output`, `selection`, `help`) is renamed, for example `⧉ table-code`.
 - A quote inside another quote has no chip of its own. A nested quote copies one level shallower.
+
+## Load order
+
+Running several mods? Load them in this order: copy-that, peek, mermaid, then any mod that draws replies itself (lucid, for example). `/plugin install` can't set the order, so clone this repo and list the mod folders in that order in `CLAUDE_CODE_PLUGIN_DIRS`, in the `env` block of `~/.claude/settings.json`. Restart Claude Code afterwards.

@@ -2,7 +2,7 @@ import type { EngineInterface, RenderElement, RenderInputOf, RenderViewport, Ses
 
 import { copyText } from './clipboard'
 import { NOTICE_MS, hintOnce } from './hints'
-import { agentReport, ownedReply, resolve } from './history'
+import { agentReport, ownedReply, replyNumber, resolve } from './history'
 import type { AssistantRender } from './history'
 import { holdsCall, holdsText, menuCap, fitMenu, menuRows, menuWidth, opening, rowsBefore, wrappedRows } from './menu'
 import { FIRST_RUN, LONGEST_FLASH, confirmation, failure, flashOf, flashSuffices, callsInGroup, moreTargets, sharedTail, sharedTailNote, toastWidth } from './notices'
@@ -12,7 +12,7 @@ import type { Flash, Marker, Note } from './row'
 import { session } from './session'
 import { blockTargets, replyTargets } from './targets'
 import type { Target } from './targets'
-import { groupTargets, launchedInBackground, reportedCalls, reportedTarget, toolTarget } from './tools'
+import { AGENT_TOOLS, groupTargets, launchedInBackground, reportedCalls, reportedTarget, toolTarget } from './tools'
 import type { ToolCall } from './tools'
 
 export type ToolRender = RenderInputOf<'ToolUse', 'terminal'>
@@ -23,7 +23,7 @@ type Settled = Pick<ToolCall, 'tool' | 'input' | 'output'> & { isRunning: boolea
 
 type Copied = { notice?: string; flash: string; ok: boolean }
 
-type Overflow = (hidden: Target[], width: number) => string
+type Overflow = (hidden: Target[], width: number) => string | Promise<string>
 
 type MarkerSpec = Pick<Marker, 'scope' | 'row' | 'partial' | 'note' | 'flashOnGlyph' | 'opening' | 'width'> & { overflow: Overflow; columns: number | undefined }
 
@@ -70,7 +70,7 @@ async function markerFor($: EngineInterface, spec: MarkerSpec): Promise<Marker> 
       flash($, spec.scope, { key: keyOf(target), text: done.flash, ok: done.ok })
       if (done.notice !== undefined) $.ui.toast(done.notice)
     },
-    more: hidden => () => $.ui.toast(overflow(hidden, toastWidth(columns))),
+    more: hidden => async () => $.ui.toast(await overflow(hidden, toastWidth(columns))),
   }
 }
 
@@ -111,12 +111,14 @@ export async function withMarker($: EngineInterface, e: AssistantRender, drawn: 
   hintOnce($, 'firstRun', FIRST_RUN)
   const partial = owned.reply.partial
   const menu = placed({ targets, scope, partial, note, above: await replyRoom($, e), viewport: e.viewport })
-  const spec = { scope, ...menu, partial, flashOnGlyph: false, note, overflow: moreTargets, columns: e.viewport?.columns }
+  const overflow = async (hidden: Target[]) => moreTargets(hidden, owned.shared ? undefined : await replyNumber($, owned.reply))
+  const spec = { scope, ...menu, partial, flashOnGlyph: false, note, overflow, columns: e.viewport?.columns }
   return replyMarker($.ui.resolve(e), drawn, await markerFor($, spec))
 }
 
 async function rowTarget($: EngineInterface, call: ToolCall): Promise<Target | undefined> {
-  if (!launchedInBackground(call)) return toolTarget(call)
+  const direct = launchedInBackground(call) ? undefined : toolTarget(call)
+  if (direct !== undefined || !AGENT_TOOLS.has(call.tool)) return direct
   return reportedTarget(call, await $.session.messages(), agentId => agentReport($, agentId))
 }
 

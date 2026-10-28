@@ -1,4 +1,4 @@
-import { CODE, OUTPUT, REPLY, TOOL_KINDS, TOOL_WHAT, replyTargets } from './targets'
+import { CALL_MARK, CODE, OUTPUT, REPLY, TOOL_KINDS, TOOL_WHAT, replyTargets } from './targets'
 import type { Resolved, Target, ToolKind } from './targets'
 
 export type Choice = { text: string; what: string } | { error: string }
@@ -45,6 +45,7 @@ const PARAGRAPHS = [
     'Chips on a group with more name each call instead, and /copy-that copies the last call of that name:',
     '/copy-that notes.md for ⧉ notes.md, /copy-that bash for ⧉ bash.',
     'A repeated name, as ⧉ bash #2, numbers a call from the top of its group: /copy-that bash #2 copies it from the last group that has it.',
+    'Quote a name with spaces: /copy-that "my file.md" #2.',
   ],
   [`/copy-that ${SELECTION} copies the markdown behind what you last selected with the mouse.`],
   ['The ⧉ markers need fullscreen; a reply still being written gets its marker when it ends.'],
@@ -81,8 +82,22 @@ export function numberFirst(index: string, name: string): string {
   return name === SELECTION ? SELECTION_HAS_NO_REPLY : `The reply number goes first: /copy-that ${index} ${name}`
 }
 
+// a quoted name is one word, spaces kept, as a file chip ⧉ my file.md shows it
 function words(args: string): string[] {
-  return args.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const parts = args.toLowerCase().split('"')
+  return parts.flatMap((part, i) => (i % 2 === 1 ? [part] : part.split(/\s+/))).filter(Boolean)
+}
+
+function isCallOrdinal(word: string): boolean {
+  const digits = word.slice(CALL_MARK.length)
+  return word.startsWith(CALL_MARK) && digits !== '' && [...digits].every(digit => digit >= '0' && digit <= '9')
+}
+
+// how to type a chip name: a name with spaces quoted, its #N after the quotes
+export function typedName(name: string): string {
+  const ordinal = name.split(' ').at(-1) ?? ''
+  const base = name.includes(' ') && isCallOrdinal(ordinal) ? name.slice(0, -ordinal.length - 1) : name
+  return base.includes(' ') ? `"${base}"${name.slice(base.length)}` : name
 }
 
 function toolRequest(given: string[]): Request | undefined {

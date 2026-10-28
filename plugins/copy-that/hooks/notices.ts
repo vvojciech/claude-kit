@@ -1,4 +1,5 @@
 import { TERMINAL_ROUTE } from './clipboard'
+import { typedName } from './commands'
 import type { CopyOutcome } from './clipboard'
 import type { Target } from './targets'
 import { cellWidth } from './width'
@@ -53,8 +54,8 @@ export function failure(error: unknown): string {
   return `Copy failed: ${error instanceof Error ? error.message : String(error)}`
 }
 
-export function moreTargets(hidden: Target[]): string {
-  return `Also in this reply: ${hidden.map(t => t.name).join(', ')}. Copy one with /copy-that <name>`
+export function moreTargets(hidden: Target[], reply = 1): string {
+  return `Also in this reply: ${hidden.map(t => t.name).join(', ')}. Copy one with /copy-that ${reply === 1 ? '' : `${reply} `}<name>`
 }
 
 export const TOAST_WIDTH = 37
@@ -104,7 +105,7 @@ function listing(lead: string, names: string[], kept: number): string {
 }
 
 function fittedList(lead: string, calls: Target[], width: number): string {
-  const names = calls.map(call => call.name)
+  const names = calls.map(call => typedName(call.name))
   for (let kept = names.length; kept > 0; kept--) {
     const text = listing(lead, names, kept)
     if (fitsToast(text, width)) return text

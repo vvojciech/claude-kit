@@ -12,8 +12,7 @@ const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b
 
 export const OUTPUT_TOOLS = new Set(['Bash', 'Grep', 'Glob', 'WebFetch', 'Agent', 'Task'])
 
-
-const AGENT_TOOLS = new Set(['Agent', 'Task'])
+export const AGENT_TOOLS = new Set(['Agent', 'Task'])
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI, '')

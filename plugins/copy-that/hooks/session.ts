@@ -21,7 +21,7 @@ export class Session {
   readonly flashes = new Map<string, Flash>()
   readonly groupCalls = new Map<string, Target>()
   // interrupted replies drawn but never stored, with where each goes among the transcript's replies
-  readonly unstored: Array<{ reply: Reply; place?: { index: number; replaces: boolean } }> = []
+  readonly unstored: Array<{ reply: Reply; storedStart: boolean; place?: { index: number; replaces: boolean } }> = []
 
   rememberGroup(targets: Target[]): void {
     for (const call of targets) {
@@ -58,19 +58,25 @@ export class Session {
     this.turnRows.push(requestId)
   }
 
+  // the block cut mid-stream is the last row drawn; any other unstored row is an older reply scrolled back to
+  inFlight(unwritten: string[]): string | undefined {
+    return [...this.drawn.keys()].reverse().find(id => unwritten.includes(id))
+  }
+
   closeTurn(isAborted: boolean): Written[] {
     const written = this.turn
-    const unwritten = isAborted ? this.turnRows.filter(id => !written.some(block => block.uuid === id)) : []
-    const drawnOnly = unwritten.flatMap(uuid => {
-      const text = this.drawn.get(uuid)
-      return text === undefined ? [] : [{ uuid, text }]
-    })
+    const unwritten = this.turnRows.filter(id => !written.some(block => block.uuid === id))
+    const cut = isAborted ? this.inFlight(unwritten) : undefined
+    for (const id of unwritten) if (id !== cut) this.liveRows.delete(id)
+    const text = cut === undefined ? undefined : this.drawn.get(cut)
+    const drawnOnly = cut === undefined || text === undefined ? [] : [{ uuid: cut, text }]
     this.turn = []
     this.turnRows = []
     this.turnOpen = false
     this.shownBeforeTurn = new Set()
     const texts = [...written, ...drawnOnly].map(block => block.text).filter(text => text.trim() !== '')
-    if (drawnOnly.length > 0 && texts.length > 0) this.unstored.push({ reply: { texts, partial: true } })
+    const storedStart = written.some(block => block.text.trim() !== '')
+    if (drawnOnly.length > 0 && texts.length > 0) this.unstored.push({ reply: { texts, partial: true }, storedStart })
     return [...written, ...drawnOnly]
   }
 }

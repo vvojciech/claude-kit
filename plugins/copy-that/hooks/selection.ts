@@ -10,17 +10,32 @@ const INLINE_CODE = /(`+)[^`\n]+?\1/g
 
 type Projection = { letters: string; at: number[]; ends: number[] }
 
+type Fence = { mark: string; size: number; bare: boolean }
+
+function fenceOf(line: string): Fence | undefined {
+  const body = line.trimStart()
+  const mark = body[0] ?? ''
+  if (mark !== '`' && mark !== '~') return undefined
+  let size = 0
+  while (body[size] === mark) size++
+  return size < 3 ? undefined : { mark, size, bare: body.slice(size).trim() === '' }
+}
+
+function closes(fence: Fence | undefined, opener: Fence): boolean {
+  return fence !== undefined && fence.bare && fence.mark === opener.mark && fence.size >= opener.size
+}
+
 // inline spans and fenced block bodies, where the renderer draws `<a>` or `&amp;` as written
 function codeRanges(source: string, withInline = true): Cut[] {
   const ranges: Cut[] = []
-  let opened: number | undefined
+  let opened: { at: number; fence: Fence } | undefined
   let offset = 0
   for (const line of source.split('\n')) {
     const end = offset + line.length
-    const isFence = /^[ \t]*(?:`{3,}|~{3,})/.test(line)
-    if (isFence && opened === undefined) opened = end
-    else if (isFence && opened !== undefined) {
-      ranges.push({ from: opened, to: offset })
+    const fence = fenceOf(line)
+    if (opened === undefined && fence !== undefined) opened = { at: end, fence }
+    else if (opened !== undefined && closes(fence, opened.fence)) {
+      ranges.push({ from: opened.at, to: offset })
       opened = undefined
     } else if (withInline && opened === undefined) {
       for (const match of line.matchAll(INLINE_CODE)) {
@@ -30,7 +45,7 @@ function codeRanges(source: string, withInline = true): Cut[] {
     }
     offset = end + 1
   }
-  if (opened !== undefined) ranges.push({ from: opened, to: source.length })
+  if (opened !== undefined) ranges.push({ from: opened.at, to: source.length })
   return ranges
 }
 

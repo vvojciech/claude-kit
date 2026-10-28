@@ -5,6 +5,7 @@ import { replyBlocks } from './model'
 import { failure } from './notices'
 import { repliesEndingWith, repliesFrom, replyText } from './replies'
 import { session } from './session'
+import type { Session } from './session'
 import type { Resolved } from './targets'
 import { handbackReport } from './tools'
 import { ownersOf } from './turns'
@@ -24,11 +25,14 @@ async function transcriptReplies($: EngineInterface): Promise<Reply[]> {
 
 const startsWith = (reply: Reply, head: Reply) => head.texts.length <= reply.texts.length && head.texts.every((text, i) => reply.texts[i] === text)
 
-// right after the turn: over the transcript's last reply when it holds the stored start of this one,
+type Unstored = Session['unstored'][number]
+
+// right after the turn: over the transcript's last reply when it is this turn's stored start,
 // otherwise after it
-function placeOf(found: Reply[], reply: Reply): { index: number; replaces: boolean } {
+function placeOf(found: Reply[], entry: Unstored): { index: number; replaces: boolean } {
   const last = found.at(-1)
-  return last !== undefined && startsWith(reply, last) ? { index: found.length - 1, replaces: true } : { index: found.length, replaces: false }
+  const isOwn = entry.storedStart && last !== undefined && (startsWith(entry.reply, last) || startsWith(last, entry.reply))
+  return isOwn ? { index: found.length - 1, replaces: true } : { index: found.length, replaces: false }
 }
 
 // puts back each interrupted reply the engine never stored in full, where it was drawn
@@ -36,8 +40,9 @@ function withUnstored(found: Reply[]): Reply[] {
   const merged = [...found]
   let shift = 0
   for (const entry of session.unstored) {
-    if (found.some(reply => startsWith(reply, entry.reply))) continue
-    entry.place ??= placeOf(found, entry.reply)
+    entry.place ??= placeOf(found, entry)
+    const own = entry.place.replaces ? found[entry.place.index] : undefined
+    if (own !== undefined && startsWith(own, entry.reply)) continue
     merged.splice(entry.place.index + shift, entry.place.replaces ? 1 : 0, entry.reply)
     if (!entry.place.replaces) shift++
   }
@@ -101,6 +106,12 @@ export async function ownedReply($: EngineInterface, e: AssistantRender): Promis
   const all = await history($)
   const matches = repliesEndingWith(all, e.props.text)
   return matches.length === 0 ? undefined : sharedBy(all, matches, e.props.text)
+}
+
+// R of a reply as /copy-that counts it now, 1 the last
+export async function replyNumber($: EngineInterface, reply: Reply): Promise<number | undefined> {
+  const back = [...(await history($))].reverse().findIndex(one => one.texts.length === reply.texts.length && startsWith(one, reply))
+  return back === -1 ? undefined : back + 1
 }
 
 export async function resolve($: EngineInterface, reply: Reply): Promise<Resolved> {

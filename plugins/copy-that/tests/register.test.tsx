@@ -566,6 +566,40 @@ describe('which reply a marker copies', () => {
     expect(await labels($, REPLY)).toEqual([])
   })
 
+  test('an older reply first drawn during a turn, as on a scroll back, stays out of the reply the turn was cut in', async ($, on) => {
+    const { copied } = fakeHost(on, { messages: [prompt('a'), said('Old answer.'), prompt('count')] })
+    await $.turn.start({ text: 'count', turnId: 't' } as never)
+    await (await mount($, 'one', { requestId: 'cut' })).unmount()
+    const old = await mount($, 'Old answer.', { requestId: 'old' })
+    const cut = await mount($, 'one\ntwo', { requestId: 'cut' })
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't', reason: 'aborted' } as never)
+    await cut.press({ key: 'copy-reply' })
+    await old.press({ key: 'copy-reply' })
+    expect(copied).toEqual(['one\ntwo', 'Old answer.'])
+  })
+
+  test('/copy-that copies an interrupted reply the engine never stored even when an earlier reply opens the same way', async ($, on) => {
+    const { copied } = fakeHost(on, { messages: [prompt('a'), said('Checking.'), said('Old final answer.'), prompt('again')] })
+    await $.turn.start({ text: 'again', turnId: 't' } as never)
+    await (await mount($, 'Checking.', { requestId: 'cut' })).unmount()
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't', reason: 'aborted' } as never)
+    await run($, '')
+    await run($, '2')
+    expect(copied).toEqual(['Checking.', 'Checking.\n\nOld final answer.'])
+  })
+
+  test('the +N on an older reply names that reply, so its command never copies from the latest', async ($, on) => {
+    const transcript: Transcript = { messages: [said('Half')] }
+    const { toasts } = fakeHost(on, transcript)
+    await write($, 'tiny', 'Half')
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't', reason: 'aborted' } as never)
+    transcript.messages.push(prompt('b'), said('Later.'))
+    await liveTurn($, [['later', 'Later.']])
+    const ui = await mount($, 'Half', { requestId: 'tiny', rows: 2 })
+    await ui.press({ key: MORE_KEY })
+    expect(toasts).toEqual(['Also in this reply: reply. Copy one with /copy-that 2 <name>'])
+  })
+
   test('picks up a reply that ended after the first draw', async ($, on) => {
     const transcript: Transcript = { messages: [] }
     fakeHost(on, transcript)
@@ -906,6 +940,14 @@ describe('tool rows', () => {
     expect(copied).toEqual([])
   })
 
+  test('a foreground Agent row whose result only points to its SubagentHandback report gets ⧉ output copying that report', async ($, on) => {
+    const agents = { a8: [prompt('look'), { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'h', tool: 'SubagentHandback', input: { message: 'Real report.' } }] } as SessionMessage] }
+    const { copied } = fakeHost(on, { messages: [] }, { agents })
+    const ui = await mountTool($, { tool: 'Agent', input: { prompt: 'look' }, output: { content: [{ type: 'text', text: handbackStub('a8') }] } })
+    await ui.press({ key: 'copy-output' })
+    expect(copied).toEqual(['Real report.'])
+  })
+
   test('offers ⧉ plan on ExitPlanMode and ⧉ output on Bash, colours stripped', async ($, on) => {
     const { copied } = fakeHost(on, { messages: [] })
     const plan = await mountTool($, PLAN)
@@ -1177,6 +1219,16 @@ describe('grouped tool rows', () => {
     await ui.press({ key: MORE_KEY })
     expect(toasts.at(-1)).toMatch(/^Copy with \/copy-that <name>: .*a\.md/)
   })
+  test('a call whose file name has spaces is reached by the quoted name the +N toast gives', async ($, on) => {
+    const spaced = (id: string, content: string): GroupCall => ({ ...READ, tool_use_id: id, input: { file_path: '/w/my file.md' }, output: { type: 'text', file: { filePath: '/w/my file.md', content } } })
+    const { copied, toasts } = fakeHost(on, { messages: [] })
+    const ui = await mountGroup($, [spaced('s1', 'one'), spaced('s2', 'two'), BASH], {}, { columns: 40, rows: 4 })
+    await ui.press({ key: MORE_KEY })
+    expect(toasts.at(-1)).toContain('"my file.md" #2')
+    expect((await run($, '"my file.md" #2')).text).toBe('Copied file my file.md #2 (1 line, pbcopy)')
+    expect(copied).toEqual(['two'])
+  })
+
   test('put the chip after the folded line in cells of its own, on the same row a single tool uses', async ($, on) => {
     fakeHost(on, { messages: [] })
     const ui = await mountGroup($, [BASH, READ], {}, { requestId: 'g1' })

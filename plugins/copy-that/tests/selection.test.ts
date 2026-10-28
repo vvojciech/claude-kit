@@ -54,6 +54,11 @@ describe('sourceBehind', () => {
     expect(sourceBehind(source, 'Or inline Map<K, V> here.')).toEqual({ text: 'Or inline `Map<K, V>` here.' })
   })
 
+  test('keeps a fenced block open past a shorter fence line inside it, so markup-looking code after it is drawn as written', async () => {
+    const source = '````md\n```\nconst value: Array<T> = [];\n````'
+    expect(sourceBehind(source, 'const value: Array<T> = [];')).toEqual({ text: 'const value: Array<T> = [];' })
+  })
+
   test('maps letters past the basic plane to the right place in the source', async () => {
     expect(sourceBehind('𐐀 abc def', 'abc')).toEqual({ text: 'abc' })
     expect(sourceBehind('𐐀 **abc** def', 'abc def')).toEqual({ text: '**abc** def' })

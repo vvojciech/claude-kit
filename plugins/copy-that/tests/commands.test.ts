@@ -162,6 +162,12 @@ describe('group chip names', () => {
     expect(parse('#')).toEqual({ kind: 'block', reply: 1, name: '#' })
   })
 
+  test('a name with spaces, as a file chip ⧉ my file.md #2 shows it, is read whole when quoted', async () => {
+    expect(parse('"My File.md"')).toEqual({ kind: 'block', reply: 1, name: 'my file.md' })
+    expect(parse('"my file.md" #2')).toEqual({ kind: 'call', name: 'my file.md #2' })
+    expect(parse('my file.md')).toEqual({ error: USAGE })
+  })
+
   test('a numbered call name copies it from the latest group that has it, as the stock toast lists, and says so when none does', async () => {
     const call = (name: string, text: string, callId?: string) => ({ ...target('output', name, text, 'bash output'), ...(callId ? { callId } : {}) })
     const calls = [call('bash #2', 'later', 't4'), call('bash #2', 'early', 't2'), call('bash #1', 'one', 't1')]
