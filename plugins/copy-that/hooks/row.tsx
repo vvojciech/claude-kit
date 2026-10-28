@@ -46,7 +46,7 @@ export function menuLabels(marker: Pick<Marker, 'row' | 'partial' | 'note'>): st
 }
 
 export function keyOf(target: Target): string {
-  return `copy-${target.name.replace(/\s+/g, '-')}`
+  return `copy-${target.name.replace(/[%\s]/g, encodeURIComponent)}`
 }
 
 function item(kit: Kit, marker: Marker, key: string, label: string, onPress: Press, color: string): RenderNode {
@@ -77,11 +77,13 @@ function items(kit: Kit, marker: Marker): RenderNode[] {
   const { tone } = marker
   const chips = shown.map(t => item(kit, marker, keyOf(t), t.label, marker.press(t), tone.text))
   const overflow = hidden.length > 0 ? [item(kit, marker, MORE_KEY, overflowLabel(hidden.length), marker.more(hidden), tone.muted)] : []
-  const note = marker.note ? [item(kit, marker, 'copy-note', marker.note.label, marker.note.press, tone.muted)] : []
+  const note = marker.note ? [item(kit, marker, NOTE_KEY, marker.note.label, marker.note.press, tone.muted)] : []
   return [...partialItem(kit, marker), ...chips, ...overflow, ...note]
 }
 
-export const MORE_KEY = 'copy-more'
+export const MORE_KEY = 'menu-more'
+
+export const NOTE_KEY = 'menu-note'
 
 export const MENU_KEY = 'menu'
 
@@ -129,7 +131,7 @@ function restingGlyph(marker: Marker): string {
   return marker.flashOnGlyph ? flashGlyph(marker.flash) : GLYPH
 }
 
-export const COVER_KEY = 'copy-cover'
+export const COVER_KEY = 'menu-cover'
 
 function onlyTarget(row: Row): Target | undefined {
   const all = [...row.shown, ...row.hidden]

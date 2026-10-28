@@ -92,6 +92,22 @@ describe('sourceBehind', () => {
     expect(sourceBehind(source, 'tests again')).toEqual({ text: '**tests** again' })
   })
 
+  test('finds a selection over an entity the renderer decodes, and keeps any other entity as the letters it draws', async () => {
+    expect(sourceBehind('Use caf&#233; here.', 'café')).toEqual({ text: 'caf&#233;' })
+    expect(sourceBehind('Use caf&#233; here.', 'Use café here.')).toEqual({ text: 'Use caf&#233; here.' })
+    expect(sourceBehind('Fish &amp; chips', 'Fish & chips')).toEqual({ text: 'Fish &amp; chips' })
+    expect(sourceBehind('Use caf&eacute; here.', 'caf&eacute;')).toEqual({ text: 'caf&eacute;' })
+  })
+
+  test('finds a selection over a reference-style link, and copies the link as written', async () => {
+    const source = 'See [the docs][doc] now.\n\n[doc]: https://example.com'
+    expect(sourceBehind(source, 'See the docs now.')).toEqual({ text: 'See [the docs][doc] now.' })
+  })
+
+  test('copies only the selected word from a fenced code line, not prose markup around it', async () => {
+    expect(sourceBehind('Code:\n\n```js\nconsole.log("**bold**");\n```', 'bold')).toEqual({ text: 'bold' })
+  })
+
   test('counts overlapping places too, so a selection two spans could hold is never copied from the first', async () => {
     expect(sourceBehind('a**ba**ba', 'aba')).toEqual({ places: 2 })
   })

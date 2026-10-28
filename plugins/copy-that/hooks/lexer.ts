@@ -57,7 +57,7 @@ const MARKUP = /<\/?[a-z][a-z\d]*(?:\s[^<>]*)?\/?>/g
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' }
 
-const ENTITY = /&(?:#(\d{1,7})|#[xX]([\da-fA-F]{1,6})|([a-zA-Z][a-zA-Z\d]{1,31}));/g
+export const ENTITY = /&(?:#(\d{1,7})|#[xX]([\da-fA-F]{1,6})|([a-zA-Z][a-zA-Z\d]{1,31}));/g
 
 type Front = { block: Block; bodyStart: number }
 
@@ -91,7 +91,7 @@ function codeBlock(token: Tokens.Code, depth: number): Block {
   return { kind: 'code', source: token.raw, depth, lang, text: token.text }
 }
 
-function decoded(text: string): string {
+export function decoded(text: string): string {
   return text.replace(ENTITY, (whole: string, decimal?: string, hex?: string, name?: string) => {
     if (name !== undefined) return ENTITIES[name] ?? whole
     const code = decimal !== undefined ? parseInt(decimal, 10) : parseInt(hex ?? '', 16)

@@ -6,7 +6,7 @@ import { FIRST_RUN, LONGEST_FLASH, NOT_OUTERMOST, NO_FULLSCREEN, NO_SELECTION, S
 import { hinted } from '../hooks/session'
 import { USAGE, noGroupCall } from '../hooks/commands'
 import { dark, light } from '../hooks/palette'
-import { COPIED, COVER_KEY, HIT_X, HIT_Y, MENU_KEY, MORE_KEY, NOT_COPIED, headerRow } from '../hooks/row'
+import { COPIED, COVER_KEY, HIT_X, HIT_Y, MENU_KEY, MORE_KEY, NOT_COPIED, NOTE_KEY, headerRow, keyOf } from '../hooks/row'
 import { cellWidth } from '../hooks/width'
 
 type On = Parameters<TestBody>[1]
@@ -465,7 +465,7 @@ describe('which reply a marker copies', () => {
     const ui = await mount($, REPLY)
     expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ bash', '⧉ table', 'reply: /copy-that 2 or 3'])
     await ui.press({ key: 'copy-bash' })
-    await ui.press({ key: 'copy-note' })
+    await ui.press({ key: NOTE_KEY })
     expect(copied).toEqual(['git status'])
     expect(toasts.at(-1)).toBe('2 replies end with this block, so ⧉ reply cannot tell which; /copy-that 2 or /copy-that 3 copies each whole')
   })
@@ -1024,7 +1024,7 @@ describe('grouped tool rows', () => {
     const ui = await mountGroup($, [BASH, READ, { ...BASH, output: { stdout: 'two', stderr: '' } }])
     expect(await ui.find({ type: 'Text', text: 'beneath' })).toBeDefined()
     expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ bash #1', '⧉ a.md', '⧉ bash #2'])
-    await ui.press({ key: 'copy-bash-#2' })
+    await ui.press({ key: 'copy-bash%20#2' })
     await ui.press({ key: 'copy-a.md' })
     expect(copied).toEqual(['two', 'line 1\nline 2\n'])
     expect(toasts).toEqual([])
@@ -1061,7 +1061,7 @@ describe('grouped tool rows', () => {
     fakeHost(on, { messages: [] })
     const later = (stdout: string): GroupCall => ({ ...BASH, output: { stdout, stderr: '' } })
     const ui = await mountGroup($, [BASH, later('two'), READ, later('three')], {}, { columns: 40, requestId: 'gflash' })
-    await ui.press({ key: 'copy-bash-#3' })
+    await ui.press({ key: 'copy-bash%20#3' })
     const labels = (await chipsOf(ui)).map(b => String(b.props.label))
     expect(labels).toEqual(['⧉ bash #1', '⧉ bash #2', '⧉ a.md', 'copied (pbcopy)'])
     expect(Number(await rowWidthOf(ui))).toBeLessThanOrEqual(40)
@@ -1115,7 +1115,7 @@ describe('grouped tool rows', () => {
     await ui.press({ key: COVER_KEY })
     expect(copied).toEqual([])
     expect(toasts).toEqual([])
-    await ui.press({ key: 'copy-bash-#2' })
+    await ui.press({ key: 'copy-bash%20#2' })
     expect(copied).toEqual(['two'])
   })
   test('/copy-that bash #2 copies the call the stock group toast names, from the latest group shown', async ($, on) => {
@@ -1164,7 +1164,7 @@ describe('grouped tool rows', () => {
     fakeHost(on, { messages: [] }, { label: 'Ran 2 commands' })
     const calls = [BASH, { ...BASH, output: { stdout: 'two', stderr: '' } }]
     const ui = await mountGroup($, calls, {}, { columns: 40, requestId: 'gflash' })
-    await ui.press({ key: 'copy-bash-#1' })
+    await ui.press({ key: 'copy-bash%20#1' })
     expect((await chipsOf(ui)).map(b => String(b.props.label))).toEqual(['copied (pbcopy)', '⧉ bash #2'])
     expect(await opensUp(ui)).toBeDefined()
     expect((await ui.findAll({ type: 'Text' })).filter(t => t.text === COPIED)).toHaveLength(1)
@@ -1207,5 +1207,15 @@ describe('grouped tool rows', () => {
     expect(await opensUp(await mountGroup($, ids, {}, { requestId: 'gdown' }))).toBe(false)
     transcript.messages.unshift(prompt('earlier'), said('one\ntwo\nthree'))
     expect(await opensUp(await mountGroup($, ids, {}, { requestId: 'gup' }))).toBe(true)
+  })
+})
+
+describe('chip keys', () => {
+  test('stay distinct for names that differ only by spaces or hyphens, and never take a menu control key', async () => {
+    const key = (name: string) => keyOf({ kind: 'file', name, label: name, text: '', what: name } as never)
+    expect(key('my file.md')).not.toBe(key('my-file.md'))
+    expect(key('more')).not.toBe(MORE_KEY)
+    expect(key('note')).not.toBe(NOTE_KEY)
+    expect([MORE_KEY, COVER_KEY, MENU_KEY].some(control => control.startsWith('copy-'))).toBe(false)
   })
 })

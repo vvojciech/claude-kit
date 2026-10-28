@@ -1,15 +1,17 @@
+import { ENTITY, decoded } from './lexer'
+
 const VISIBLE = /[\p{L}\p{N}]/u
 
-const HIDDEN_MARKUP = [/\]\([^)\s]*(?:\s+"[^"]*")?\)/g, /<[^>\n]*>/g, /&(?:#x?[\da-f]+|[a-z][a-z\d]*);/gi, /^[ \t]*\[[^\]]+\]:[^\n]*$/gm]
+const HIDDEN_MARKUP = [/\]\([^)\s]*(?:\s+"[^"]*")?\)/g, /\]\[[^\]\n]*\]/g, /<[^>\n]*>/g, /^[ \t]*\[[^\]]+\]:[^\n]*$/gm]
 
 const FENCE_LINE = /^[ \t]*(?:`{3,}|~{3,})[^\n]*$/gm
 
 const INLINE_CODE = /(`+)[^`\n]+?\1/g
 
-type Projection = { letters: string; at: number[] }
+type Projection = { letters: string; at: number[]; ends: number[] }
 
 // inline spans and fenced block bodies, where the renderer draws `<a>` or `&amp;` as written
-function codeRanges(source: string): Cut[] {
+function codeRanges(source: string, withInline = true): Cut[] {
   const ranges: Cut[] = []
   let opened: number | undefined
   let offset = 0
@@ -20,7 +22,7 @@ function codeRanges(source: string): Cut[] {
     else if (isFence && opened !== undefined) {
       ranges.push({ from: opened, to: offset })
       opened = undefined
-    } else if (opened === undefined) {
+    } else if (withInline && opened === undefined) {
       for (const match of line.matchAll(INLINE_CODE)) {
         const from = offset + (match.index ?? 0)
         ranges.push({ from, to: from + match[0].length })
@@ -44,20 +46,45 @@ function hiddenRanges(source: string, fences: boolean): boolean[] {
   return hidden
 }
 
+// entities the renderer decodes, outside code, by where they start: their letters are what shows
+function drawnEntities(source: string, hidden: boolean[]): Map<number, { length: number; text: string }> {
+  const code = codeRanges(source)
+  const found = new Map<number, { length: number; text: string }>()
+  for (const match of source.matchAll(ENTITY)) {
+    const start = match.index ?? 0
+    const text = decoded(match[0])
+    const isCode = code.some(range => start >= range.from && start < range.to)
+    if (text !== match[0] && !isCode && !hidden[start]) found.set(start, { length: match[0].length, text })
+  }
+  return found
+}
+
 function project(source: string, fences: boolean): Projection {
   const hidden = hiddenRanges(source, fences)
+  const entities = drawnEntities(source, hidden)
   let letters = ''
   const at: number[] = []
-  let index = 0
-  for (const char of source) {
-    if (!hidden[index] && VISIBLE.test(char)) {
-      letters += char
-      // one entry per UTF-16 unit, so an indexOf into letters lines up with at
-      for (let unit = 0; unit < char.length; unit++) at.push(index)
+  const ends: number[] = []
+  const take = (char: string, index: number, end: number) => {
+    letters += char
+    // one entry per UTF-16 unit, so an indexOf into letters lines up with at
+    for (let unit = 0; unit < char.length; unit++) {
+      at.push(index)
+      ends.push(end)
     }
+  }
+  for (let index = 0; index < source.length; ) {
+    const entity = entities.get(index)
+    if (entity) {
+      for (const char of entity.text) if (VISIBLE.test(char)) take(char, index, index + entity.length)
+      index += entity.length
+      continue
+    }
+    const char = String.fromCodePoint(source.codePointAt(index) ?? 0)
+    if (!hidden[index] && VISIBLE.test(char)) take(char, index, index + char.length)
     index += char.length
   }
-  return { letters, at }
+  return { letters, at, ends }
 }
 
 function lettersOf(text: string): string {
@@ -130,8 +157,11 @@ function excerpt(source: string, projection: Projection, span: Span, selected: s
   const end = lineEnd(source, last)
   const line = source.slice(start, end)
   if (line.includes('\n') || lettersWithin(projection, start, end) === span.to - span.from + 1) return line
-  const to = last + ((source.codePointAt(last) ?? 0) > 0xffff ? 2 : 1)
-  const cut = balanced(line, withEdges(line, balanced(line, { from: from - start, to: to - start }), selected))
+  const to = projection.ends[span.to] ?? last + 1
+  // code draws `**` and `_` as written, so a fenced line is cut where the letters are, not widened to markup
+  const isFenced = codeRanges(source, false).some(range => start >= range.from && start < range.to)
+  const exact = { from: from - start, to: to - start }
+  const cut = isFenced ? withEdges(line, exact, selected) : balanced(line, withEdges(line, balanced(line, exact), selected))
   return line.slice(cut.from, cut.to)
 }
 
