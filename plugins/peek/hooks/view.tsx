@@ -35,7 +35,7 @@ function buttons(kit: Kit, tone: Tone, shown: Shown): RenderNode[] {
   return shown.actions.flatMap(action => [<kit.Text key={`gap-${action.key}`}>{'  '}</kit.Text>, button(kit, tone, action)])
 }
 
-export function lineOf(kit: Kit, tone: Tone, shown: Shown): RenderElement {
+function lineOf(kit: Kit, tone: Tone, shown: Shown): RenderElement {
   return (
     <kit.Box key={`peek-${shown.id}`} flexDirection="row" height={1}>
       <kit.Text color={tone.muted} wrap="truncate-end">
@@ -77,7 +77,7 @@ function side(kit: Kit, tone: Tone, shown: Shown, rows: number): RenderNode[] {
   return full.length <= rows ? full : [...named.slice(0, Math.max(0, rows - 1)), actionsRow(kit, tone, shown)]
 }
 
-export function pictureOf(kit: Kit, tone: Tone, shown: Shown, rows: number): RenderElement {
+function pictureOf(kit: Kit, tone: Tone, shown: Shown, rows: number): RenderElement {
   if (shown.png === undefined || shown.cells === undefined) return lineOf(kit, tone, shown)
   return (
     <kit.Box key={`peek-${shown.id}`} flexDirection="row" marginRight={2}>

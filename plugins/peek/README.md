@@ -32,7 +32,7 @@ With lucid loaded, peek has to load before it. See [load order](#load-order).
 - Images pasted into a prompt, under the prompt row. peek reads them from Claude Code's per-session image cache.
 - Images Claude reads, writes or edits (`.png .jpg .jpeg .gif .webp .heic`), under the tool row, or under a folded group of rows once it settles.
 - Image files a Bash command names, such as `sips ... --out chart.png`, if the file exists afterwards.
-- Local `![alt](path)` images in Claude's replies, absolute, `~/` or relative to the working directory.
+- Local `![alt](path)` images in Claude's replies, absolute, `~/`, `file://` or relative to the working directory. Image syntax inside code is left alone.
 - Each thumbnail keeps the image's aspect ratio, is at most 8 rows tall and 48 columns wide, and shows the file name and pixel size beside it.
 - Thumbnails under a row stack in a column, up to 4 per transcript row.
 - Large or non-PNG images are shrunk to a PNG with `sips` and cached.
@@ -52,8 +52,6 @@ peek adds to the rows other mods draw rather than replacing them, so copy-that's
 A mod can't attach image bytes to a prompt, so peek puts the image on the macOS clipboard and you press ctrl+v:
 
 - `/peek <path>` takes a file, absolute, `~/` or relative. Quotes and backslash escapes such as `\ ` are fine.
-- `/peek last` takes the newest screenshot or PNG in your screenshot folder (the one macOS saves screenshots to), ~/Desktop or ~/Downloads.
-- `/peek clipboard-check` says whether the clipboard already holds an image.
 - `/peek` on its own, or `/peek help`, prints the usage.
 
 The image goes on the clipboard as PNG and a toast says `Image on clipboard: press ctrl+v`. This replaces whatever was on the clipboard.
@@ -83,7 +81,7 @@ Thumbnails fall back to `▣ name  ⤢ open` lines when:
 peek adds `$.peek` to the engine. Types live in `types/index.d.ts`.
 
 - `picture({ path, cwd, columns, isFullscreen, requestId })` draws a local image the way peek's thumbnails do, with the same conversion, cache and capability check.
-- `path` may be absolute, `~/`, `file://` or relative to `cwd` (the session's directory by default). Pass `requestId` so the capability check can test the picture you drew.
+- `path` may be absolute, `~/`, a `file://` URL with no host or `localhost`, or relative to `cwd` (the session's directory by default). Pass `requestId` so the capability check can test the picture you drew.
 - `picture` returns one of:
   - `{ source: { png }, columns, rows, alt, path, name, caption, open, key }`. Draw the `Image` under `key`.
   - `{ fallback: 'pictures-off' }` when pictures can't draw.

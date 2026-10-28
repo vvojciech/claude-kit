@@ -2,9 +2,9 @@ import type { EngineInterface } from 'claude-code'
 
 export type Tone = { muted: string; text: string }
 
-export const darkGreys: Tone = { muted: '#9b9b9b', text: '#c8c8c8' }
+const darkGreys: Tone = { muted: '#9b9b9b', text: '#c8c8c8' }
 
-export const lightGreys: Tone = { muted: '#5f5f5f', text: '#3a3a3a' }
+const lightGreys: Tone = { muted: '#5f5f5f', text: '#3a3a3a' }
 
 declare module 'claude-code' {
   interface EngineInterface {
@@ -14,14 +14,14 @@ declare module 'claude-code' {
 
 const HEX = /^#[0-9a-f]{6}$/i
 
-export function fromLucid(value: unknown): Tone | undefined {
+function fromLucid(value: unknown): Tone | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const palette = (value as { palette?: { muted?: unknown; text?: unknown } }).palette
   const { muted, text } = palette ?? {}
   return typeof muted === 'string' && typeof text === 'string' && HEX.test(muted) && HEX.test(text) ? { muted, text } : undefined
 }
 
-export function greysFor(theme: unknown): Tone {
+function greysFor(theme: unknown): Tone {
   return typeof theme === 'string' && /light/i.test(theme) ? lightGreys : darkGreys
 }
 

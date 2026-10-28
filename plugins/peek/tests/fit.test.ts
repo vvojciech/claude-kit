@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { atLeast, mayDraw } from '../hooks/capability'
+import { CLIP } from '../hooks/draws'
 import { BAND_SIDE, bandColumns, bandCount, fitCells } from '../hooks/fit'
+import { OPEN } from '../hooks/view'
 
 describe('thumbnail cells', () => {
   test('keeps the aspect ratio at two rows of pixels per column', () => {
@@ -50,8 +52,16 @@ describe('the band above the prompt', () => {
 
 describe('how many thumbnails the band shows', () => {
   test('only as many as fit beside their captions and buttons, at least one', async () => {
-    expect(bandCount(60, 4)).toBe(3)
+    expect(bandCount(60, 4)).toBe(2)
     expect(bandCount(100, 4)).toBe(4)
     expect(bandCount(10, 4)).toBe(1)
+  })
+
+  test('leaves room for the padding, open and clip buttons and margin beside each dragged path', async () => {
+    const side = 1 + `${OPEN}  ${CLIP}`.length + 2
+    for (const pane of [60, 80, 100, 120]) {
+      const count = bandCount(pane, 6)
+      expect(count * (bandColumns(pane, count) + side)).toBeLessThanOrEqual(pane)
+    }
   })
 })

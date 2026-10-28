@@ -1,10 +1,10 @@
 import type { EngineInterface, ImageSource } from 'claude-code'
 
-export const ITERM_FROM = '2.1.305'
+const ITERM_FROM = '2.1.305'
 
-export type Verdict = 'unknown' | 'pictures' | 'line'
+type Verdict = 'unknown' | 'pictures' | 'line'
 
-export type Terminal = { program?: string; term?: string; tmux?: string; screen?: string; forced?: string; version: string }
+type Terminal = { program?: string; term?: string; tmux?: string; screen?: string; forced?: string; version: string }
 
 let verdict: Verdict = 'unknown'
 
@@ -13,10 +13,6 @@ let probing = false
 export function resetCapability(start: Verdict = 'unknown'): void {
   verdict = start
   probing = false
-}
-
-export function currentVerdict(): Verdict {
-  return verdict
 }
 
 export function atLeast(version: string, floor: string): boolean {

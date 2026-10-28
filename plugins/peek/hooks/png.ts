@@ -6,7 +6,7 @@ export const MAX_PNG_BYTES = 2 * 1024 * 1024
 
 export type Size = { width: number; height: number }
 
-export function decodeHead(base64: string, bytes: number): number[] {
+function decodeHead(base64: string, bytes: number): number[] {
   const out: number[] = []
   let buffer = 0
   let bits = 0

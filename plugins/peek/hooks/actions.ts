@@ -2,13 +2,13 @@ import { fullPng } from './convert'
 import type { Host } from './host'
 import { isImagePath, nameOf } from './paths'
 
-export const OSASCRIPT = '/usr/bin/osascript'
+const OSASCRIPT = '/usr/bin/osascript'
 
-export const OPEN = '/usr/bin/open'
+const OPEN = '/usr/bin/open'
 
 export const ON_CLIPBOARD = 'Image on clipboard: press ctrl+v'
 
-export function appleString(text: string): string {
+function appleString(text: string): string {
   return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
@@ -23,12 +23,7 @@ export async function openImage(host: Host, path: string): Promise<string | unde
   return plain.exitCode === 0 ? undefined : `Could not open ${nameOf(path)}: ${plain.stderr.trim() || preview.stderr.trim() || 'open failed'}`
 }
 
-export async function clipboardHoldsImage(host: Host): Promise<boolean> {
-  const info = await host.run([OSASCRIPT, '-e', 'clipboard info'])
-  return info.exitCode === 0 && /PNGf|TIFF/.test(info.stdout)
-}
-
-export async function clipboardHoldsPng(host: Host): Promise<boolean> {
+async function clipboardHoldsPng(host: Host): Promise<boolean> {
   const info = await host.run([OSASCRIPT, '-e', 'clipboard info'])
   return info.exitCode === 0 && info.stdout.includes('PNGf')
 }

@@ -7,13 +7,13 @@ export const SIPS = '/usr/bin/sips'
 
 export const DIRECT_BYTES = 512 * 1024
 
-export const EDGES = [800, 512, 256] as const
+const EDGES = [800, 512, 256] as const
 
 const REMEMBERED = 64
 
 export const RETRY_MS = 30_000
 
-export type Thumb = { path: string; name: string; png: string; size: Size; source: Size }
+type Thumb = { path: string; name: string; png: string; size: Size; source: Size }
 
 type Made = { thumb: Promise<Thumb | undefined>; failedAt?: number }
 

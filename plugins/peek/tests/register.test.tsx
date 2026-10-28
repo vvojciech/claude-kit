@@ -267,7 +267,7 @@ describe('the band above the prompt', () => {
     return $.ui.mount({ plugin: 'peek', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows, bodyColumns } as never, viewport: VIEW, requestId: `band-${maxRows}-${bodyColumns}` })
   }
 
-  async function sideRows(ui: Mounted) {
+  async function sideRows(ui: Pick<Mounted, 'find'>) {
     const side = (await ui.find({ key: 'side' })) as unknown as { children: unknown[] } | undefined
     return side?.children.length
   }
@@ -301,8 +301,8 @@ describe('the band above the prompt', () => {
     await changed($, '/h/a.png /h/b.png /h/c.png /h/d.png')
     expect(await images(await band($, 12, 100))).toHaveLength(4)
     const narrow = await images(await band($, 12, 60))
-    expect(narrow).toHaveLength(3)
-    expect(narrow.every(i => Number(i.props.columns) <= bandColumns(60, 3))).toBe(true)
+    expect(narrow).toHaveLength(2)
+    expect(narrow.every(i => Number(i.props.columns) <= bandColumns(60, 2))).toBe(true)
   })
 
   test('stays out of the way with no images in the draft', async ($, on) => {

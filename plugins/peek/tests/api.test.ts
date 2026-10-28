@@ -52,6 +52,14 @@ describe('peek.picture', () => {
     expect(await pictureFor(host, { path: '/w/gone.png', isFullscreen: true }, WHERE)).toEqual({ fallback: 'unresolved' })
     expect(await pictureFor(host, { path: '/w/a.md', isFullscreen: true }, WHERE)).toEqual({ fallback: 'unresolved' })
   })
+
+  test('answers unresolved for a file URL on another host rather than read it under the cwd', async () => {
+    fresh()
+    const host = fakeHost({ '/w/server/a.png': { base64: WIDE_PNG } })
+    expect(await pictureFor(host, { path: 'file://server/a.png', isFullscreen: true }, WHERE)).toEqual({ fallback: 'unresolved' })
+    expect(await openFor(host, { path: 'file://server/a.png' }, WHERE)).toEqual({ error: 'Not a local file: file://server/a.png' })
+    expect(host.runs).toEqual([])
+  })
 })
 
 describe('peek.open', () => {

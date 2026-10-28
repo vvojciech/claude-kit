@@ -2,9 +2,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import { UNRESOLVED, openFor, pictureFor, replyImageKey } from './api'
-import { probe, settleCapability } from './capability'
+import { drawsPictures, probe, settleCapability } from './capability'
 import { ARGUMENT_HINT, COMMAND, DESCRIPTION, parseCommand, runPeek } from './commands'
-import { imageKeysIn, itemsFor, maxColumnsFor, picturesFor, withThumbs } from './draws'
+import { imageKeysIn, itemsFor, maxColumnsFor, withThumbs } from './draws'
 import type { Frame, Wanted } from './draws'
 import { BAND_ROWS, THUMB_ROWS, bandColumns, bandCount } from './fit'
 import { hostOf } from './host'
@@ -26,7 +26,7 @@ function placesFor($: EngineInterface): Promise<Places> {
 type Viewed = { requestId: string; viewport?: { columns?: number; isFullscreen?: boolean } }
 
 async function frameOf($: EngineInterface, e: Viewed, kit: Kit, maxRows: number): Promise<Frame> {
-  const pictures = picturesFor(e.viewport?.isFullscreen)
+  const pictures = drawsPictures(e.viewport?.isFullscreen)
   return { host: hostOf($), places: await placesFor($), kit, requestId: e.requestId, pictures, maxColumns: maxColumnsFor(e.viewport?.columns), maxRows }
 }
 
@@ -134,7 +134,7 @@ export const register: Register = on => {
     if (links.length === 0) return drawn
     const frame = await frameOf($, e, $.ui.resolve(e), THUMB_ROWS)
     const inPlace = imageKeysIn(drawn)
-    const wanted = wantedPaths(links.map(l => l.src), frame.places, 'reply').filter(w => !inPlace.has(replyImageKey(w.path)))
+    const wanted = wantedPaths(links, frame.places, 'reply').filter(w => !inPlace.has(replyImageKey(w.path)))
     return withThumbs($, frame, drawn, wanted).catch(error => keep($, drawn, error))
   }).catch((_$, e, next) => next(e))
 

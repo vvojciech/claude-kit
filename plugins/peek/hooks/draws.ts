@@ -1,17 +1,17 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import { copyImage, openImage } from './actions'
-import { drawsPictures, probe } from './capability'
+import { probe } from './capability'
 import { thumbnail } from './convert'
 import { MAX_COLUMNS, fitCells } from './fit'
 import type { Host } from './host'
 import { nameOf } from './paths'
 import type { Places } from './places'
 import { toneOf } from './tone'
-import { gallery, imageKey, shownOf } from './view'
+import { OPEN, gallery, imageKey, shownOf } from './view'
 import type { Action, Kit, Shown } from './view'
 
-export const MOST = 4
+const MOST = 4
 
 export const CLIP = '⧉ clip'
 
@@ -22,7 +22,7 @@ export type Frame = { host: Host; places: Places; kit: Kit; requestId: string; p
 function openAction($: EngineInterface, frame: Frame, wanted: Wanted): Action {
   return {
     key: `peek-open-${wanted.id}`,
-    label: '⤢ open',
+    label: OPEN,
     press: () => void openImage(frame.host, wanted.path).then(error => error !== undefined && $.ui.toast(error)),
   }
 }
@@ -45,7 +45,7 @@ async function pictured(frame: Frame, wanted: Wanted, base: Shown): Promise<Show
   return { ...base, png: thumb.png, caption: `${thumb.source.width}×${thumb.source.height}`, cells: fitCells(thumb.size, frame.maxRows, frame.maxColumns) }
 }
 
-export async function shownFor($: EngineInterface, frame: Frame, wanted: Wanted): Promise<Shown | undefined> {
+async function shownFor($: EngineInterface, frame: Frame, wanted: Wanted): Promise<Shown | undefined> {
   const base: Shown = { id: wanted.id, name: wanted.name ?? nameOf(wanted.path), actions: actionsOf($, frame, wanted) }
   if (frame.pictures) return pictured(frame, wanted, base)
   return (await frame.host.stat(wanted.path)) === undefined ? undefined : base
@@ -53,10 +53,6 @@ export async function shownFor($: EngineInterface, frame: Frame, wanted: Wanted)
 
 export function maxColumnsFor(columns: number | undefined): number {
   return Math.max(8, Math.min(MAX_COLUMNS, (columns ?? 80) - 24))
-}
-
-export function picturesFor(isFullscreen: boolean | undefined): boolean {
-  return drawsPictures(isFullscreen)
 }
 
 async function firstShown($: EngineInterface, frame: Frame, wanted: Wanted[]): Promise<Shown[]> {

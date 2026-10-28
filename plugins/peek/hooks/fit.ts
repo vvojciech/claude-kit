@@ -24,7 +24,7 @@ export function fitCells(size: Size, maxRows: number, maxColumns: number): Cells
 }
 
 // beside each band thumbnail: its padding, caption and buttons, and the gap before the next one
-export const BAND_SIDE = 16
+export const BAND_SIDE = 17
 
 // the band lays its thumbnails out in one row, so they share the pane instead of each taking it all
 export function bandColumns(pane: number | undefined, count: number): number {
