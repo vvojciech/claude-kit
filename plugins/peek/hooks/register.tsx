@@ -6,7 +6,7 @@ import { probe, settleCapability } from './capability'
 import { ARGUMENT_HINT, COMMAND, DESCRIPTION, parseCommand, runPeek } from './commands'
 import { imageKeysIn, itemsFor, maxColumnsFor, picturesFor, withThumbs } from './draws'
 import type { Frame, Wanted } from './draws'
-import { BAND_ROWS, THUMB_ROWS } from './fit'
+import { BAND_ROWS, THUMB_ROWS, bandColumns } from './fit'
 import { hostOf } from './host'
 import { barePaths, imageTags, localImages, resolvePath, toolImagePaths } from './paths'
 import type { Places } from './places'
@@ -150,8 +150,10 @@ export const register: Register = on => {
     if (e.surface !== 'terminal' || e.props.hasSurvey) return below
     const { text } = await read($, draft)
     if (imageTags(text).length === 0 && barePaths(text).length === 0) return below
-    const frame = await frameOf($, e, $.ui.resolve(e), Math.max(1, Math.min(BAND_ROWS, e.props.maxRows - 2)))
-    const items = await itemsFor($, frame, await draftWanted($, frame.places, text)).catch(() => [])
+    const shared = await frameOf($, e, $.ui.resolve(e), Math.max(1, Math.min(BAND_ROWS, e.props.maxRows - 2)))
+    const wanted = await draftWanted($, shared.places, text)
+    const frame = { ...shared, maxColumns: Math.min(shared.maxColumns, bandColumns(e.viewport?.columns, wanted.length)) }
+    const items = await itemsFor($, frame, wanted).catch(() => [])
     return items.length === 0 ? below : band(frame.kit, below, items, frame.pictures)
   }).catch((_$, e, next) => next(e))
 }

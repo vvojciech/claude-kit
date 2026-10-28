@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { atLeast, mayDraw } from '../hooks/capability'
-import { fitCells } from '../hooks/fit'
+import { BAND_SIDE, bandColumns, fitCells } from '../hooks/fit'
 
 describe('thumbnail cells', () => {
   test('keeps the aspect ratio at two rows of pixels per column', () => {
@@ -34,5 +34,16 @@ describe('where pictures can draw', () => {
     expect(mayDraw({ program: 'iTerm.app', tmux: '/tmp/x', version: '2.1.309' })).toBe(false)
     expect(mayDraw({ program: 'Apple_Terminal', version: '2.1.309' })).toBe(false)
     expect(mayDraw({ program: 'Apple_Terminal', forced: '1', version: '2.1.309' })).toBe(true)
+  })
+})
+
+describe('the band above the prompt', () => {
+  test('shares the pane between its thumbnails and their captions and buttons, so a row of them fits', async () => {
+    for (const [pane, count] of [[100, 4], [100, 1], [80, 3], [60, 6]] as const) {
+      const each = bandColumns(pane, count)
+      expect(each).toBeGreaterThan(0)
+      if (count * (4 + BAND_SIDE) <= pane) expect(count * (each + BAND_SIDE)).toBeLessThanOrEqual(pane)
+    }
+    expect(bandColumns(200, 1)).toBe(48)
   })
 })

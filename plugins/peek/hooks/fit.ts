@@ -22,3 +22,12 @@ export function fitCells(size: Size, maxRows: number, maxColumns: number): Cells
   const columns = clamp(maxColumns, 1, 255)
   return { columns, rows: clamp(Math.round(columns / ratio / CELL_ASPECT), 1, rows) }
 }
+
+// beside each band thumbnail: its padding, caption and buttons, and the gap before the next one
+export const BAND_SIDE = 16
+
+// the band lays its thumbnails out in one row, so they share the pane instead of each taking it all
+export function bandColumns(pane: number | undefined, count: number): number {
+  const each = Math.floor(((pane ?? 80) - count * BAND_SIDE) / Math.max(1, count))
+  return Math.max(4, Math.min(MAX_COLUMNS, each))
+}
