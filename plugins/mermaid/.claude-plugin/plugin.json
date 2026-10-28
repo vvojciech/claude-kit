@@ -1,1 +1,1 @@
-{ "name": "mermaid", "version": "0.1.0", "description": "Draws mermaid sequence diagrams from Claude's replies as text in the terminal", "author": { "name": "Wojciech Kucha" } }
+{ "name": "mermaid", "version": "0.1.0", "description": "Draws mermaid sequence diagrams and flowcharts from Claude's replies as text in the terminal", "author": { "name": "Wojciech Kucha" } }

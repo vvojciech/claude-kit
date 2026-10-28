@@ -475,3 +475,24 @@ describe('drawFlow subgraph frames that cannot fit', () => {
   })
 })
 
+
+describe('drawFlow heads into one box', () => {
+  test('keeps a line without a head off the bus of arrows into the same box, top-down', async () => {
+    const { lines } = draw('flowchart TD\nA --> C\nB --- C')
+
+    const into = lineAt(lines, rowOf(lines, 'C') - 2)
+
+    expect(into.trim()).toBe('▼ │')
+  })
+
+  test('gives a line without a head its own port beside an arrow, left to right', async () => {
+    const { lines } = draw('flowchart LR\nA --> C\nB --- C')
+
+    expect(lines.filter(line => line.includes('▶'))).toHaveLength(1)
+    expect(lines.some(line => line.includes('├─▶'))).toBe(false)
+  })
+
+  test('throws, so the source shows, when a line and an arrow would meet at a decision tip', async () => {
+    expect(() => draw('flowchart LR\nA --> C{ok?}\nB --- C')).toThrow('a line and an arrow into C would share one head')
+  })
+})

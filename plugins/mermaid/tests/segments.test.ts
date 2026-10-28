@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { fencesOf, segmentsOf } from '../hooks/segments'
+import { definitionsOf, fencesOf, segmentsOf } from '../hooks/segments'
 
 const typeOf = (source: string) =>
   source.trim().startsWith('sequenceDiagram') ? 'sequence' : /^(flowchart|graph)\b/.test(source.trim()) ? 'flow' : (source.trim().split(/\s+/)[0] ?? '')
@@ -167,4 +167,26 @@ test('a fence opened on its list marker drops the marker from the source it fall
     const markdown = `${marker} \`\`\`mermaid\n${pad}sequenceDiagram\n${pad}A->>B: x\n${pad}\`\`\``
     expect(segmentsOf(markdown, typeOf)).toEqual([{ kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: '```mermaid\nsequenceDiagram\nA->>B: x\n```' }])
   }
+})
+
+test('a blockquoted fence still streaming stays text when the chunk ends in a newline', () => {
+  expect(fencesOf('> ```mermaid\n> sequenceDiagram\n> A->>B: x\n')).toEqual([])
+  expect(fencesOf('> ```mermaid\n> sequenceDiagram\n> A->>B: x\n\nafter').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+})
+
+test('a fence inside a CDATA block is raw content', () => {
+  const fence = '```mermaid\nsequenceDiagram\nA->>B: x\n```'
+  expect(fencesOf(`<![CDATA[\n${fence}\n]]>`)).toEqual([])
+  expect(fencesOf(`<![CDATA[ x ]]>\n${fence}`).map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+})
+
+test('HTML opened in a blockquote straight after a list marker holds the fence', () => {
+  const fence = '  > ```mermaid\n  > sequenceDiagram\n  > A->>B: x\n  > ```'
+  for (const opener of ['- > <!--', '- > <pre>']) expect(fencesOf(`${opener}\n${fence}\n  > -->\n  > </pre>`)).toEqual([])
+  expect(fencesOf(`- > <!-- note -->\n${fence}`).map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+})
+
+test('takes link definitions from prose only, not from code or HTML', () => {
+  const parts = segmentsOf('See [ref].\n\n```text\n[ref]: https://wrong.example\n```\n\n<!--\n[ref]: https://html.example\n-->\n\n[ref]: https://right.example', typeOf)
+  expect(definitionsOf(parts)).toEqual(['[ref]: https://right.example'])
 })

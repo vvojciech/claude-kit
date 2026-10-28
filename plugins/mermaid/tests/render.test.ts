@@ -812,3 +812,22 @@ describe('labels over idle lanes', () => {
 })
 
 const HEADER_ROWS = 6
+
+describe('compact list semantics', () => {
+  const NARROW = 'participant C as Customer\nparticipant Ch as Bazaar\nparticipant Q as Gate\nparticipant R as Tarif\n'
+
+  test('keeps a two-way arrow two-way', async () => {
+    const { lines } = draw(`${NARROW}C<<->>Ch: submit answers\nCh<<-->>Q: rate REQ\nQ-->>R: price per scheme`, 32)
+
+    expect(lines.some(line => line.startsWith('Customer ↔ Bazaar'))).toBe(true)
+    expect(lines.some(line => line.startsWith('Bazaar ⇠⇢ Gate'))).toBe(true)
+  })
+
+  test('lists where a participant is created and destroyed', async () => {
+    const { lines } = draw(`${NARROW}C->>Ch: submit answers\ncreate participant T as Temp\nCh->>T: rate REQ\ndestroy T\nT-->>R: price per scheme`, 32)
+
+    expect(lines).toContain('Temp created')
+    expect(lines).toContain('Temp destroyed')
+    expect(lines.findIndex(line => line === 'Temp created')).toBeLessThan(lines.findIndex(line => line.startsWith('Bazaar → Temp')))
+  })
+})

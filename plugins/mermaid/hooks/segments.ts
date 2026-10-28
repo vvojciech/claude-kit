@@ -24,7 +24,17 @@ const HTML_BLOCK =
   /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[\s/>]|$)/i
 
 type Place = { quotes: number; lead: number }
-type Html = Place & { kind: 'raw' | 'comment' | 'block' }
+type Html = Place & { kind: 'raw' | 'comment' | 'cdata' | 'block' }
+
+// CommonMark HTML blocks of types 2 and 5 run from their opening mark to their closing one
+const MARKS = { comment: ['<!--', '-->'], cdata: ['<![CDATA[', ']]>'] } as const
+
+function htmlKind(content: string): Html['kind'] | undefined {
+  if (RAW_START.test(content)) return 'raw'
+  if (COMMENT_START.test(content)) return 'comment'
+  if (indentOf(content) <= 3 && content.trimStart().startsWith(MARKS.cdata[0])) return 'cdata'
+  return HTML_BLOCK.test(content) ? 'block' : undefined
+}
 
 // HTML opened in a blockquote or list item ends with it: on a line with fewer quote marks, or less indented than the item
 function leaves(raw: string, html: Html): boolean {
@@ -38,7 +48,10 @@ function htmlThrough(raw: string, content: string, open: Html | undefined, start
   if (!html) return { isHtml: false }
   const text = html === open ? raw : content
   if (html.kind === 'raw') return { isHtml: true, open: RAW_ENDS.some(end => text.toLowerCase().includes(end)) ? undefined : html }
-  if (html.kind === 'comment') return { isHtml: true, open: (html === open ? text : text.slice(text.indexOf('<!--') + 4)).includes('-->') ? undefined : html }
+  if (html.kind === 'comment' || html.kind === 'cdata') {
+    const [start, end] = MARKS[html.kind]
+    return { isHtml: true, open: (html === open ? text : text.slice(text.indexOf(start) + start.length)).includes(end) ? undefined : html }
+  }
   return { isHtml: true, open: content.trim() === '' ? undefined : html }
 }
 
@@ -91,8 +104,22 @@ function closes(line: string, open: Open): boolean {
   return [...rest].every(char => char === open.char)
 }
 
+// where HTML would open on a line: its text after any container marks, and the containers it sits in
+function htmlStart(raw: string, list: number, quotedList: number): { content: string; place: Place } {
+  const { count: depth, rest: quoted } = stripQuotes(raw)
+  const marker = LIST_ITEM.exec(quoted)
+  const content = marker ? quoted.slice(marker[0].length) : quoted
+  const inner = marker && depth === 0 ? stripQuotes(content) : undefined
+  // a blockquote straight after a list marker holds the HTML, so its quote marks bound it
+  if (inner && inner.count > 0) return { content: inner.rest, place: { quotes: inner.count, lead: 0 } }
+  const inList = depth > 0 ? quotedList : list
+  return { content, place: { quotes: depth, lead: marker ? marker[0].length : indentOf(quoted) >= inList ? inList : 0 } }
+}
+
 export function fencesOf(markdown: string): Fence[] {
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
+  // a reply ending in a newline has no line after it, so a blockquote around an open fence hasn't ended
+  if (lines.at(-1) === '') lines.pop()
   const fences: Fence[] = []
   let open: Open | undefined
   let list = 0
@@ -121,12 +148,8 @@ export function fencesOf(markdown: string): Fence[] {
         continue
       }
     }
-    const { count: depth, rest: quoted } = stripQuotes(raw)
-    const marker = LIST_ITEM.exec(quoted)
-    const content = marker ? quoted.slice(marker[0].length) : quoted
-    const inList = depth > 0 ? quotedList : list
-    const place: Place = { quotes: depth, lead: marker ? marker[0].length : indentOf(quoted) >= inList ? inList : 0 }
-    const kind = RAW_START.test(content) ? 'raw' : COMMENT_START.test(content) ? 'comment' : HTML_BLOCK.test(content) ? 'block' : undefined
+    const { content, place } = htmlStart(raw, list, quotedList)
+    const kind = htmlKind(content)
     const step = htmlThrough(raw, content, html, kind && { ...place, kind })
     html = step.open
     if (step.isHtml) continue
@@ -196,5 +219,25 @@ function isDefinition(line: string): boolean {
   return line.length - text.length < 4 && text.startsWith('[') && close > 1 && !text.slice(1, close).includes(']') && text.slice(close + 2).trim() !== ''
 }
 
-// link reference definitions in the prose, for the pieces cut away from them by a diagram
-export const definitionsOf = (parts: Segment[]) => parts.flatMap(part => (part.kind === 'text' ? part.text.split('\n').filter(isDefinition).map(line => line.trim()) : []))
+// lines of prose, leaving out fenced code and HTML blocks, where a definition-shaped line is literal
+function proseLines(text: string): string[] {
+  const kept: string[] = []
+  let fence: Open | undefined
+  let html: Html | undefined
+  for (const line of text.split('\n')) {
+    if (fence) {
+      if (closes(line, fence)) fence = undefined
+      continue
+    }
+    const kind = htmlKind(line)
+    const step = htmlThrough(line, line, html, kind && { quotes: 0, lead: 0, kind })
+    html = step.open
+    if (step.isHtml) continue
+    fence = opener(line, 0)
+    if (!fence) kept.push(line)
+  }
+  return kept
+}
+
+// link reference definitions in the prose, in reply order, for the pieces cut away from them by a diagram
+export const definitionsOf = (parts: Segment[]) => parts.flatMap(part => (part.kind === 'text' ? proseLines(part.text).filter(isDefinition).map(line => line.trim()) : []))

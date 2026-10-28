@@ -335,7 +335,11 @@ function routesOf(flow: Flow, vertices: Vertex[], back: Set<FlowEdge>): { routes
 // (left to right, extra strokes and arrows use a box's top and bottom instead, so it never grows)
 function portRoom(vertices: Vertex[], routes: Route[], across: boolean) {
   for (const v of vertices) {
-    if (!v.node || across) continue
+    if (!v.node) continue
+    // left to right, a line without a head lands a port apart from the arrows into the same side
+    const into = routes.filter(r => r.path.at(-1) === v)
+    if (across && new Set(into.map(r => r.edge.head)).size > 1) v.cross = Math.max(v.cross, 2 * new Set(into.map(joinKey)).size + 1)
+    if (across) continue
     // edges into a left-right decision all meet at its tip, so they need no room along its sides
     const meets = across && (v.node.shape === 'diamond' || v.node.shape === 'hexagon')
     const arriving = meets ? 1 : routes.filter(r => r.path.at(-1) === v).length
@@ -799,6 +803,8 @@ function through(route: Route, i: number, leaving: Map<Route, number>): number {
 // where a route's line runs in the rank before its target, so where it comes in from
 const inbound = (route: Route, leaving: Map<Route, number>) => through(route, route.path.length - 2, leaving)
 const isDecision = (shape: Shape) => shape === 'diamond' || shape === 'hexagon'
+// only edges of one stroke and one head share a bus, so a line without a head never reads as an arrow
+const joinKey = (route: Route) => `${route.edge.stroke}${route.edge.head}`
 const solidFirst = (a: Route, b: Route) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid')
 
 // an arrow lands where its line already runs when that is over the box, so it drops straight in.
@@ -818,6 +824,8 @@ function landings(plan: Layout, leaving: Map<Route, number>): { landing: Map<Rou
     const shape = must(v.node, 'target box').shape
     if (plan.across && isDecision(shape)) landOnDecision(plan.ranks, v, list, leaving, landing, onto)
     else landOnBox(v, shape, list, leaving, plan.across, landing)
+    const shared = list.filter(route => !onto.has(route) && list.some(other => other.edge.head !== route.edge.head && !onto.has(other) && landing.get(other) === landing.get(route)))
+    if (shared.length > 0) throw new Error(`a line and an arrow into ${must(v.node, 'target box').id} would share one head`)
   }
   return { landing, onto }
 }
@@ -848,7 +856,7 @@ function landOnBox(v: Vertex, shape: Shape, list: Route[], leaving: Map<Route, n
   const isLong = (route: Route) => route.path.length > 2
   const bus = (route: Route) => {
     if (isLong(route)) return undefined
-    const mine = list.filter(r => r.edge.stroke === route.edge.stroke && !isLong(r))
+    const mine = list.filter(r => joinKey(r) === joinKey(route) && !isLong(r))
     if (mine.length < 2) return undefined
     let nearest: number | undefined
     for (const r of mine) {
@@ -861,18 +869,18 @@ function landOnBox(v: Vertex, shape: Shape, list: Route[], leaving: Map<Route, n
   const want = (route: Route) => Math.max(lo, Math.min(hi, bus(route) ?? (list.length === 1 && must(route.path.at(-2), 'step').node ? centre(v) : from(route))))
   const first = [...list].sort((a, b) => solidFirst(a, b) || Math.abs(want(a) - from(a)) - Math.abs(want(b) - from(b)))
   const taken: number[] = []
-  const joined = new Map<Stroke, number>()
+  const joined = new Map<string, number>()
   for (const route of first) {
     // edges of one stroke join on one bus into the box and share its head, which sits mid-box
     // when more than one of them comes in
-    const shared = isLong(route) ? undefined : joined.get(route.edge.stroke)
+    const shared = isLong(route) ? undefined : joined.get(joinKey(route))
     if (shared !== undefined) {
       landing.set(route, shared)
       continue
     }
     const at = headSpot(from(route), want(route), { lo, hi, apart }, taken)
     taken.push(at)
-    if (!isLong(route)) joined.set(route.edge.stroke, at)
+    if (!isLong(route)) joined.set(joinKey(route), at)
     landing.set(route, at)
   }
 }

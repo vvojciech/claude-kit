@@ -827,3 +827,14 @@ describe('links', () => {
     expect(sequence.unread).toBeUndefined()
   })
 })
+
+describe('controls in the source', () => {
+  test('never reach labels, problems or the diagram type', async () => {
+    const sequence = parseSequence('sequenceDiagram\nparticipant A as Al\u001b[2Jice\nA->>B: hi\u001b[2J\tthere\n\u001b[31mgarbage')
+    const shown = JSON.stringify(sequence)
+
+    expect(shown.includes('\\u001b')).toBe(false)
+    expect(sequence.steps).toContainEqual(expect.objectContaining({ kind: 'message', text: 'hi[2J there' }))
+    expect(kindOf('\u001b[2Jpie\n"a": 1')).toBe('[2Jpie')
+  })
+})

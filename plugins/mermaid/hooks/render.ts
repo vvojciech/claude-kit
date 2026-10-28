@@ -2274,7 +2274,7 @@ function compact(sequence: Sequence, width: number): { rows: Run[][]; notes: str
   const pairOf = (step: Step): Run[] => {
     if (step.kind !== 'message') return []
     if (step.from === step.to) return [{ text: nameOf(step.from), ink: 'name' }, { text: ' ↺', ink: 'line' }]
-    const arrow = step.isDashed ? ' ⇢ ' : ' → '
+    const arrow = step.arrow === 'both' ? (step.isDashed ? ' ⇠⇢ ' : ' ↔ ') : step.isDashed ? ' ⇢ ' : ' → '
     return [{ text: nameOf(step.from), ink: 'name' }, { text: arrow, ink: 'line' }, { text: nameOf(step.to), ink: 'name' }]
   }
   const textOf = (runs: Run[]) => runs.map(run => run.text).join('')
@@ -2344,6 +2344,7 @@ function compact(sequence: Sequence, width: number): { rows: Run[][]; notes: str
   for (const step of sequence.steps) {
     if (step.kind === 'message') entry(step, flat(step.text), 'text', numberOf.get(step))
     else if (step.kind === 'note') note(step)
+    else if (step.kind === 'create' || step.kind === 'destroy') rows.push([...pad(2 * depth + numberWidth), { text: `${nameOf(step.id)} ${step.kind === 'create' ? 'created' : 'destroyed'}`, ink: 'frame' }])
     else frame(step)
   }
   return { rows, notes }

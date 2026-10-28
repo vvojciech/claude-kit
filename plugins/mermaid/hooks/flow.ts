@@ -12,23 +12,25 @@ export type FlowNode = { id: string; label: string; shape: Shape; group?: string
 export type Stroke = 'solid' | 'dotted' | 'thick' | 'invisible'
 export type FlowEdge = { from: string; to: string; label: string; stroke: Stroke; head: boolean; tail: boolean }
 export type Group = { id: string; label: string; parent?: string }
-export type Flow = { direction: Direction; nodes: FlowNode[]; edges: FlowEdge[]; groups: Group[]; problems: string[] }
+export type Flow = { title?: string; direction: Direction; nodes: FlowNode[]; edges: FlowEdge[]; groups: Group[]; problems: string[] }
 
 const HEADER = /^(flowchart|graph)(?:\s+(TD|TB|LR|RL|BT))?\s*;?$/i
 const SKIPPED = /^(classDef|class|style|click|linkStyle|accTitle|accDescr)\b/
+// `a & b & … --> c & d & …` makes an edge for every pair; past this many the chart can't fit anyway
+const MOST_EDGES = 500
 
 // opening and closing marks of each node shape, longest first so `((` wins over `(`
-const SHAPES: Array<[string, string, Shape]> = [
+const SHAPES: Array<[string, string, Shape | 'slanted']> = [
   ['(((', ')))', 'circle'],
   ['((', '))', 'circle'],
   ['([', '])', 'stadium'],
   ['[(', ')]', 'database'],
   ['[[', ']]', 'subroutine'],
   ['{{', '}}', 'hexagon'],
-  ['[/', '/]', 'box'],
-  ['[\\', '\\]', 'box'],
-  ['[/', '\\]', 'box'],
-  ['[\\', '/]', 'box'],
+  ['[/', '/]', 'slanted'],
+  ['[\\', '\\]', 'slanted'],
+  ['[/', '\\]', 'slanted'],
+  ['[\\', '/]', 'slanted'],
   ['[', ']', 'box'],
   ['(', ')', 'round'],
   ['{', '}', 'diamond'],
@@ -80,7 +82,7 @@ const clean = (text: string) =>
     .trim()
 
 type Cursor = { text: string; at: number }
-type Named = { id: string; label?: string; shape?: Shape }
+type Named = { id: string; label?: string; shape?: Shape; isSlanted?: boolean }
 
 function skipSpace(c: Cursor) {
   while (c.at < c.text.length && /\s/.test(c.text.charAt(c.at))) c.at++
@@ -106,7 +108,7 @@ function readNode(c: Cursor): Named | undefined {
     if (end < 0) continue
     const label = clean(c.text.slice(start, end))
     c.at = end + close.length
-    return { id, label, shape }
+    return shape === 'slanted' ? { id, label, shape: 'box', isSlanted: true } : { id, label, shape }
   }
   return { id }
 }
@@ -184,6 +186,7 @@ export function parseFlow(source: string): Flow {
   const byId = new Map<string, FlowNode>()
   const stack: string[] = []
   const note = (node: Named) => {
+    if (node.isSlanted) flow.problems.push(`parallelogram and trapezoid shapes not drawn yet: ${node.id}`)
     const known = byId.get(node.id)
     if (known) {
       if (node.label !== undefined) Object.assign(known, { label: node.label, shape: node.shape ?? known.shape })
@@ -198,23 +201,24 @@ export function parseFlow(source: string): Flow {
   let seenHeader = false
   let inFront = false
   for (const raw of source.split('\n')) {
-    const line = uncommented(raw).trim()
+    const line = uncommented(withoutControls(raw)).trim()
     if (line === '---') {
       inFront = !inFront && !seenHeader
       continue
     }
+    if (inFront) readFront(flow, line)
     if (inFront || line === '') continue
+    const parts = statements(line)
     if (!seenHeader) {
-      const header = HEADER.exec(line)
+      const header = HEADER.exec(parts.shift() ?? '')
       if (!header) {
         flow.problems.push(`line not read: ${line}`)
         continue
       }
       flow.direction = directionOf(header[2] ?? 'TD')
       seenHeader = true
-      continue
     }
-    for (const statement of statements(line)) readStatement({ flow, stack, note }, statement)
+    for (const statement of parts) readStatement({ flow, stack, note }, statement)
   }
   if (stack.length > 0) flow.problems.push(`subgraph not closed: ${stack.join(', ')}`)
   const groups = new Set(flow.groups.map(group => group.id))
@@ -249,6 +253,12 @@ function readStatement(r: Reading, statement: string) {
   readChain(r, statement)
 }
 
+// a `title:` line in the YAML front matter
+function readFront(flow: Flow, line: string) {
+  const colon = line.indexOf(':')
+  if (colon > 0 && line.slice(0, colon).trim() === 'title') flow.title = clean(line.slice(colon + 1).trim())
+}
+
 // a chain of links such as `a --> b & c -.-> d`
 function readChain({ flow, note }: Reading, statement: string) {
   const c: Cursor = { text: statement, at: 0 }
@@ -269,6 +279,10 @@ function readChain({ flow, note }: Reading, statement: string) {
     }
     const { isMarked, ...link } = read
     if (isMarked) flow.problems.push(`circle and cross ends not drawn yet: ${statement}`)
+    if (flow.edges.length + left.length * right.length > MOST_EDGES) {
+      flow.problems.push(`too many links to draw, over ${MOST_EDGES}`)
+      return
+    }
     right.forEach(note)
     for (const a of left) for (const b of right) flow.edges.push({ from: a.id, to: b.id, ...link })
     left = right

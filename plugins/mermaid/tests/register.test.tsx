@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine, TestBody } from 'claude-code/testing'
 
+import { must } from '../hooks/must'
 import { PALETTES, TINT, notDrawn, styles } from '../hooks/register'
 
 type On = Parameters<TestBody>[1]
@@ -253,6 +254,36 @@ test('hands every piece of prose the reply link definitions, so a reference link
   const seen: { text: string; isFirst: boolean }[] = []
   beneath(on, seen)
   const ui = await mount($, `See [docs][ref].\n\n${FLOWCHART.slice('Before.\n\n'.length)}\n\nMore [docs][ref].\n\n[ref]: https://example.com`)
-  expect(seen.map(one => one.text)).toEqual(['See [docs][ref].\n\n[ref]: https://example.com', 'More [docs][ref].\n\n[ref]: https://example.com'])
+  expect(seen.map(one => one.text)).toEqual(['[ref]: https://example.com\n\nSee [docs][ref].', 'More [docs][ref].\n\n[ref]: https://example.com'])
+  await ui.unmount()
+})
+
+test('puts the reply definitions first, so the first of two duplicates still wins and an open fence never swallows them', async ($, on) => {
+  const seen: { text: string; isFirst: boolean }[] = []
+  beneath(on, seen)
+  const diagram = FLOWCHART.slice('Before.\n\n'.length)
+  const ui = await mount($, `See [a][ref].\n\n[ref]: https://first.example\n\n${diagram}\n\nMore [b][ref].\n\n[ref]: https://second.example\n\n\`\`\`ts\nconst x`)
+  const second = must(seen[1], 'second piece').text
+  expect(second.startsWith('[ref]: https://first.example\n[ref]: https://second.example\n\nMore')).toBe(true)
+  expect(second.endsWith('```ts\nconst x')).toBe(true)
+  await ui.unmount()
+})
+
+test('keeps controls in an unknown diagram type out of the notice', async ($, on) => {
+  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: ['engine'] }))
+  on('ui.log', () => ({ value: undefined }))
+  on('config.list', () => ({ value: [] }) as never)
+  const ui = await mount($, 'Before.\n\n```mermaid\n\u001b[2Jpie\n"a": 1\n```')
+  const notices = (await texts(ui)).filter(t => t.startsWith('mermaid:'))
+  expect(notices).toEqual(['mermaid: [2Jpie not drawn yet, sequenceDiagram and flowchart only'])
+  await ui.unmount()
+})
+
+test('draws the front matter title above a flowchart', async ($, on) => {
+  beneath(on)
+  const ui = await mount($, 'Before.\n\n```mermaid\n---\ntitle: Checkout\n---\nflowchart LR\nA[Start]-->B[Stop]\n```')
+  const all = await texts(ui)
+  expect(all).toContain('Checkout')
+  expect(all.indexOf('Checkout')).toBeLessThan(all.findIndex(t => t.includes('Start')))
   await ui.unmount()
 })

@@ -19,7 +19,7 @@ Drawn with lucid loaded. The mod also works alone, and then Claude Code draws th
 - Only if you also use lucid: load the mermaid mod before it. lucid draws the reply itself, so a mod loaded after it never sees the text, and nothing warns you.
 - Only if you also use copy-that: load copy-that before the mermaid mod, since the mod hands each piece of a reply on separately.
 
-See [load order](../../README.md#load-order) for how to set the order.
+See [load order](#load-order) for how to set the order.
 
 ## Features
 
@@ -40,11 +40,11 @@ See [load order](../../README.md#load-order) for how to set the order.
 
 ### Flowcharts
 
-- `flowchart` and `graph`, in `TD`, `TB`, `BT`, `LR` and `RL`.
+- `flowchart` and `graph`, in `TD`, `TB`, `BT`, `LR` and `RL`. A `title` in YAML front matter sits above the chart.
 - Nodes are laid out in ranks. Long edges run straight and short detours bend round them.
 - Shapes: `[box]`, `(rounded)`, `([stadium])`, `((circle))`, `{decision}` with slanted corners and `◇` tips, `{{hexagon}}` with `<` `>` tips, `[(database)]` with doubled ends, `[[subroutine]]` with doubled sides, and `>flag]`.
 - Edges `-->`, `---`, `-.->` (dimmed and dashed), `==>` (heavy), `<-->` and `~~~` (invisible), with `|label|` or `-- label -->` text, chains and `&`.
-- Edges of one stroke into a box meet on a bus over one arrowhead, and each stroke leaves through its own port. Left to right, extra strokes and arrows use a box's top and bottom.
+- Edges of one stroke and head into a box meet on a bus over one arrowhead, and each stroke leaves through its own port. Left to right, extra strokes and arrows use a box's top and bottom.
 - Branches keep the order the source declares them. An edge that closes a cycle loops round the outside of the chart on a lane of its own, on the side its source sits.
 - `subgraph` blocks are framed with their title in the border, and an edge crossing a frame shows a `┼`.
 - `classDef`, `class`, `style`, `click` and `linkStyle` lines are read and skipped.
@@ -76,7 +76,7 @@ See [load order](../../README.md#load-order) for how to set the order.
 - Wide characters and emoji count as two cells.
 - The diagram becomes a list with one line per message, such as `Customer → Shop  submit order`, when not every participant fits with its name whole.
 - It also becomes a list when more than a quarter of the messages would end up in footnotes.
-- In the list, `⇢` marks dashed and `↺` self messages, frames draw as `┌ ├ └` and notes sit behind `┆`.
+- In the list, `⇢` marks dashed, `↔` two-way and `↺` self messages, frames draw as `┌ ├ └` and notes sit behind `┆`. A created or destroyed participant gets a line of its own.
 
 ### Fallbacks
 
@@ -94,7 +94,7 @@ None. A diagram draws as soon as its `mermaid` fence closes.
 
 ## A diagram shows as a code block
 
-- lucid loads before the mermaid mod. Check that `CLAUDE_CODE_PLUGIN_DIRS` lists mermaid before lucid. See [load order](../../README.md#load-order).
+- lucid loads before the mermaid mod. Check that `CLAUDE_CODE_PLUGIN_DIRS` lists mermaid before lucid. See [load order](#load-order).
 - The fence never closed. The mod draws only once the closing fence arrives.
 - The diagram isn't a `sequenceDiagram`. A note under the block says so.
 - mermaid.live would reject it. The problems are listed under the block.
@@ -102,9 +102,14 @@ None. A diagram draws as soon as its `mermaid` fence closes.
 ## Known limits
 
 - A flowchart node that links to itself is listed under the chart instead of drawn.
-- These flowcharts show the source with a note instead of being drawn: a subgraph inside a subgraph, a subgraph `direction` other than the chart's, a link to a subgraph, and `o` or `x` link ends.
+- These flowcharts show the source with a note instead of being drawn: a subgraph inside a subgraph, a subgraph `direction` other than the chart's, a link to a subgraph, `o` or `x` link ends, parallelogram and trapezoid nodes (`[/…/]`, `[\…\]`, `[/…\]`, `[\…/]`), more than 500 links, and, left to right, a line and an arrow into the tip of one decision.
 - `link`, `links`, `properties` and `details` lines are not drawn.
+- The list form of a sequence diagram drops activation bars.
 - Box and `rect` colours are dropped. `rect` uses one fixed shade.
 - With `MERMAID_STYLE=plain`, the note tint picks light only when the theme name contains "light".
 - A diagram inside a list splits it: the list restarts after the diagram.
 - Only the terminal draws diagrams. Summary rows and other surfaces, such as the desktop app, show the source.
+
+## Load order
+
+Running several mods? Load them in this order: copy-that, peek, mermaid, then any mod that draws replies itself (lucid, for example). `/plugin install` can't set the order, so clone this repo and list the mod folders in that order in `CLAUDE_CODE_PLUGIN_DIRS`, in the `env` block of `~/.claude/settings.json`. Restart Claude Code afterwards.

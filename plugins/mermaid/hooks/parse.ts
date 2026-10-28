@@ -1,5 +1,5 @@
 import { must } from './must'
-import { NAMED } from './entities'
+import { NAMED, withoutControls } from './entities'
 import { fencesOf } from './segments'
 
 export type Arrow = 'filled' | 'open' | 'cross' | 'async' | 'both' | 'half'
@@ -183,7 +183,7 @@ type Line = { text: string; line: number }
 type Body = { title?: string; header: string; lines: Line[] }
 
 function body(source: string): Body {
-  const lines = source.split('\n').map((text, i) => ({ text: text.trim(), line: i + 1 }))
+  const lines = withoutControls(source).split('\n').map((text, i) => ({ text: text.trim(), line: i + 1 }))
   let title: string | undefined
   let at = lines.findIndex(line => line.text !== '')
   if (lines[at]?.text === '---') {

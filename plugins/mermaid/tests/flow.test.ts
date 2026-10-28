@@ -142,3 +142,40 @@ describe('parseFlow', () => {
     expect(parseFlow('flowchart TD\nsubgraph S [Group]\nA\nend\nS --> X').problems).toEqual(['links to a subgraph not drawn yet: S'])
   })
 })
+
+describe('review round 42', () => {
+  test('stops a fan-out at a bound instead of making an edge for every pair', async () => {
+    const side = (prefix: string) => Array.from({ length: 100 }, (_, i) => `${prefix}${i}`).join(' & ')
+    const flow = parseFlow(`flowchart TD\n${side('a')} --> ${side('b')}`)
+
+    expect(flow.edges.length).toBeLessThanOrEqual(500)
+    expect(flow.problems).toEqual(['too many links to draw, over 500'])
+  })
+
+  test('reports parallelogram and trapezoid nodes instead of drawing them as boxes', async () => {
+    for (const node of ['A[/In/]', 'A[\\In\\]', 'A[/In\\]', 'A[\\In/]']) {
+      expect(parseFlow(`flowchart TD\n${node} --> B[Process]`).problems).toEqual(['parallelogram and trapezoid shapes not drawn yet: A'])
+    }
+    expect(parseFlow('flowchart TD\nA[/api/users] --> B').problems).toEqual([])
+  })
+
+  test('keeps controls out of the lines it could not read', async () => {
+    const { problems } = parseFlow('flowchart TD\nA -> \u001b[2J\u009b')
+
+    expect(problems).toEqual(['line not read: A -> [2J'])
+  })
+
+  test('keeps the title from the front matter', async () => {
+    expect(parseFlow('---\ntitle: "Checkout #35;1"\n---\nflowchart LR\nA-->B').title).toBe('Checkout #1')
+    expect(parseFlow('flowchart LR\nA-->B').title).toBeUndefined()
+  })
+
+  test('reads statements after the header on its own line', async () => {
+    const flow = parseFlow('graph LR; A-->B; B-->C')
+
+    expect(flow.problems).toEqual([])
+    expect(flow.direction).toBe('LR')
+    expect(edges('graph LR; A-->B; B-->C')).toEqual(['A>B', 'B>C'])
+    expect(parseFlow('graph TD A-->B').problems).toEqual(['line not read: graph TD A-->B'])
+  })
+})

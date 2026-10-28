@@ -157,6 +157,11 @@ function flowchart(kit: Kit, style: Styles, chosen: Look, part: { source: string
   return {
     node: (
       <Box key={key} flexDirection="column" paddingLeft={INDENT}>
+        {flow.title && (
+          <Text key={`${key}-title`} bold>
+            {flow.title}
+          </Text>
+        )}
         {keyed(drawn.rows, textOf).map(([id, runs]) => row(kit, style, chosen, runs, `${key}-row-${id}`))}
         {drawn.notes.length > 0 && <Text key={`${key}-gap`}> </Text>}
         {keyed(drawn.notes, note => note).map(([id, note]) => (
@@ -199,8 +204,8 @@ async function drawParts($: EngineInterface, e: AssistantRender, next: (e: Assis
   for (const [i, part] of parts.entries()) {
     const key = `mermaid-part-${i}`
     if (part.kind === 'text') {
-      const missing = definitions.filter(definition => !part.text.includes(definition))
-      const text = missing.length > 0 ? `${part.text}\n\n${missing.join('\n')}` : part.text
+      const isMissing = definitions.some(definition => !part.text.includes(definition))
+      const text = isMissing ? `${definitions.join('\n')}\n\n${part.text}` : part.text
       const element = await next({ ...e, props: { ...e.props, text, isFirstOfReply: isFirst } })
       isFirst = false
       drawn.push(<kit.Box key={key}>{element}</kit.Box>)
