@@ -77,6 +77,7 @@ export function fencesOf(markdown: string): Fence[] {
   const fences: Fence[] = []
   let open: Open | undefined
   let list = 0
+  let quotedList = 0
   let isComment = false
   let isHtml = false
   let isRaw = false
@@ -116,17 +117,20 @@ export function fencesOf(markdown: string): Fence[] {
       continue
     }
     if (isHtml || HTML_BLOCK.test(content)) {
-      isHtml = raw.trim() !== ''
+      isHtml = content.trim() !== ''
       continue
     }
     const { count: quotes, rest: line } = stripQuotes(raw)
     if (quotes > 0) {
       const inner = LIST_ITEM.exec(line)
-      const width = inner ? inner[0].length : 0
-      const found = opener(inner ? ' '.repeat(width) + line.slice(width) : line, width)
+      if (inner) quotedList = inner[0].length
+      else if (line.trim() !== '' && indentOf(line) < quotedList) quotedList = 0
+      const container = inner || indentOf(line) >= quotedList ? quotedList : 0
+      const found = opener(inner ? ' '.repeat(quotedList) + line.slice(quotedList) : line, container)
       if (found) open = { ...found, from: at, quotes }
       continue
     }
+    quotedList = 0
     const item = LIST_ITEM.exec(line)
     const itemQuotes = item ? stripQuotes(line.slice(item[0].length)) : undefined
     if (item && itemQuotes && itemQuotes.count > 0) {

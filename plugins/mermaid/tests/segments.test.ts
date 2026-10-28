@@ -139,3 +139,12 @@ test('leaves a mermaid example inside <pre>, <script>, <style> or <textarea> as 
   }
   expect(fencesOf('<pre>x</pre>\n```mermaid\nsequenceDiagram\nA->>B: x\n```').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
 })
+
+test('a quoted blank line ends a quoted HTML block, so a fence after it draws', () => {
+  expect(fencesOf('> <details>\n>\n> ```mermaid\n> sequenceDiagram\n> A->>B: x\n> ```\n>\n> </details>').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+})
+
+test('finds a fence that opens on a later line of a list item inside a blockquote', () => {
+  expect(fencesOf('> - item\n>\n>   ```mermaid\n>   sequenceDiagram\n>   A->>B: x\n>   ```\n> after').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+  expect(fencesOf('> - item\n>\n>     ```mermaid\n>     sequenceDiagram\n>     A->>B: x\n>     ```\n> after').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+})
