@@ -127,3 +127,15 @@ test('leaves a fence inside an HTML block as raw HTML until a blank line ends th
   expect(fencesOf('<div>\n```mermaid\nsequenceDiagram\nA->>B: x\n```\n</div>')).toEqual([])
   expect(fencesOf('<details>\n\n```mermaid\nsequenceDiagram\nA->>B: x\n```\n\n</details>').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
 })
+
+test('ignores a fence inside an HTML comment that sits in a blockquote or a list item', () => {
+  expect(kinds('> <!--\n> ```mermaid\n> sequenceDiagram\n> A->>B: x\n> ```\n> -->\nafter')).toEqual(['text'])
+  expect(kinds('- <!--\n  ```mermaid\n  sequenceDiagram\n  A->>B: x\n  ```\n  -->\nafter')).toEqual(['text'])
+})
+
+test('leaves a mermaid example inside <pre>, <script>, <style> or <textarea> as raw HTML, blank lines and all', () => {
+  for (const tag of ['pre', 'script', 'style', 'textarea', 'PRE']) {
+    expect(fencesOf(`<${tag}>\n\n\`\`\`mermaid\nsequenceDiagram\nA->>B: x\n\`\`\`\n\n</${tag}>`)).toEqual([])
+  }
+  expect(fencesOf('<pre>x</pre>\n```mermaid\nsequenceDiagram\nA->>B: x\n```').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+})

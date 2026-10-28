@@ -16,6 +16,9 @@ function quoteMark(text: string): number | undefined {
   return text[at + 1] === ' ' ? at + 2 : at + 1
 }
 const COMMENT_START = /^ {0,3}<!--/
+// CommonMark HTML blocks of type 1 hold raw text, blank lines included, up to the first closing tag of any of the four.
+const RAW_START = /^ {0,3}<(?:pre|script|style|textarea)(?:[\s>]|$)/i
+const RAW_END = /<\/(?:pre|script|style|textarea)>/i
 // CommonMark HTML blocks of type 6 run to the next blank line, and a fence inside one is raw HTML.
 const HTML_BLOCK =
   /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[\s/>]|$)/i
@@ -76,6 +79,7 @@ export function fencesOf(markdown: string): Fence[] {
   let list = 0
   let isComment = false
   let isHtml = false
+  let isRaw = false
 
   const finish = (at: number, end: number) => {
     if (open?.isMermaid) {
@@ -99,12 +103,19 @@ export function fencesOf(markdown: string): Fence[] {
         continue
       }
     }
-    if (isComment || COMMENT_START.test(raw)) {
-      const after: string = isComment ? raw : raw.slice(raw.indexOf('<!--') + 4)
+    const quoted = stripQuotes(raw).rest
+    const marker = LIST_ITEM.exec(quoted)
+    const content = marker ? quoted.slice(marker[0].length) : quoted
+    if (isRaw || RAW_START.test(content)) {
+      isRaw = !RAW_END.test(isRaw ? raw : content)
+      continue
+    }
+    if (isComment || COMMENT_START.test(content)) {
+      const after: string = isComment ? raw : content.slice(content.indexOf('<!--') + 4)
       isComment = !after.includes('-->')
       continue
     }
-    if (isHtml || HTML_BLOCK.test(raw)) {
+    if (isHtml || HTML_BLOCK.test(content)) {
       isHtml = raw.trim() !== ''
       continue
     }
