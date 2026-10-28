@@ -211,6 +211,14 @@ async function delivered(call: ToolCall, lookup: ReportLookup): Promise<ToolCall
   return found === call ? unavailable(stub.agentId) : found
 }
 
+// a folded group's background Agent calls with the reports that have since arrived, as a single row gets them
+export async function reportedCalls(group: ToolCall[], messages: () => Promise<SessionMessage[]>, lookup: ReportLookup): Promise<ToolCall[]> {
+  if (!group.some(call => AGENT_TOOLS.has(call.tool))) return group
+  const reports = backgroundReports(await messages())
+  const found = await Promise.all(group.map(call => delivered(withReport(call, reports), lookup)))
+  return found.flatMap(one => ('tool' in one ? [one] : []))
+}
+
 export function groupTargets(group: ToolCall[]): Target[] {
   const found = group.flatMap(call => {
     const one = produced(call)

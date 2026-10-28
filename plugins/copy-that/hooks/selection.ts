@@ -141,7 +141,7 @@ export type Behind = { text: string } | { places: number }
 
 function occurrences(haystack: string, wanted: string): number[] {
   const found: number[] = []
-  for (let at = haystack.indexOf(wanted); at !== -1; at = haystack.indexOf(wanted, at + wanted.length)) found.push(at)
+  for (let at = haystack.indexOf(wanted); at !== -1; at = haystack.indexOf(wanted, at + 1)) found.push(at)
   return found
 }
 
@@ -150,22 +150,24 @@ function exactSpans(projection: Projection, wanted: string): Span[] {
   return occurrences(projection.letters, wanted).map(start => ({ from: start, to: start + wanted.length - 1 }))
 }
 
-function lineSpan(projection: Projection, lines: string[]): Span | undefined {
-  if (lines.length < 2) return undefined
+// one span per place the first line starts, ending at the last line as often as the selection
+// itself repeats it, so repeated sections stay separate places instead of one span across them
+function lineSpans(projection: Projection, lines: string[]): Span[] {
+  if (lines.length < 2) return []
   const first = lines[0] ?? ''
   const last = lines[lines.length - 1] ?? ''
-  const head = projection.letters.indexOf(first)
-  if (head === -1) return undefined
-  const tail = projection.letters.lastIndexOf(last)
-  return tail < head + first.length ? undefined : { from: head, to: tail + last.length - 1 }
+  const lastCount = occurrences(lines.slice(1).join(''), last).length
+  return occurrences(projection.letters, first).flatMap(head => {
+    const tail = occurrences(projection.letters.slice(head + first.length), last)[lastCount - 1]
+    return tail === undefined ? [] : [{ from: head, to: head + first.length + tail + last.length - 1 }]
+  })
 }
 
 function spansIn(projection: Projection, selected: string): Span[] {
   const lines = selected.split('\n').map(lettersOf).filter(line => line !== '')
   const exact = exactSpans(projection, lines.join(''))
   if (exact.length > 0) return exact
-  const anchored = lineSpan(projection, lines)
-  return anchored ? [anchored] : []
+  return lineSpans(projection, lines)
 }
 
 function settled(texts: string[]): Behind | undefined {

@@ -92,6 +92,17 @@ describe('sourceBehind', () => {
     expect(sourceBehind(source, 'tests again')).toEqual({ text: '**tests** again' })
   })
 
+  test('counts overlapping places too, so a selection two spans could hold is never copied from the first', async () => {
+    expect(sourceBehind('a**ba**ba', 'aba')).toEqual({ places: 2 })
+  })
+
+  test('anchors on one section at a time when its first and last lines repeat, rather than spanning both', async () => {
+    const two = 'Start\n\n| a |\n\nEnd\n\nStart\n\n| b |\n\nEnd'
+    const same = 'Start\n\n| a |\n\nEnd\n\nStart\n\n| a |\n\nEnd'
+    expect(sourceBehind(two, 'Start\nsomething drawn differently\nEnd')).toEqual({ places: 2 })
+    expect(sourceBehind(same, 'Start\nsomething drawn differently\nEnd')).toEqual({ text: 'Start\n\n| a |\n\nEnd' })
+  })
+
   test('counts a word repeated within one line as two places, since only one of them was selected', async () => {
     expect(sourceBehind('a **b** then b', 'b')).toEqual({ places: 2 })
     expect(sourceBehind('a **b** then **b**', 'b')).toEqual({ text: '**b**' })

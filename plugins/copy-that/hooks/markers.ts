@@ -12,7 +12,7 @@ import type { Flash, Marker, Note } from './row'
 import { session } from './session'
 import { blockTargets, replyTargets } from './targets'
 import type { Target } from './targets'
-import { groupTargets, launchedInBackground, reportedTarget, toolTarget } from './tools'
+import { groupTargets, launchedInBackground, reportedCalls, reportedTarget, toolTarget } from './tools'
 import type { ToolCall } from './tools'
 
 export type ToolRender = RenderInputOf<'ToolUse', 'terminal'>
@@ -140,7 +140,8 @@ function groupScope(e: GroupRender): string {
 
 export async function withGroupMarker($: EngineInterface, e: GroupRender, drawn: RenderElement): Promise<RenderElement> {
   const scope = `copy-that-group-${groupScope(e)}`
-  const targets = groupTargets(e.props.calls.filter(settled))
+  const calls = await reportedCalls(e.props.calls.filter(settled), () => $.session.messages(), agentId => agentReport($, agentId))
+  const targets = groupTargets(calls)
   session.rememberGroup(targets)
   if (targets.length === 0) return drawn
   const above = await toolRoom($, e.props.calls.map(call => call.tool_use_id), drawn, e.viewport?.columns)

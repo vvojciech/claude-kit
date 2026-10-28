@@ -40,9 +40,9 @@ async function copySelection($: EngineInterface, surface: Surface): Promise<stri
 async function copyBlock($: EngineInterface, request: BlockRequest, surface: Surface): Promise<string> {
   const all = await refresh($)
   const reply = all[all.length - request.reply]
-  if (reply === undefined) return missingReply(all.length)
-  const block = chooseBlock(await resolve($, reply), request)
-  const picked = 'error' in block ? ((await namedCall($, request)) ?? block) : block
+  const named = () => (request.name === '' ? Promise.resolve(undefined) : namedCall($, request))
+  const block = reply === undefined ? { error: missingReply(all.length) } : chooseBlock(await resolve($, reply), request)
+  const picked = 'error' in block ? ((await named()) ?? block) : block
   if ('error' in picked) return picked.error
   return confirmation(await copyText($, picked.text, surface), picked.what, picked.text)
 }

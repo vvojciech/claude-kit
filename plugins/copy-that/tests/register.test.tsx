@@ -952,6 +952,14 @@ describe('/copy-that and group chip names', () => {
     expect((await run($, 'theme.ts')).text).toMatch(/^No "theme.ts" in the last reply/)
   })
 
+  test('/copy-that notes.md and bash reach tool calls in a session with no reply written yet, while a bare /copy-that still says there is none', async ($, on) => {
+    const { copied } = fakeHost(on, { messages: [prompt('go'), used(WRITE), used(BASH)] })
+    expect((await run($, 'notes.md')).text).toBe('Copied last file notes.md (5 lines, pbcopy)')
+    expect((await run($, 'bash')).text).toBe('Copied last bash output (2 lines, pbcopy)')
+    expect((await run($, '')).text).toBe('No reply to copy yet')
+    expect(copied).toEqual([WRITE.input.content, 'ok\nfile.md'])
+  })
+
   test('/copy-that bash copies the last Bash output a group chip ⧉ bash names, unless the last reply has a bash block', async ($, on) => {
     const transcript = { messages: [prompt('go'), used(BASH), said('Done.')] }
     const { copied } = fakeHost(on, transcript)
@@ -1020,6 +1028,15 @@ describe('grouped tool rows', () => {
     await ui.press({ key: 'copy-a.md' })
     expect(copied).toEqual(['two', 'line 1\nline 2\n'])
     expect(toasts).toEqual([])
+  })
+
+  test('a folded background Agent call gets its chip once its report arrives, as a single row does', async ($, on) => {
+    const notice = prompt('<task-notification>\n<task-id>a7</task-id>\n<status>completed</status>\n<result>Found 3 callers.</result>\n</task-notification>')
+    const { copied } = fakeHost(on, { messages: [prompt('go'), used(LAUNCHED), notice] })
+    const ui = await mountGroup($, [BASH, { ...LAUNCHED, tool_use_id: 'toolu_bg' }])
+    expect((await chipsOf(ui)).map(b => b.props.label)).toEqual(['⧉ bash', '⧉ agent'])
+    await ui.press({ key: 'copy-agent' })
+    expect(copied).toEqual(['Found 3 callers.'])
   })
 
   test('no group chip reads as a /copy-that output or file count, which later calls would shift', async ($, on) => {
