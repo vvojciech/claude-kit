@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { isFlow, parseFlow } from '../hooks/flow'
+import { must } from '../hooks/must'
 
 const edges = (source: string) => parseFlow(source).edges.map(e => `${e.from}>${e.to}${e.label ? `:${e.label}` : ''}`)
 
@@ -37,7 +38,7 @@ describe('parseFlow', () => {
   test('keeps a quoted label whole, brackets and <br/> included', async () => {
     const { nodes } = parseFlow('flowchart TD\nA["Rate (v2)<br/>[beta]"] --> B')
 
-    expect(nodes[0]!.label).toBe('Rate (v2)\n[beta]')
+    expect(must(nodes[0], 'node').label).toBe('Rate (v2)\n[beta]')
   })
 
   test('reads edge labels in both spellings and chains', async () => {
@@ -54,6 +55,22 @@ describe('parseFlow', () => {
       ['solid', true, true],
       ['invisible', false, false],
     ])
+  })
+
+  test('reads compact edges with no spaces, keeping hyphens and dots inside ids', async () => {
+    const flow = parseFlow('flowchart TD\nA-->B\nB---C\nC-.->D\nD==>E\nE--oF\nmy-node.v2-->G\nmy-order-->G')
+
+    expect(flow.edges.map(e => `${e.from}>${e.to}`)).toEqual(['A>B', 'B>C', 'C>D', 'D>E', 'E>F', 'my-node.v2>G', 'my-order>G'])
+    expect(flow.nodes.map(n => n.id)).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'my-node.v2', 'G', 'my-order'])
+    expect(flow.problems).toEqual([])
+  })
+
+  test('splits statements on ; but not inside a quoted label or an entity', async () => {
+    const flow = parseFlow('flowchart TD\nA["first; second"] --> B; B --> C["no &#35;1"]')
+
+    expect(flow.edges.map(e => `${e.from}>${e.to}`)).toEqual(['A>B', 'B>C'])
+    expect(flow.nodes.map(n => n.label)).toEqual(['first; second', 'B', 'no #1'])
+    expect(flow.problems).toEqual([])
   })
 
   test('fans out over &', async () => {

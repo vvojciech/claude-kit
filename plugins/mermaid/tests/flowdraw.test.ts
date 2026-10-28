@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { parseFlow } from '../hooks/flow'
 import { drawFlow } from '../hooks/flowdraw'
+import { must } from '../hooks/must'
 import { plainRows } from '../hooks/render'
 
 const draw = (source: string, width = 80) => {
@@ -10,7 +11,8 @@ const draw = (source: string, width = 80) => {
 }
 
 const rowOf = (lines: string[], text: string) => lines.findIndex(line => line.includes(text))
-const colOf = (lines: string[], text: string) => lines[rowOf(lines, text)]!.indexOf(text)
+const lineAt = (lines: string[], row: number) => must(lines[row], `row ${row}`)
+const colOf = (lines: string[], text: string) => lineAt(lines, rowOf(lines, text)).indexOf(text)
 
 describe('drawFlow top-down', () => {
   test('stacks a box over the box it points to, joined by a line ending in ▼', async () => {
@@ -43,7 +45,7 @@ describe('drawFlow top-down', () => {
 
   test('keeps a long edge straight and lets the short detour bend round it', async () => {
     const { lines } = draw('flowchart TD\nE[Rate the request] --> F{Any quotes?}\nE -.-> K[Side check]\nK -.-> F')
-    const leaves = [...lines[rowOf(lines, 'Rate the request') + 1]!].lastIndexOf('┬')
+    const leaves = [...lineAt(lines, rowOf(lines, 'Rate the request') + 1)].lastIndexOf('┬')
     const lands = lines.findIndex(line => line.includes('Any quotes?'))
     const above = lines.slice(rowOf(lines, 'Rate the request') + 2, lands - 1)
 
@@ -107,7 +109,7 @@ describe('drawFlow top-down', () => {
 
   test('runs a loop down the side its source sits on, so it never passes a neighbour', async () => {
     const { lines } = draw('flowchart TD\nA --> B\nB --> C[Loop back]\nB --> D[Carry on]\nC --> A')
-    const row = lines[rowOf(lines, 'Loop back')]!
+    const row = lineAt(lines, rowOf(lines, 'Loop back'))
 
     expect(row.indexOf('Loop back')).toBeLessThan(row.indexOf('Carry on'))
     expect(row).toMatch(/^ *└─*┤ Loop back │/)
@@ -115,7 +117,7 @@ describe('drawFlow top-down', () => {
 
   test('loops a back edge under the chart when it runs left to right', async () => {
     const { lines } = draw('flowchart LR\nA --> B\nB --> C\nC --> A')
-    const last = lines.at(-1)!
+    const last = must(lines.at(-1), 'last row')
 
     expect(lines.join('\n')).toContain('▲')
     expect(last).toMatch(/^\s*└─+┘$/)
@@ -123,32 +125,32 @@ describe('drawFlow top-down', () => {
 
   test('gives a dotted edge its own port out of a box, apart from the solid fan-out', async () => {
     const { lines } = draw('flowchart TD\nA[Rate the request] --> B\nA --> C\nA -.-> D')
-    const border = lines[2]!
+    const border = lineAt(lines, 2)
 
     expect([...border].filter(ch => ch === '┬')).toHaveLength(2)
   })
 
   test('dims every cell of a dotted edge, corners included, so even a short one reads as dotted, but keeps its head bright', async () => {
     const { drawn } = draw('flowchart LR\nA -.-> B')
-    const runs = drawn!.rows.flat()
+    const runs = must(drawn, 'drawing').rows.flat()
 
     expect(runs.filter(run => run.text.includes('╌')).every(run => run.ink === 'frame')).toBe(true)
-    expect(runs.find(run => run.text.includes('▶'))!.ink).toBe('line')
+    expect(must(runs.find(run => run.text.includes('▶')), 'head').ink).toBe('line')
   })
 
   test('keeps the main stroke centred under a box and puts another stroke four cells out toward its target', async () => {
     const { lines } = draw('flowchart TD\nA[Rate the request now] --> B[Main]\nA -.-> C[Side]')
-    const border = [...lines[2]!]
+    const border = [...lineAt(lines, 2)]
     const ports = border.flatMap((ch, i) => (ch === '┬' ? [i] : []))
 
     expect(ports).toHaveLength(2)
-    expect(ports[1]! - ports[0]!).toBe(4)
+    expect(must(ports[1], 'port') - must(ports[0], 'port')).toBe(4)
   })
 
   test('keeps a tall diamond\'s sides slanted on every row', async () => {
     const { lines } = draw('flowchart LR\nA --> D{Is it<br/>safe to<br/>go now?}')
     const top = rowOf(lines, '╱───')
-    const left = lines[top]!.indexOf('╱')
+    const left = lineAt(lines, top).indexOf('╱')
     const bottom = lines.findIndex((line, i) => i > top && [...line][left] === '╲' && line.includes('───'))
     const sides = lines.slice(top + 1, bottom).map(line => [...line][left])
 
@@ -178,7 +180,7 @@ describe('drawFlow labels and cycles', () => {
     const td = draw(source, 120).lines
     const draft = td.slice(0, rowOf(td, 'Review'))
 
-    const review = td[rowOf(td, 'Review')]!
+    const review = lineAt(td, rowOf(td, 'Review'))
     const lane = review.indexOf('┘')
 
     expect(draft.filter(line => /[◀▶]/.test(line))).toHaveLength(1)
@@ -210,7 +212,7 @@ describe('drawFlow declared order', () => {
   test('keeps branches in the order the source declares them, a loop from the first one running down the left', async () => {
     const source = 'flowchart TD\nDraft --> Review\nReview -->|approved| Merged\nReview -->|changes requested| Draft\nMerged --> Deploy{Deploy ok?}\nDeploy -->|no| Rollback\nRollback --> Draft\nDeploy -->|yes| Live'
     const { lines } = draw(source, 120)
-    const row = lines[rowOf(lines, 'Rollback')]!
+    const row = lineAt(lines, rowOf(lines, 'Rollback'))
     const draft = rowOf(lines, 'Draft')
 
     expect(row.indexOf('Rollback')).toBeLessThan(row.indexOf('Live'))
@@ -222,11 +224,11 @@ describe('drawFlow declared order', () => {
     const { lines } = draw(source, 117)
     const twilio = rowOf(lines, 'Twilio')
     const nearest = (row: number, glyph: string, name: string) =>
-      [...lines[row]!].flatMap((ch, i) => (ch === glyph ? [i] : [])).sort((a, b) => Math.abs(a - colOf(lines, name)) - Math.abs(b - colOf(lines, name)))[0]
+      [...lineAt(lines, row)].flatMap((ch, i) => (ch === glyph ? [i] : [])).sort((a, b) => Math.abs(a - colOf(lines, name)) - Math.abs(b - colOf(lines, name)))[0]
     const flexor = colOf(lines, 'Flexor')
-    const flexorStem = Math.max(...[...lines[rowOf(lines, 'Flexor') + 1]!].flatMap((ch, i) => (ch === '┬' && Math.abs(i - flexor - 3) < 6 ? [i] : [])))
+    const flexorStem = Math.max(...[...lineAt(lines, rowOf(lines, 'Flexor') + 1)].flatMap((ch, i) => (ch === '┬' && Math.abs(i - flexor - 3) < 6 ? [i] : [])))
 
-    const heads = [...lines[twilio - 2]!].flatMap((ch, i) => (ch === '▼' ? [i] : []))
+    const heads = [...lineAt(lines, twilio - 2)].flatMap((ch, i) => (ch === '▼' ? [i] : []))
 
     expect(heads).toContain(flexorStem)
     expect(heads).toHaveLength(2)
@@ -238,7 +240,7 @@ describe('drawFlow declared order', () => {
   test('keeps a bus mid-box when the only straight edge would land near a corner', async () => {
     const { lines } = draw('flowchart TD\n    Start([Policy expiring]) --> Auto{HV vertical?}\n    Auto -->|no| CoCo[Auto renewal via CoCo]\n    Auto -->|yes| ARWI[ARWI with consultant]\n    CoCo --> Rate[Premium adjustment]\n    ARWI --> Full[Full rating]\n    Rate --> Offer[Renewal offer]\n    Full --> Offer\n    Offer --> Accept{Customer accepts?}\n    Accept -->|yes| Bind[Bind renewal]\n    Accept -->|no| Lapse[Lapse policy]\n    Accept -->|changes| MTA[Manual renewal in backoffice]\n    MTA --> Full\n    Bind --> Docs[[Generate documents]]\n    Docs --> Done([Done])\n    Lapse --> Done', 117)
     const offer = rowOf(lines, 'Renewal offer')
-    const head = [...lines[offer - 2]!].indexOf('▼')
+    const head = [...lineAt(lines, offer - 2)].indexOf('▼')
     const middle = colOf(lines, 'Renewal offer') + 'Renewal offer'.length / 2
 
     expect(Math.abs(head - middle)).toBeLessThanOrEqual(2)
@@ -247,19 +249,19 @@ describe('drawFlow declared order', () => {
   test('draws top-down boxes an odd number of cells wide, so stems and heads sit on the exact middle', async () => {
     const { lines } = draw('flowchart TD\nA[Draft] --> B[Review]')
     for (const row of [0, rowOf(lines, 'Review') - 1]) {
-      const top = [...lines[row]!]
+      const top = [...lineAt(lines, row)]
       expect((top.lastIndexOf('┐') - top.indexOf('┌')) % 2).toBe(0)
     }
-    const top = [...lines[0]!]
-    expect([...lines[2]!].indexOf('┬')).toBe((top.indexOf('┌') + top.lastIndexOf('┐')) / 2)
+    const top = [...lineAt(lines, 0)]
+    expect([...lineAt(lines, 2)].indexOf('┬')).toBe((top.indexOf('┌') + top.lastIndexOf('┐')) / 2)
   })
 
   test('centres a parent over the span of its children', async () => {
     const { lines } = draw('graph TD\nA[Chopin] --> Q[Quid]\nA --> O[OKaaS]\nA --> C[CMAS]\nQ --> R[Rater]\nQ --> E[Earnix]\nO --> F[Flexor]\nC --> G[account-api-gw]', 117)
     expect(lines[4]).toMatch(/┼/)
     for (const [parent, bar] of [['Quid', rowOf(lines, 'Quid') + 3]] as const) {
-      const stem = [...lines[rowOf(lines, parent) + 1]!].indexOf('┬')
-      const bus = [...lines[bar]!]
+      const stem = [...lineAt(lines, rowOf(lines, parent) + 1)].indexOf('┬')
+      const bus = [...lineAt(lines, bar)]
       const ends = bus.flatMap((ch, i) => ('┌┐'.includes(ch) ? [i] : [])).filter(i => Math.abs(i - stem) < 30)
       expect(Math.abs(stem - (Math.min(...ends) + Math.max(...ends)) / 2)).toBeLessThanOrEqual(1)
     }
@@ -267,8 +269,8 @@ describe('drawFlow declared order', () => {
 
   test('keeps a lone parent over a child that was centred over its own children', async () => {
     const { lines } = draw('flowchart TD\n    A[Customer submits REQ] --> B{Trade supported?}\n    B -->|no| C[Decline]\n    B -->|yes| D[Enrich risk profile]\n    D --> E[Rate with Tarif]\n    E --> F{Any quotes?}\n    F -->|none| G[PL limit fallback]\n    G --> E\n    F -->|some| H[Apply filter overrides]\n    H --> I[(Persist offerset)]\n    I --> J([Show QCP])\n    E -.-> K[Oracle overlay]\n    K -.-> F', 117)
-    const stem = [...lines[2]!].indexOf('┬')
-    const head = [...lines[rowOf(lines, 'Trade supported') - 2]!].indexOf('▼')
+    const stem = [...lineAt(lines, 2)].indexOf('┬')
+    const head = [...lineAt(lines, rowOf(lines, 'Trade supported') - 2)].indexOf('▼')
 
     expect(head).toBe(stem)
     expect(lines.slice(3, rowOf(lines, 'Trade supported') - 2).every(line => line.trim() === '│')).toBe(true)
@@ -277,12 +279,12 @@ describe('drawFlow declared order', () => {
   test('sends a short edge out of its own port when the box also starts a long edge', async () => {
     const { lines } = draw('flowchart TD\nF[Flexor] --> I[Idiophone]\nF --> T[Twilio]\nI --> T')
 
-    expect([...lines[2]!].filter(ch => ch === '┬')).toHaveLength(2)
+    expect([...lineAt(lines, 2)].filter(ch => ch === '┬')).toHaveLength(2)
   })
 
   test('keeps a decision\'s branches in declared order', async () => {
     const { lines } = draw('flowchart TD\nA[Start] --> F{Any?}\nF -->|none| G[Fallback]\nG --> A\nF -->|some| H[Apply]')
-    const row = lines[rowOf(lines, 'Fallback')]!
+    const row = lineAt(lines, rowOf(lines, 'Fallback'))
 
     expect(row.indexOf('Fallback')).toBeLessThan(row.indexOf('Apply'))
   })
@@ -291,7 +293,7 @@ describe('drawFlow declared order', () => {
 describe('drawFlow ordering', () => {
   test('keeps siblings beside each other when that saves a crossing', async () => {
     const { lines } = draw('graph TD\nA[Chopin] --> Q[Quid]\nA --> O[OKaaS]\nA --> C[CMAS]\nQ --> R[Rater]\nQ --> E[Earnix]\nO --> F[Flexor]\nF --> I[Idiophone]\nF --> T[Twilio]\nI --> T\nC --> G[Gateway]\nG --> P[PIMMS]')
-    const row = lines[rowOf(lines, 'Rater')]!
+    const row = lineAt(lines, rowOf(lines, 'Rater'))
 
     expect(row.indexOf('Earnix')).toBeLessThan(row.indexOf('Flexor'))
   })
@@ -301,13 +303,13 @@ describe('drawFlow subgraphs', () => {
   test('frames a subgraph round its members with its title in the top border', async () => {
     const { lines } = draw('flowchart TD\nX[Outside] --> A\nsubgraph S [Services]\nA[Alpha] --> B[Beta]\nend\nB --> Y[After]')
     const top = rowOf(lines, 'Services')
-    const left = lines[top]!.indexOf('╭')
+    const left = lineAt(lines, top).indexOf('╭')
 
     expect(lines[top]).toMatch(/^ *╭[─│┼]*─ Services ─+╮$/)
     expect(top).toBeGreaterThan(rowOf(lines, 'Outside'))
     expect(top).toBeLessThan(rowOf(lines, 'Alpha'))
-    for (const name of ['Alpha', 'Beta']) expect(lines[rowOf(lines, name)]![left]).toBe('│')
-    expect(lines[rowOf(lines, 'After')]![left]).not.toBe('│')
+    for (const name of ['Alpha', 'Beta']) expect(lineAt(lines, rowOf(lines, name))[left]).toBe('│')
+    expect(lineAt(lines, rowOf(lines, 'After'))[left]).not.toBe('│')
   })
 
   test('moves a box that is not a member out of the way of a subgraph\'s frame, and draws no blank rows above the chart', async () => {
@@ -315,7 +317,7 @@ describe('drawFlow subgraphs', () => {
 
     expect(lines.join('\n')).toContain('Ingest')
     expect(lines.join('\n')).toContain('Flexor')
-    expect(lines[0]!.trim()).not.toBe('')
+    expect(lineAt(lines, 0).trim()).not.toBe('')
   })
 
   test('marks where an edge crosses a frame instead of breaking the border', async () => {
@@ -330,10 +332,10 @@ describe('drawFlow subgraphs', () => {
   test('joins edges of one stroke into a box on a bus that meets over one centred head', async () => {
     const { lines } = draw('flowchart TD\nA[Left side] --> C[Done]\nB[Right side] --> C')
     const done = rowOf(lines, 'Done')
-    const head = [...lines[done - 2]!].indexOf('▼')
-    const box = lines[done]!
+    const head = [...lineAt(lines, done - 2)].indexOf('▼')
+    const box = lineAt(lines, done)
 
-    expect([...lines[done - 2]!].filter(ch => ch === '▼')).toHaveLength(1)
+    expect([...lineAt(lines, done - 2)].filter(ch => ch === '▼')).toHaveLength(1)
     expect(Math.abs(head - (box.indexOf('│') + box.lastIndexOf('│')) / 2)).toBeLessThanOrEqual(1)
     expect(lines.some(line => /└─+┬─+┘/.test(line))).toBe(true)
   })
@@ -347,14 +349,14 @@ describe('drawFlow subgraphs', () => {
 
   test('ends an arrow into a framed box inside the frame, with a cell between frame and head', async () => {
     const { lines } = draw('flowchart LR\nA[Before] --> L\nsubgraph G [Group]\nL[Lead] --> M[More]\nend', 120)
-    const row = lines[rowOf(lines, 'Lead')]!
+    const row = lineAt(lines, rowOf(lines, 'Lead'))
 
     expect(row).toMatch(/┼─+▶│ Lead/)
   })
 
   test('keeps edges turning outside a frame at least three cells clear of it', async () => {
     const { lines } = draw('flowchart LR\nsubgraph G [Group]\nA[One] --> B[Two]\nA --> C[Three]\nend\nB --> T[Out]\nC --> T', 160)
-    const frame = lines.find(line => line.includes('╮'))!.indexOf('╮')
+    const frame = must(lines.find(line => line.includes('╮')), 'frame').indexOf('╮')
     const turns = lines.flatMap(line => [...line].flatMap((ch, i) => ('┐┘├┤'.includes(ch) && i > frame ? [i] : [])))
 
     expect(Math.min(...turns) - frame).toBeGreaterThanOrEqual(3)
@@ -369,11 +371,13 @@ describe('drawFlow subgraphs', () => {
 
   test('keeps the members of a subgraph side by side in a rank', async () => {
     const { lines } = draw('flowchart TD\nR --> A & X & B\nsubgraph G [Group]\nA\nB\nend')
-    const row = lines[rowOf(lines, ' A ')]!
+    const row = lineAt(lines, rowOf(lines, ' A '))
 
-    const [a, b, x] = [' A ', ' B ', ' X '].map(name => row.indexOf(name))
+    const a = row.indexOf(' A ')
+    const b = row.indexOf(' B ')
+    const x = row.indexOf(' X ')
 
-    expect(x! > Math.min(a!, b!) && x! < Math.max(a!, b!)).toBe(false)
+    expect(x > Math.min(a, b) && x < Math.max(a, b)).toBe(false)
   })
 })
 
@@ -393,7 +397,7 @@ describe('drawFlow left-right', () => {
 
     expect(lines[top]).toMatch(/┌──┴?.*┐|┌─*┴─*┐/)
     expect(lines[bottom]).toMatch(/└─+┘/)
-    expect(lines[top]! + lines[bottom]!).toMatch(/[┴┬]/)
+    expect(lineAt(lines, top) + lineAt(lines, bottom)).toMatch(/[┴┬]/)
   })
 
   test('keeps the label on an edge that leaves through a box\'s top or bottom', async () => {
@@ -406,12 +410,12 @@ describe('drawFlow left-right', () => {
   test('runs the main edge into a left-right decision\'s tip and drops another onto its top with a head of its own', async () => {
     const { lines } = draw('flowchart LR\nE[Rate] --> F{Any?}\nE -.-> K[Side]\nK -.-> F')
     const top = rowOf(lines, '╱───')
-    const tip = lines.find(line => line.includes('◇'))!
+    const tip = must(lines.find(line => line.includes('◇')), 'tip')
 
     expect(tip).toMatch(/Rate *├─+▶◇/)
     expect(lines[top - 1]).toContain('▼')
-    expect([...lines[top - 1]!].indexOf('▼')).toBeGreaterThan([...lines[top]!].indexOf('╱'))
-    expect([...lines[top - 1]!].indexOf('▼')).toBeLessThan([...lines[top]!].indexOf('╲'))
+    expect([...lineAt(lines, top - 1)].indexOf('▼')).toBeGreaterThan([...lineAt(lines, top)].indexOf('╱'))
+    expect([...lineAt(lines, top - 1)].indexOf('▼')).toBeLessThan([...lineAt(lines, top)].indexOf('╲'))
   })
 
   test('writes an edge label above the line into its target', async () => {

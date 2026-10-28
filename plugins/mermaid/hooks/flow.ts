@@ -2,6 +2,8 @@
 // style, class, click, linkStyle) are read and skipped; anything else that doesn't parse is kept as
 // a problem so the caller can show the source instead of a wrong drawing.
 
+import { must } from './must'
+
 export type Direction = 'TD' | 'LR' | 'BT' | 'RL'
 export type Shape = 'box' | 'round' | 'stadium' | 'diamond' | 'circle' | 'database' | 'hexagon' | 'flag' | 'subroutine'
 export type FlowNode = { id: string; label: string; shape: Shape; group?: string }
@@ -31,7 +33,24 @@ const SHAPES: Array<[string, string, Shape]> = [
   ['>', ']', 'flag'],
 ]
 
-const ID = /^[A-Za-z0-9_][\w.-]*/
+// a hyphen or dot belongs to the id unless it starts a link such as `-->`, `---` or `-.->`
+const ID = /^[A-Za-z0-9_](?:\w|-(?![-.>])|\.(?![-.]))*/
+
+// `;` ends a statement except inside a quoted label or as the end of an entity like `&#35;`
+function statements(line: string): string[] {
+  const parts: string[] = []
+  let quoted = false
+  let start = 0
+  for (let at = 0; at < line.length; at++) {
+    const char = line[at]
+    if (char === '"') quoted = !quoted
+    if (char !== ';' || quoted || /&#?\w+$/.test(line.slice(start, at))) continue
+    parts.push(line.slice(start, at))
+    start = at + 1
+  }
+  parts.push(line.slice(start))
+  return parts.map(part => part.trim()).filter(part => part !== '')
+}
 
 export function isFlow(source: string): boolean {
   const first = source.split('\n').map(line => line.trim()).find(line => line !== '' && !line.startsWith('%%') && line !== '---')
@@ -56,7 +75,7 @@ const clean = (text: string) =>
 type Cursor = { text: string; at: number }
 
 function skipSpace(c: Cursor) {
-  while (c.at < c.text.length && /\s/.test(c.text[c.at]!)) c.at++
+  while (c.at < c.text.length && /\s/.test(c.text.charAt(c.at))) c.at++
 }
 
 // reads `id`, `id[label]`, `id(label)` and the like; the label may be quoted and hold any brackets
@@ -97,13 +116,13 @@ function readLink(c: Cursor): { label: string; stroke: Stroke; head: boolean; ta
   let tail: boolean
   if (inline && !plain?.[0].endsWith('>')) {
     c.at += inline[0].length
-    label = clean(inline[3]!)
+    label = clean(must(inline[3], 'link label'))
     stroke = inline[2] === '==' ? 'thick' : inline[2] === '-.' ? 'dotted' : 'solid'
     head = inline[5] !== ''
     tail = inline[1] === '<'
   } else if (plain) {
     c.at += plain[0].length
-    const body = plain[2]!
+    const body = must(plain[2], 'link body')
     stroke = body.startsWith('~') ? 'invisible' : body.startsWith('=') ? 'thick' : body.includes('.') ? 'dotted' : 'solid'
     head = plain[3] !== ''
     tail = plain[1] !== undefined
@@ -174,14 +193,14 @@ export function parseFlow(source: string): Flow {
       seenHeader = true
       continue
     }
-    for (const statement of line.split(/;\s*/).filter(part => part !== '')) {
+    for (const statement of statements(line)) {
       if (SKIPPED.test(statement)) continue
       const sub = /^subgraph\s+(.+)$/.exec(statement)
       if (sub) {
-        const head = sub[1]!.trim()
+        const head = must(sub[1], 'subgraph').trim()
         const titled = /^([\w.-]+)\s*\[(.*)\]$/.exec(head)
-        const id = titled ? titled[1]! : head.replace(/\s+/g, '_')
-        const label = clean(titled ? titled[2]! : head)
+        const id = titled ? must(titled[1], 'subgraph id') : head.replace(/\s+/g, '_')
+        const label = clean(titled ? must(titled[2], 'subgraph title') : head)
         flow.groups.push({ id, label, parent: stack.at(-1) })
         stack.push(id)
         continue

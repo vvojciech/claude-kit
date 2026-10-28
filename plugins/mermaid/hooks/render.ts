@@ -1,3 +1,4 @@
+import { must } from './must'
 import type { Arrow, Participant, Sequence, Step } from './parse'
 import { cellWidth } from './width'
 
@@ -30,6 +31,9 @@ type Item = {
   isFrame: boolean
 }
 type State = { inline: boolean; tight?: boolean; cap: number; isHidden?: boolean }
+type Layout = { lanes: Participant[]; states: Map<Step, State>; names: number[]; stacked: boolean[]; isBare: boolean }
+type Pad = { lo: number; hi: number; left: number; right: number }
+type Edge = { side: 'left' | 'right'; value: number; owners: Owner[] }
 
 type Plan = {
   lanes: Participant[]
@@ -40,7 +44,7 @@ type Plan = {
   names: number[]
   stacked: boolean[]
   isBare: boolean
-  pads: Map<Block, { lo: number; hi: number; left: number; right: number }>
+  pads: Map<Block, Pad>
   creates: Map<Message, string>
   tight: Set<Owner>
   rows: number
@@ -112,13 +116,17 @@ const GLUED = '\u0001'
 const BREAK_AFTER = /(?<=[/_,→])(?=[^\s/_,→])|(?<=::)(?=[^:\s])/u
 const HUMP = /(?<=\p{Ll})(?=\p{Lu})/u
 const BREAK_PREFERRED = /(?<=[/,→])(?=[^\s/,→])|(?<=[^\s(])(?=\()/u
+const SPACES = / +/
+const BLANKS = /[\s\n]+/
+const WORD_BREAKS = /[ \n\u00a0]+/
 
 // A token wider than the line splits after `/ , →` or before `(` first, so an identifier like
 // `generate_offerset(req_identity,` wraps at its seams; `_` and `::` are used only when a part still
 // doesn't fit. A run of letters and digits is never split, except in a participant name
 // (`humps`), which may fold at a CamelCase hump rather than be cut.
 function seams(part: string, cap: number, rule: RegExp): string[] {
-  return cellWidth(part) > cap ? part.split(rule).filter(piece => piece !== '') : [part]
+  if (cellWidth(part) <= cap) return [part]
+  return part.split(rule).filter(piece => piece !== '')
 }
 
 function pieces(token: string, cap: number, humps = false): string[] {
@@ -158,7 +166,7 @@ function greedy(tokens: string[], cap: number): string[] {
 }
 
 // Lines wrap split at a seam rejoin without the space a word break would need.
-const joinLines = (lines: string[]) => lines.reduce((all, line) => (all === '' ? line : /([/_,→]|::)$/.test(all) ? all + line : `${all} ${line}`), '')
+const joinLines = (lines: string[]) => lines.reduce((all, line) => (all === '' ? line : ['/', '_', ',', '→', '::'].some(end => all.endsWith(end)) ? all + line : `${all} ${line}`), '')
 
 const wrapped = new Map<string, Wrapped>()
 
@@ -184,7 +192,7 @@ function wrapUncached(text: string, cap: number, humps: boolean): Wrapped {
       const isGlued = token.startsWith(GLUED)
       const shown = cut(isGlued ? token.slice(1) : token, cap)
       isCut ||= shown.isCut
-      return isGlued ? GLUED + shown.text : shown.text
+      return (isGlued ? GLUED : '') + shown.text
     })
     if (tokens.length === 0) return []
     const lines = greedy(tokens, cap)
@@ -211,17 +219,18 @@ function balanced(lines: Wrapped, text: string, most: number): Wrapped {
   balancedCache.set(text, known)
   const hit = known.get(key)
   if (hit) return hit
-  let found = lines
+  const found = narrower(lines, text, wide, fits)
+  known.set(key, found)
+  return found
+}
+
+function narrower(lines: Wrapped, text: string, wide: number, fits: (line: string) => boolean): Wrapped {
   for (let cap = wide - 1; cap >= Math.max(1, wide - 16); cap--) {
     const tried = wrap(text, cap)
     if (tried.isCut || tried.lines.length > lines.lines.length) break
-    if (fits(tried.lines.at(-1) ?? '')) {
-      found = tried
-      break
-    }
+    if (fits(tried.lines.at(-1) ?? '')) return tried
   }
-  known.set(key, found)
-  return found
+  return lines
 }
 
 const noteWidth = (step: Note, text: number) => (step.side === 'over' ? odd(text + 2) : text + 2)
@@ -230,7 +239,7 @@ const widest = (lines: string[]) => Math.max(0, ...lines.map(cellWidth))
 export const canStack = (p: Participant) => !p.label.includes('\n') && p.label.trim().includes(' ')
 
 function stackedLabel(label: string): string[] {
-  const words = label.trim().split(/ +/)
+  const words = label.trim().split(SPACES)
   let best = [label]
   let bestWidth = Number.MAX_SAFE_INTEGER
   for (let k = 1; k < words.length; k++) {
@@ -301,10 +310,10 @@ function nestedOf(tree: Block[]): Set<Step> {
   if (hit) return hit
   const nested = new Set<Step>()
   const collect = (block: Block) => {
-    block.steps.forEach(step => nested.add(step))
-    block.children.forEach(collect)
+    for (const step of block.steps) nested.add(step)
+    for (const child of block.children) collect(child)
   }
-  tree.forEach(collect)
+  for (const block of tree) collect(block)
   nestedCache.set(tree, nested)
   return nested
 }
@@ -340,7 +349,7 @@ function blocksOf(steps: Step[]): { top: Step[]; blocks: Block[] } {
   const root: Block = { open: { kind: 'open', keyword: '', text: '' }, branches: [], steps: [], children: [] }
   const stack = [root]
   for (const step of steps) {
-    const current = stack.at(-1)!
+    const current = must(stack.at(-1), 'open block')
     if (step.kind === 'open') {
       const block: Block = { open: step, branches: [], steps: [], children: [] }
       current.children.push(block)
@@ -354,7 +363,7 @@ function blocksOf(steps: Step[]): { top: Step[]; blocks: Block[] } {
 }
 
 const WORD_KEEP = 14
-const wordKeep = (text: string) => Math.min(WORD_KEEP, widest(text.split(/[\s\n]+/)))
+const wordKeep = (text: string) => Math.min(WORD_KEEP, widest(text.split(BLANKS)))
 const NAME_WORD_KEEP = 12
 const nameCut = (p: Participant, cap: number) => p.label.split('\n').some(line => wrap(line.trim(), cap, true).isCut) || fullHeader(p, cap).length > HEADER_MOST
 const floors = new WeakMap<Participant, number>()
@@ -363,7 +372,7 @@ const floors = new WeakMap<Participant, number>()
 function nameFloor(p: Participant): number {
   const hit = floors.get(p)
   if (hit !== undefined) return hit
-  const most = Math.max(NAME_MIN, Math.min(NAME_WORD_KEEP, widest(p.label.split(/[\s\n]+/))))
+  const most = Math.max(NAME_MIN, Math.min(NAME_WORD_KEEP, widest(p.label.split(BLANKS))))
   let floor = NAME_MIN
   while (floor < most && nameCut(p, floor)) floor++
   floors.set(p, floor)
@@ -401,7 +410,7 @@ const bareText = (step: Opening) => `${step.keyword} ${step.text}`.trim()
 // inside identifiers, so `generate_quote_set_for_new_business` counts as its pieces, not 35 columns.
 function uncut(text: string): number {
   let lo = 1
-  let hi = Math.max(1, ...text.split(/[ \n\u00a0]+/).map(cellWidth))
+  let hi = Math.max(1, ...text.split(WORD_BREAKS).map(cellWidth))
   while (lo < hi) {
     const mid = Math.floor((lo + hi) / 2)
     if (wrap(text, mid).isCut) lo = mid + 1
@@ -434,7 +443,7 @@ function itemsOf(sequence: Sequence): { items: Item[]; numbers: Map<Message, str
     }
   }
   for (const item of items) {
-    item.wordCap = Math.max(0, ...item.text.split(/[ \n\u00a0]+/).map(cellWidth))
+    item.wordCap = Math.max(0, ...item.text.split(WORD_BREAKS).map(cellWidth))
     item.pieceCap = uncut(item.text)
   }
   return { items, numbers }
@@ -443,7 +452,8 @@ function itemsOf(sequence: Sequence): { items: Item[]; numbers: Map<Message, str
 function labelOf(item: Item, state: State): Wrapped {
   const wrapped = wrap(item.text, state.cap)
   if (!item.isFrame || wrapped.lines.length <= 2) return wrapped
-  return { lines: [wrapped.lines[0]!, cut(wrapped.lines.slice(1).join(' '), state.cap).text], isCut: true }
+  const [first, ...rest] = wrapped.lines
+  return { lines: [must(first, 'first line'), cut(rest.join(' '), state.cap).text], isCut: true }
 }
 
 function solve(n: number, spans: Span[], left: number, right: number, base?: number[]): { centre: number[]; width: number; gaps: number[] } {
@@ -454,19 +464,32 @@ function solve(n: number, spans: Span[], left: number, right: number, base?: num
     const have = gaps.slice(a, b).reduce((s, g) => s + g, 0)
     const deficit = need - have
     if (deficit <= 0) continue
-    for (let i = 0; i < k; i++) gaps[a + i]! += Math.floor(deficit / k) + (i < deficit % k ? 1 : 0)
+    for (let i = 0; i < k; i++) addAt(gaps, a + i, Math.floor(deficit / k) + (i < deficit % k ? 1 : 0))
   }
   const centre = [left]
-  for (const g of gaps) centre.push(centre.at(-1)! + g)
-  return { centre, width: centre.at(-1)! + right + 1, gaps }
+  let at = left
+  for (const g of gaps) {
+    at += g
+    centre.push(at)
+  }
+  return { centre, width: at + right + 1, gaps }
 }
 
-function measure(sequence: Sequence, lanes: Participant[], items: Item[], states: Map<Step, State>, names: number[], stacked: boolean[], tree: Block[], isBare: boolean, base?: number[], limit?: number): Plan {
+const onlyIf = (isNeeded: boolean, need: number) => (isNeeded ? need : 0)
+
+function addAt(list: number[], i: number, by: number) {
+  list[i] = must(list[i], 'entry') + by
+}
+
+function measure(sequence: Sequence, items: Item[], tree: Block[], layout: Layout, limit: number, base?: number[]): Plan {
+  const { lanes, states, names, stacked, isBare } = layout
   const n = lanes.length
   const last = n - 1
   const lane = new Map(lanes.map((p, i) => [p.id, i]))
+  const laneOf = (id: string) => must(lane.get(id), 'lane')
+  const nameAt = (i: number) => must(names[i], 'name cap')
   const spans: Span[] = []
-  const edges: { side: 'left' | 'right'; value: number; owners: Owner[] }[] = []
+  const edges: Edge[] = []
   let left = 0
   let right = 0
   let owners: Owner[] = []
@@ -476,97 +499,98 @@ function measure(sequence: Sequence, lanes: Participant[], items: Item[], states
     if (side === 'left') left = Math.max(left, value)
     else right = Math.max(right, value)
   }
-  const widths = lanes.map((p, i) => boxWidth(p, names[i]!, isBare, stacked[i]))
+  const widths = lanes.map((p, i) => boxWidth(p, nameAt(i), isBare, stacked[i]))
+  const widthOf = (i: number) => must(widths[i], 'box width')
   const creates = createsOf(sequence.steps)
   widths.forEach((w, i) => {
     owners = i === last ? [`lane:${i}`] : [`lane:${i}`, `lane:${i + 1}`]
     if (i === 0) edge('left', leftOf(w))
     if (i === last) edge('right', rightOf(w))
-    else gap(i, i + 1, rightOf(w) + leftOf(widths[i + 1]!) + 2)
+    else gap(i, i + 1, rightOf(w) + leftOf(widthOf(i + 1)) + 2)
   })
   owners = []
   sequence.boxes.forEach((group, k) => {
     const members = lanes.flatMap((p, i) => (p.box === k ? [i] : []))
     if (members.length === 0 || group.label === '') return
-    const a = members[0]!
-    const b = members.at(-1)!
-    const extra = cellWidth(group.label) + 6 - (leftOf(widths[a]!) + rightOf(widths[b]!) + 1)
+    const a = Math.min(...members)
+    const b = Math.max(...members)
+    const extra = cellWidth(group.label) + 6 - (leftOf(widthOf(a)) + rightOf(widthOf(b)) + 1)
     if (a < b) gap(a, b, extra)
-    else if (extra > 0 && a === last) edge('right', rightOf(widths[a]!) + extra)
-    else if (extra > 0) gap(a, a + 1, rightOf(widths[a]!) + extra + leftOf(widths[a + 1]!) + 2)
+    else if (extra > 0 && a === last) edge('right', rightOf(widthOf(a)) + extra)
+    else if (extra > 0) gap(a, a + 1, rightOf(widthOf(a)) + extra + leftOf(widthOf(a + 1)) + 2)
   })
   const byStep = new Map(items.map(item => [item.step, item]))
-  const itemOf = (step: Step) => byStep.get(step)!
+  const itemOf = (step: Step) => must(byStep.get(step), 'label item')
+  const stateOf = (step: Step) => must(states.get(step), 'label state')
   const labelWidth = new Map<Step, number>()
-  for (const item of items) labelWidth.set(item.step, widest(labelOf(item, states.get(item.step)!).lines))
+  for (const item of items) labelWidth.set(item.step, widest(labelOf(item, stateOf(item.step)).lines))
   const isShown = (step: Step) => !states.get(step)?.isHidden
   // a boxed note's border takes a column each side, so the layout reserves them too
   const noteBox = (step: Note) => noteWidth(step, labelWidth.get(step) ?? 0) + (boxed ? 2 : 0)
   const isHidden = (step: Message) => !lane.has(step.from) || !lane.has(step.to)
   const nested = nestedOf(tree)
-  const spills = (step: Step) => limit !== undefined && isSpill(step, states, items, nested, creates)
+  const spills = (step: Step) => isSpill(step, states, items, nested, creates)
 
   const depth = lanes.map(() => 0)
+  const depthAt = (i: number) => must(depth[i], 'activation depth')
   const stops = new Map<Step, number>()
-  sequence.steps.forEach((step, k) => {
-    owners = [step]
-    if (step.kind === 'activate') {
-      const i = lane.get(step.id)
-      if (i !== undefined) depth[i] = Math.max(0, depth[i]! + (step.isOn ? 1 : -1))
+  const selfRoom = (step: Message, from: number, next: Step | undefined) => {
+    const w = labelWidth.get(step) ?? 0
+    const lit = next?.kind === 'activate' && next.isOn && next.id === step.to ? 1 : 0
+    const bar = depthAt(from) + lit >= 2 ? 1 : 0
+    if (from === last) edge('right', w + 4 + bar)
+    else if (!isSpilling(step, nested)) gap(from, from + 1, w + 5 + bar)
+    else gap(from, from + 1, 6 + bar)
+  }
+  const bornSide = (born: string | undefined, lo: number, hi: number) => {
+    if (born === undefined) return 0
+    const i = lane.get(born)
+    if (i === hi) return leftOf(widthOf(hi))
+    if (i === lo) return rightOf(widthOf(lo))
+    return 0
+  }
+  const arrowRoom = (step: Message, from: number, to: number) => {
+    const w = labelWidth.get(step) ?? 0
+    const n = step.arrow === 'both' ? 1 : 0
+    const dashes = step.isDashed ? DASHES : 0
+    const lo = Math.min(from, to)
+    const hi = Math.max(from, to)
+    const born = creates.get(step)
+    if (born !== undefined) owners = [step, `lane:${lane.get(born)}`]
+    const boxSide = bornSide(born, lo, hi)
+    const state = states.get(step)
+    if (spills(step)) {
+      const busy = depth.findIndex((d, i) => i > lo && d > 0)
+      if (busy >= 0) stops.set(step, busy)
+      gap(lo, hi, 7 + n + dashes)
       return
     }
-    if (step.kind === 'message') {
-      if (isHidden(step)) {
-        edge('right', HIDDEN_ROOM)
-        return
-      }
-      const from = lane.get(step.from)!
-      const to = lane.get(step.to)!
-      const w = labelWidth.get(step) ?? 0
-      const n = step.arrow === 'both' ? 1 : 0
-      if (from === to) {
-        const next = sequence.steps[k + 1]
-        const lit = next?.kind === 'activate' && next.isOn && next.id === step.to ? 1 : 0
-        const bar = depth[from]! + lit >= 2 ? 1 : 0
-        if (from === last) edge('right', w + 4 + bar)
-        else if (!isSpilling(step, nested)) gap(from, from + 1, w + 5 + bar)
-        else if (limit !== undefined) gap(from, from + 1, 6 + bar)
-        else {
-          gap(from, from + 1, 6 + bar)
-          gap(from, last, w + 5 + bar - rightOf(widths[last]!))
-        }
-        return
-      }
-      const lo = Math.min(from, to)
-      const hi = Math.max(from, to)
-      const born = creates.get(step)
-      if (born !== undefined) owners = [step, `lane:${lane.get(born)}`]
-      const boxSide = born === undefined ? 0 : lane.get(born) === hi ? leftOf(widths[hi]!) : lane.get(born) === lo ? rightOf(widths[lo]!) : 0
-      const state = states.get(step)
-      if (spills(step)) {
-        const busy = depth.findIndex((d, i) => i > lo && d > 0)
-        if (busy >= 0) stops.set(step, busy)
-        gap(lo, hi, 7 + n + (step.isDashed ? DASHES : 0))
-        return
-      }
-      if (state?.inline) {
-        const lines = labelOf(itemOf(step), state).lines
-        const tail = cellWidth(lines.at(-1) ?? '') + (state.tight ? 5 : LEADER + 5) + n + (step.isDashed ? DASHES : 0) + 1
-        gap(lo, hi, tail + boxSide)
-        if (lines.length > 1) gap(lo, hi, widest(lines.slice(0, -1)) + (to > from ? LEADER + 3 : 5) + boxSide)
-      } else gap(lo, hi, w + (to > from ? LEADER + 3 : 5) + boxSide)
-      return
-    }
-    if (step.kind === 'note' && !isShown(step) && step.side === 'left' && step.over.some(id => lane.get(id) === 0)) {
-      edge('left', LEFT_MARK_ROOM)
-      return
-    }
-    if (step.kind !== 'note' || !isShown(step)) return
+    if (state?.inline) {
+      const lines = labelOf(itemOf(step), state).lines
+      const tail = cellWidth(lines.at(-1) ?? '') + (state.tight ? 5 : LEADER + 5) + n + dashes + 1
+      gap(lo, hi, tail + boxSide)
+      if (lines.length > 1) gap(lo, hi, widest(lines.slice(0, -1)) + (to > from ? LEADER + 3 : 5) + boxSide)
+    } else gap(lo, hi, w + (to > from ? LEADER + 3 : 5) + boxSide)
+  }
+  const spreadNote = (step: Note, a: number, b: number) => {
+    // like mermaid, a note keeps each of its source lines whole when the terminal has room: its
+    // widest line is a floor on the span while it takes no more than a third of the width
+    const natural = widest(step.text.split('\n')) + 2
+    // the note may spread to the lifelines either side of its span, so its floor is shared
+    // across those gaps rather than forcing one gap wide
+    const before = a > 0 ? a - 1 : a
+    const after = b < last ? b + 1 : b
+    // placeNote leaves two cells inside each neighbouring lifeline, so the floor matches that room
+    if (natural <= Math.floor(limit / 3)) gap(before, after, natural - 1 + (a > 0 ? 3 : 0) + (b < last ? 3 : 0))
+    if (a === 0) edge('left', 1)
+    if (b === last) edge('right', 1)
+  }
+  const noteRoom = (step: Note) => {
     const over = step.over.flatMap(id => lane.get(id) ?? []).sort((a, b) => a - b)
     if (over.length === 0) return
     const bw = noteBox(step)
-    const a = over[0]!
-    const b = over.at(-1)!
+    const a = must(over[0], 'note lane')
+    const b = must(over.at(-1), 'note lane')
     const side = step.side
     if (side === 'left') {
       if (a === 0) edge('left', bw + 1)
@@ -579,33 +603,70 @@ function measure(sequence: Sequence, lanes: Participant[], items: Item[], states
       else gap(a - 1, a, half(bw) + 2)
       if (a === last) edge('right', half(bw))
       else gap(a, a + 1, half(bw) + 2)
-    } else {
-      // like mermaid, a note keeps each of its source lines whole when the terminal has room: its
-      // widest line is a floor on the span while it takes no more than a third of the width
-      const natural = widest(step.text.split('\n')) + 2
-      if (limit === undefined) gap(a, b, (labelWidth.get(step) ?? 0) - 1)
-      // the note may spread to the lifelines either side of its span, so its floor is shared
-      // across those gaps rather than forcing one gap wide
-      // placeNote leaves two cells inside each neighbouring lifeline, so the floor matches that room
-      else if (natural <= Math.floor(limit / 3)) gap(a > 0 ? a - 1 : a, b < last ? b + 1 : b, natural - 1 + (a > 0 ? 3 : 0) + (b < last ? 3 : 0))
-      if (a === 0) edge('left', 1)
-      if (b === last) edge('right', 1)
+    } else spreadNote(step, a, b)
+  }
+  sequence.steps.forEach((step, k) => {
+    owners = [step]
+    if (step.kind === 'activate') {
+      const i = lane.get(step.id)
+      if (i !== undefined) depth[i] = Math.max(0, depthAt(i) + (step.isOn ? 1 : -1))
+      return
     }
+    if (step.kind === 'message') {
+      if (isHidden(step)) {
+        edge('right', HIDDEN_ROOM)
+        return
+      }
+      const from = laneOf(step.from)
+      const to = laneOf(step.to)
+      if (from === to) selfRoom(step, from, sequence.steps[k + 1])
+      else arrowRoom(step, from, to)
+      return
+    }
+    if (step.kind === 'note' && !isShown(step) && step.side === 'left' && step.over.some(id => lane.get(id) === 0)) {
+      edge('left', LEFT_MARK_ROOM)
+      return
+    }
+    if (step.kind === 'note' && isShown(step)) noteRoom(step)
   })
   owners = []
 
-  const pads = new Map<Block, { lo: number; hi: number; left: number; right: number }>()
+  const pads = new Map<Block, Pad>()
   const touched = (step: Step): number[] => {
     if (step.kind === 'message') {
-      const ends = [lane.get(step.from), lane.get(step.to)]
-      return ends.some(e => e === undefined) ? [...ends.flatMap(e => (e === undefined ? [] : [e])), last] : (ends as number[])
+      const ends = [lane.get(step.from), lane.get(step.to)].flatMap(e => (e === undefined ? [] : [e]))
+      if (ends.length < 2) return [...ends, last]
+      return ends
     }
     if (step.kind === 'note') return step.over.flatMap(id => lane.get(id) ?? [])
-    if (step.kind === 'create' || step.kind === 'destroy' || step.kind === 'activate') return lane.has(step.id) ? [lane.get(step.id)!] : []
-    return []
+    if (step.kind !== 'create' && step.kind !== 'destroy' && step.kind !== 'activate') return []
+    const i = lane.get(step.id)
+    if (i === undefined) return []
+    return [i]
   }
   const ownersOf = (block: Block): Owner[] => [block.open, ...block.branches, ...block.steps, ...block.children.flatMap(ownersOf), ...block.steps.flatMap(touched).map(i => `lane:${i}`)]
-  const pad = (block: Block): { lo: number; hi: number; left: number; right: number } => {
+  const notePad = (step: Note, lo: number, hi: number): [number, number] => {
+    const over = step.over.flatMap(id => lane.get(id) ?? [])
+    if (!isShown(step) || over.length === 0) return [0, 0]
+    const bw = noteBox(step)
+    const first = Math.min(...over)
+    const end = Math.max(...over)
+    if (step.side === 'left') return [onlyIf(first === lo, bw + 3), 0]
+    if (step.side === 'right') return [0, onlyIf(end === hi, bw + 4)]
+    if (first === end) return [onlyIf(first === lo, half(bw) + 2), onlyIf(first === hi, half(bw) + 2)]
+    return [onlyIf(first === lo, 3), onlyIf(end === hi, 3)]
+  }
+  const stepPad = (step: Step, lo: number, hi: number): [number, number] => {
+    if (step.kind === 'note') return notePad(step, lo, hi)
+    if (step.kind === 'message') {
+      const self = onlyIf(step.from === step.to && lane.get(step.from) === hi, (labelWidth.get(step) ?? 0) + 5)
+      return [0, Math.max(self, onlyIf(isHidden(step), HIDDEN_ROOM))]
+    }
+    const i = step.kind === 'create' ? lane.get(step.id) : undefined
+    if (i === undefined) return [0, 0]
+    return [onlyIf(i === lo, leftOf(widthOf(i)) + 2), onlyIf(i === hi, rightOf(widthOf(i)) + 2)]
+  }
+  const pad = (block: Block): Pad => {
     const children = block.children.map(pad)
     owners = ownersOf(block)
     const all = [...block.steps.flatMap(touched), ...children.flatMap(c => [c.lo, c.hi])]
@@ -615,32 +676,12 @@ function measure(sequence: Sequence, lanes: Participant[], items: Item[], states
     let r = 2
     const labelNeed = Math.max(0, ...[block.open, ...block.branches].map(opening => {
       const w = labelWidth.get(opening) ?? 0
-      return w > 0 ? w + FRAME_ROOM : 0
+      return onlyIf(w > 0, w + FRAME_ROOM)
     }))
     for (const step of block.steps) {
-      if (step.kind === 'note' && isShown(step)) {
-        const over = step.over.flatMap(id => lane.get(id) ?? [])
-        const bw = noteBox(step)
-        const side = step.side
-        if (over.length === 0) continue
-        if (side === 'left' && Math.min(...over) === lo) l = Math.max(l, bw + 3)
-        if (side === 'right' && Math.max(...over) === hi) r = Math.max(r, bw + 4)
-        if (side === 'over' && Math.min(...over) === Math.max(...over)) {
-          if (over[0] === lo) l = Math.max(l, half(bw) + 2)
-          if (over[0] === hi) r = Math.max(r, half(bw) + 2)
-        }
-        if (side === 'over' && Math.min(...over) !== Math.max(...over)) {
-          if (Math.min(...over) === lo) l = Math.max(l, 3)
-          if (Math.max(...over) === hi) r = Math.max(r, 3)
-        }
-      }
-      if (step.kind === 'message' && step.from === step.to && lane.get(step.from) === hi) r = Math.max(r, (labelWidth.get(step) ?? 0) + 5)
-      if (step.kind === 'message' && isHidden(step)) r = Math.max(r, HIDDEN_ROOM)
-      if (step.kind === 'create' && lane.has(step.id)) {
-        const i = lane.get(step.id)!
-        if (i === lo) l = Math.max(l, leftOf(widths[i]!) + 2)
-        if (i === hi) r = Math.max(r, rightOf(widths[i]!) + 2)
-      }
+      const [stepLeft, stepRight] = stepPad(step, lo, hi)
+      l = Math.max(l, stepLeft)
+      r = Math.max(r, stepRight)
     }
     for (const child of children) {
       if (child.lo === lo) l = Math.max(l, child.left + NEST_GAP)
@@ -656,56 +697,55 @@ function measure(sequence: Sequence, lanes: Participant[], items: Item[], states
     else edge('right', r)
     return result
   }
-  tree.forEach(pad)
+  for (const block of tree) pad(block)
 
   const { centre, width, gaps } = solve(n, spans, left, right, base)
+  const centreAt = (i: number) => must(centre[i], 'lifeline')
+  const arrowRows = (item: Item, step: Message, state: State, from: number, to: number) => {
+    const isRight = to > from
+    const both = step.arrow === 'both' ? 1 : 0
+    const dashes = step.isDashed ? DASHES : 0
+    const start = centreAt(Math.min(from, to)) + 1
+    const end = centreAt(Math.max(from, to)) - 1
+    const reach = isRight ? end - 2 : end - both
+    const tail = isRight ? start + both + 1 : start + 3
+    const fits = (line: string) => line !== '' && tail + cellWidth(line) + dashes <= reach
+    const busy = stops.get(step)
+    const stop = busy === undefined ? limit : centreAt(busy) - 1
+    const label = spills(step) ? wrap(item.text, Math.max(1, stop - (start + (isRight ? 1 : 3)) - 1)) : labelOf(item, state)
+    const shown = balanced(label, item.text, reach - tail - dashes)
+    return shown.lines.length + (fits(shown.lines.at(-1) ?? '') ? 0 : 1)
+  }
+  const itemRows = (item: Item): number => {
+    const state = stateOf(item.step)
+    const lines = state.isHidden ? 1 : labelOf(item, state).lines.length
+    const step = item.step
+    if (step.kind !== 'message' || state.isHidden) return Math.max(1, lines)
+    if (isHidden(step)) return lines + 1
+    const from = laneOf(step.from)
+    const to = laneOf(step.to)
+    if (from === to) {
+      const isLong = from !== last && isSpilling(step, nested)
+      return Math.max(2, isLong ? wrap(item.text, Math.max(1, limit - centreAt(from) - 6)).lines.length : lines)
+    }
+    if ((state.inline && !spills(step)) || creates.has(step)) return state.inline ? lines : lines + 1
+    return arrowRows(item, step, state, from, to)
+  }
+  const tight = tightOwners(spans, edges, gaps, left, right)
+  let rows = Math.max(0, ...lanes.map((p, i) => boxHeight(p, nameAt(i), stacked[i])))
+  for (const item of items) rows += itemRows(item)
+  return { lanes, lane, centre, width, states, names: [...names], stacked: [...stacked], isBare, pads, creates, tight, rows, nested }
+}
+
+function tightOwners(spans: Span[], edges: Edge[], gaps: number[], left: number, right: number): Set<Owner> {
   const tight = new Set<Owner>()
   for (const span of spans) {
     if (span.b <= span.a || span.need <= 0) continue
-    let have = 0
-    for (let i = span.a; i < span.b; i++) have += gaps[i]!
-    if (have <= span.need) span.owners.forEach(o => tight.add(o))
+    const have = gaps.slice(span.a, span.b).reduce((s, g) => s + g, 0)
+    if (have <= span.need) for (const o of span.owners) tight.add(o)
   }
-  for (const { side, value, owners: o } of edges) if (value >= (side === 'left' ? left : right)) o.forEach(x => tight.add(x))
-  let rows = Math.max(0, ...lanes.map((p, i) => boxHeight(p, names[i]!, stacked[i])))
-  for (const item of items) {
-    const state = states.get(item.step)!
-    const lines = state.isHidden ? 1 : labelOf(item, state).lines.length
-    const step = item.step
-    if (step.kind !== 'message' || state.isHidden) {
-      rows += Math.max(1, lines)
-      continue
-    }
-    if (isHidden(step)) {
-      rows += lines + 1
-      continue
-    }
-    const from = lane.get(step.from)!
-    const to = lane.get(step.to)!
-    if (from === to) {
-      const spills = limit !== undefined && from !== last && isSpilling(step, nested)
-      rows += Math.max(2, spills ? wrap(item.text, Math.max(1, limit - centre[from]! - 6)).lines.length : lines)
-      continue
-    }
-    if ((state.inline && !spills(step)) || creates.has(step)) {
-      rows += state.inline ? lines : lines + 1
-      continue
-    }
-    const isRight = to > from
-    const both = step.arrow === 'both' ? 1 : 0
-    const start = centre[Math.min(from, to)]! + 1
-    const end = centre[Math.max(from, to)]! - 1
-    const reach = isRight ? end - 2 : end - both
-    const tail = isRight ? start + both + 1 : start + 3
-    const fits = (line: string) => line !== '' && tail + cellWidth(line) + (step.isDashed ? DASHES : 0) <= reach
-    const spill = spills(step)
-    const busy = stops.get(step)
-    const stop = busy === undefined ? limit ?? 0 : centre[busy]! - 1
-    const label = spill ? wrap(item.text, Math.max(1, stop - (start + (isRight ? 1 : 3)) - 1)) : labelOf(item, state)
-    const shown = balanced(label, item.text, reach - tail - (step.isDashed ? DASHES : 0))
-    rows += fits(shown.lines.at(-1) ?? '') ? shown.lines.length : shown.lines.length + 1
-  }
-  return { lanes, lane, centre, width, states, names: [...names], stacked: [...stacked], isBare, pads, creates, tight, rows, nested }
+  for (const { side, value, owners } of edges) if (value >= (side === 'left' ? left : right)) for (const o of owners) tight.add(o)
+  return tight
 }
 
 type Move = { apply: () => void; undo: () => void; size: number; owner?: Owner }
@@ -723,7 +763,7 @@ const rowsOf = (item: Item, state: State) => {
   return Math.max(1, labelOf(item, state).lines.length)
 }
 
-function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Block[], width: number, ladder: Phase[]): Plan {
+function planWithin(sequence: Sequence, lanes: Participant[], items: Item[], tree: Block[], width: number, ladder: Phase[]): Plan {
   const isSelf = (item: Item) => item.step.kind === 'message' && item.step.from === item.step.to
   const nested = nestedOf(tree)
   const startCap = (item: Item) => (isSelf(item) && !isSpilling(item.step, nested) ? Math.min(item.maxCap, Math.max(SELF_CAP, item.wordCap)) : item.maxCap)
@@ -733,38 +773,43 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
   const stacked = lanes.map(() => false)
   let isBare = false
   work = 0
+  const layout = (): Layout => ({ lanes, states, names, stacked, isBare })
   const run = () => {
     work += items.length + lanes.length
-    return measure(sequence, lanes, items, states, names, stacked, tree, isBare, undefined, width)
+    return measure(sequence, items, tree, layout(), width)
   }
   const isSpent = () => work > WORK_BUDGET
-  const shown = (item: Item) => widest(labelOf(item, states.get(item.step)!).lines)
+  const stateOf = (item: Item) => must(states.get(item.step), 'label state')
+  const fullName = (i: number) => must(fullNames[i], 'full name width')
+  const nameAt = (i: number) => must(names[i], 'name cap')
+  const shown = (item: Item) => widest(labelOf(item, stateOf(item)).lines)
 
   let overshoot = 1
   const tighten = (phase: Phase): Move[] => {
     if (phase === 'bare') return isBare ? [] : [{ apply: () => (isBare = true), undo: () => (isBare = false), size: 0 }]
     if (phase === 'stack') {
-      return lanes.flatMap<Move>((p, i) => (stacked[i] || !canStack(p) ? [] : [{ apply: () => (stacked[i] = true), undo: () => (stacked[i] = false), size: fullNames[i]!, owner: `lane:${i}` }]))
+      return lanes.flatMap<Move>((p, i) => (stacked[i] || !canStack(p) ? [] : [{ apply: () => (stacked[i] = true), undo: () => (stacked[i] = false), size: fullName(i), owner: `lane:${i}` }]))
     }
     if (phase === 'notes') {
       return items.flatMap<Move>(item => {
-        const state = states.get(item.step)!
+        const state = stateOf(item)
         if (item.step.kind !== 'note' || state.isHidden) return []
         return [{ apply: () => (state.isHidden = true), undo: () => (state.isHidden = false), size: item.fullWidth, owner: item.step }]
       })
     }
     const nameMoves = (isHard: boolean) =>
-      names.flatMap((cap, i) => {
-        const now = Math.min(cap, fullNames[i]!)
-        const floor = isHard ? NAME_MIN : nameFloor(lanes[i]!)
-        if (fullNames[i]! <= NAME_KEEP || now <= floor) return []
+      lanes.flatMap((p, i) => {
+        const cap = nameAt(i)
+        const now = Math.min(cap, fullName(i))
+        const floor = isHard ? NAME_MIN : nameFloor(p)
+        if (fullName(i) <= NAME_KEEP || now <= floor) return []
         return [{ apply: () => (names[i] = Math.max(floor, now - overshoot)), undo: () => (names[i] = cap), size: now, owner: `lane:${i}` }]
       })
     if (phase === 'names') return nameMoves(false)
     if (phase === 'crush') return nameMoves(true)
     const floor = phase === 'soft' ? SOFT_CAP : phase === 'wrap' ? 1 : HARD_CAP
     return [...items.flatMap<Move>(item => {
-      const state = states.get(item.step)!
+      const state = stateOf(item)
       if (state.isHidden) return []
       if (state.inline && !state.tight) return [{ apply: () => (state.tight = true), undo: () => (state.tight = false), size: item.fullWidth + 3, owner: item.step }]
       if (state.inline) return [{ apply: () => (state.inline = false), undo: () => (state.inline = true), size: item.fullWidth + 2, owner: item.step }]
@@ -786,14 +831,14 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
       if (moves.length === 0) break
       const binding = moves.filter(move => move.owner === undefined || plan.tight.has(move.owner)).sort((x, y) => y.size - x.size)
       if (binding.length === 0) break
-      const first = binding[0]!
-      first.apply()
+      const [first, ...rest] = binding
+      must(first, 'binding move').apply()
       const alone = run()
-      if (alone.width < plan.width || binding.length === 1) {
+      if (alone.width < plan.width || rest.length === 0) {
         plan = alone
         continue
       }
-      binding.slice(1).forEach(move => move.apply())
+      for (const move of rest) move.apply()
       plan = run()
     }
   }
@@ -801,70 +846,71 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
   // Spend the slack where it saves the most rows: restore lost information first, then
   // the move with the largest row saving per column it costs.
   type Loosen = { apply: () => void; undo: () => void; tier: number; saves: number }
-  const candidates = (): Loosen[] => {
+  const labelCandidates = (item: Item): Loosen[] => {
+    const state = stateOf(item)
+    if (state.isHidden) return [{ apply: () => (state.isHidden = false), undo: () => (state.isHidden = true), tier: 0, saves: 0 }]
     const all: Loosen[] = []
-    for (const item of items) {
-      const state = states.get(item.step)!
-      if (state.isHidden) {
-        all.push({ apply: () => (state.isHidden = false), undo: () => (state.isHidden = true), tier: 0, saves: 0 })
-        continue
-      }
-      const before = rowsOf(item, state)
-      const { isCut } = labelOf(item, state)
-      if (item.canInline && !state.inline) {
-        const cap = state.cap
-        all.push({
-          apply: () => {
-            state.inline = true
-            state.tight = true
-            state.cap = item.maxCap
-          },
-          undo: () => {
-            state.inline = false
-            state.tight = false
-            state.cap = cap
-          },
-          tier: isCut ? 0 : 2,
-          saves: before,
-        })
-      }
-      if (state.cap < item.maxCap) {
-        const cap = state.cap
-        let target = item.maxCap
-        for (let c = cap + 1; c <= item.maxCap; c++) {
-          const tried = wrap(item.text, c)
-          if (tried.lines.length < labelOf(item, state).lines.length || tried.isCut !== isCut) {
-            target = c
-            break
-          }
-        }
-        const after = rowsOf(item, { ...state, cap: target })
-        all.push({ apply: () => (state.cap = target), undo: () => (state.cap = cap), tier: isCut ? 0 : 2, saves: before - after })
-      }
+    const before = rowsOf(item, state)
+    const { isCut } = labelOf(item, state)
+    if (item.canInline && !state.inline) {
+      const cap = state.cap
+      all.push({
+        apply: () => {
+          state.inline = true
+          state.tight = true
+          state.cap = item.maxCap
+        },
+        undo: () => {
+          state.inline = false
+          state.tight = false
+          state.cap = cap
+        },
+        tier: isCut ? 0 : 2,
+        saves: before,
+      })
     }
+    if (state.cap < item.maxCap) {
+      const cap = state.cap
+      let target = item.maxCap
+      for (let c = cap + 1; c <= item.maxCap; c++) {
+        const tried = wrap(item.text, c)
+        if (tried.lines.length < labelOf(item, state).lines.length || tried.isCut !== isCut) {
+          target = c
+          break
+        }
+      }
+      const after = rowsOf(item, { ...state, cap: target })
+      all.push({ apply: () => (state.cap = target), undo: () => (state.cap = cap), tier: isCut ? 0 : 2, saves: before - after })
+    }
+    return all
+  }
+  const candidates = (): Loosen[] => {
+    const all = items.flatMap(labelCandidates)
     for (const item of items) {
-      const state = states.get(item.step)!
+      const state = stateOf(item)
       if (state.inline && state.tight) all.push({ apply: () => (state.tight = false), undo: () => (state.tight = true), tier: 3, saves: 0 })
     }
-    const heights = lanes.map((p, i) => boxHeight(p, names[i]!, stacked[i]))
+    const heights = lanes.map((p, i) => boxHeight(p, nameAt(i), stacked[i]))
     const tallest = Math.max(0, ...heights)
     // One tall box is never the only tall one for long: widening names together is what shortens the header.
-    const widened = lanes.map((p, i) => Math.max(names[i]!, nameFold(p)))
-    const folded = Math.max(0, ...lanes.map((p, i) => boxHeight(p, widened[i]!, stacked[i])))
+    const widened = lanes.map((p, i) => Math.max(nameAt(i), nameFold(p)))
+    const folded = Math.max(0, ...lanes.map((p, i) => boxHeight(p, must(widened[i], 'widened cap'), stacked[i])))
     if (folded < tallest) {
       const before = [...names]
       all.push({ apply: () => names.splice(0, names.length, ...widened), undo: () => names.splice(0, names.length, ...before), tier: 2, saves: tallest - folded })
     }
-    names.forEach((cap, i) => {
-      if (cap >= fullNames[i]!) return
-      if (nameCut(lanes[i]!, cap)) {
+    lanes.forEach((p, i) => {
+      const cap = nameAt(i)
+      if (cap >= fullName(i)) return
+      if (nameCut(p, cap)) {
         all.push({ apply: () => (names[i] = cap + 1), undo: () => (names[i] = cap), tier: 1, saves: 0 })
         return
       }
+      const height = must(heights[i], 'box height')
       let target = cap + 1
-      while (target < fullNames[i]! && boxHeight(lanes[i]!, target, stacked[i]) >= heights[i]!) target++
+      while (target < fullName(i) && boxHeight(p, target, stacked[i]) >= height) target++
       const others = Math.max(0, ...heights.filter((_, k) => k !== i))
-      const saves = tallest - Math.max(others, boxHeight(lanes[i]!, target, stacked[i]))
+      const saves = tallest - Math.max(others, boxHeight(p, target, stacked[i]))
       all.push({ apply: () => (names[i] = target), undo: () => (names[i] = cap), tier: saves > 0 ? 2 : 3, saves })
     })
     stacked.forEach((isStacked, i) => {
@@ -879,7 +925,7 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
     let isWidened = false
     names.forEach((cap, i) => {
       let lo = cap
-      let hi = fullNames[i]!
+      let hi = fullName(i)
       while (lo < hi) {
         const mid = Math.ceil((lo + hi) / 2)
         names[i] = mid
@@ -896,36 +942,40 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
   }
   const together = (moves: Loosen[]): boolean => {
     if (moves.length < 2) return false
-    moves.forEach(move => move.apply())
+    for (const move of moves) move.apply()
     const tried = run()
     if (tried.width <= width) {
       plan = tried
       return true
     }
-    moves.forEach(move => move.undo())
+    for (const move of moves) move.undo()
     return false
+  }
+  const hope = (move: Loosen) => move.tier * 1000 - move.saves * 100
+  const pickMove = (ranked: Loosen[]) => {
+    let best: { move: Loosen; plan: Plan; score: number } | undefined
+    let tries = 0
+    for (const move of ranked) {
+      if (tries >= LOOSEN_TRIES || (best && (hope(move) >= best.score || best.move.tier < 2))) break
+      tries++
+      move.apply()
+      const tried = run()
+      move.undo()
+      if (tried.width > width) continue
+      const cost = Math.max(0, tried.width - plan.width)
+      if (move.tier === 2 && cost > COLS_PER_ROW * move.saves) continue
+      const score = move.tier * 1000 - (move.saves * 100) / (1 + cost)
+      if (!best || score < best.score) best = { move, plan: tried, score }
+    }
+    return best
   }
   const loosen = () => {
     while (!isSpent()) {
-      let best: { move: Loosen; plan: Plan; score: number } | undefined
-      const hope = (move: Loosen) => move.tier * 1000 - move.saves * 100
       const ranked = candidates().filter(move => !(move.tier === 2 && move.saves <= 0)).sort((x, y) => hope(x) - hope(y))
       const lead = ranked[0]?.tier
       if (lead === 0 && together(ranked.filter(move => move.tier === 0))) continue
       if (lead === 1 && widenNames()) continue
-      let tries = 0
-      for (const move of ranked) {
-        if (tries >= LOOSEN_TRIES || (best && (hope(move) >= best.score || best.move.tier < 2))) break
-        tries++
-        move.apply()
-        const tried = run()
-        move.undo()
-        if (tried.width > width) continue
-        const cost = Math.max(0, tried.width - plan.width)
-        if (move.tier === 2 && cost > COLS_PER_ROW * move.saves) continue
-        const score = move.tier * 1000 - (move.saves * 100) / (1 + cost)
-        if (!best || score < best.score) best = { move, plan: tried, score }
-      }
+      const best = pickMove(ranked)
       if (!best) break
       if (best.move.tier === 1 && widenNames()) continue
       best.move.apply()
@@ -937,7 +987,7 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
   const snapshot = () => {
     const saved = { states: new Map([...states].map(([step, one]) => [step, { ...one }])), names: [...names], stacked: [...stacked], isBare, plan }
     return () => {
-      for (const [step, one] of saved.states) Object.assign(states.get(step)!, { tight: undefined, isHidden: undefined }, one)
+      for (const [step, one] of saved.states) Object.assign(must(states.get(step), 'label state'), { tight: undefined, isHidden: undefined }, one)
       names.splice(0, names.length, ...saved.names)
       stacked.splice(0, stacked.length, ...saved.stacked)
       isBare = saved.isBare
@@ -951,7 +1001,7 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
     for (const item of items) {
       if (isSpent()) return
       if (item.step.kind !== 'note' || item.step.side === 'over') continue
-      const state = states.get(item.step)!
+      const state = stateOf(item)
       const floor = Math.max(item.wordCap, item.minCap)
       if (state.isHidden || state.cap <= floor) continue
       const before = plan.rows
@@ -969,7 +1019,7 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
   // second way, from every label at its narrowest, spending columns where they save the most
   // rows, and keep whichever needs fewer rows.
   const cost = () => {
-    const lost = names.filter((cap, i) => nameCut(lanes[i]!, cap)).length + items.filter(item => states.get(item.step)!.isHidden || labelOf(item, states.get(item.step)!).isCut).length
+    const lost = lanes.filter((p, i) => nameCut(p, nameAt(i))).length + items.filter(item => stateOf(item).isHidden || labelOf(item, stateOf(item)).isCut).length
     return lost * 1000 + plan.rows
   }
   if (isSpent()) return best(settle())
@@ -977,7 +1027,7 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
   const fromTop = snapshot()
   const narrowest = () => {
     for (const item of items) {
-      const state = states.get(item.step)!
+      const state = stateOf(item)
       if (state.isHidden) continue
       state.inline = false
       state.tight = false
@@ -999,7 +1049,7 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
   return best(settle())
 
   function best(found: Plan): Plan {
-    const folded = lanes.map((p, i) => Math.max(found.names[i]!, nameFold(p)))
+    const folded = lanes.map((p, i) => Math.max(must(found.names[i], 'name cap'), nameFold(p)))
     const variants = [found.names, folded].filter((one, k, all) => all.findIndex(other => other.join() === one.join()) === k)
     const allocated = variants
       .map(one => allocate(sequence, lanes, items, tree, width, { ...found, names: one }))
@@ -1014,10 +1064,10 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
     let kept = found
     for (let height = 1; height <= HEADER_MOST; height++) {
       const folded = lanes.map((p, i) => {
-        for (let cap = nameFloor(p); cap < fullNames[i]!; cap++) if (!nameCut(p, cap) && fullHeader(p, cap).length <= height) return cap
-        return fullNames[i]!
+        for (let cap = nameFloor(p); cap < fullName(i); cap++) if (!nameCut(p, cap) && fullHeader(p, cap).length <= height) return cap
+        return fullName(i)
       })
-      const tried = measure(sequence, lanes, items, found.states, folded, found.stacked, tree, found.isBare, undefined, width)
+      const tried = measure(sequence, items, tree, { lanes, states: found.states, names: folded, stacked: found.stacked, isBare: found.isBare }, width)
       if (tried.width <= width && costOf(items, tried) < costOf(items, kept)) kept = tried
     }
     return kept
@@ -1035,7 +1085,7 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
         runs++
         const mid = Math.ceil((lo + hi) / 2)
         set(mid)
-        const tried = measure(sequence, lanes, items, states, names, stacked, tree, isBare, undefined, width)
+        const tried = measure(sequence, items, tree, layout(), width)
         if (tried.width <= width && !isWorse(tried)) {
           lo = mid
           plan = tried
@@ -1043,27 +1093,30 @@ function fit(sequence: Sequence, lanes: Participant[], items: Item[], tree: Bloc
       }
       set(lo)
     }
-    names.forEach((_, i) => {
-      if (nameCut(lanes[i]!, names[i]!)) widen(() => names[i]!, cap => (names[i] = cap), fullNames[i]!, tried => tried.rows > plan.rows)
+    lanes.forEach((p, i) => {
+      if (nameCut(p, nameAt(i))) widen(() => nameAt(i), cap => (names[i] = cap), fullName(i), tried => tried.rows > plan.rows)
     })
     // spare width also goes to a box whose name folds inside an identifier (`offerset_` /
     // `generation`), as long as no row is spent on it
-    names.forEach((_, i) => {
-      if (breaksInside(lanes[i]!, names[i]!)) widen(() => names[i]!, cap => (names[i] = cap), fullNames[i]!, tried => tried.rows > plan.rows)
+    lanes.forEach((p, i) => {
+      if (breaksInside(p, nameAt(i))) widen(() => nameAt(i), cap => (names[i] = cap), fullName(i), tried => tried.rows > plan.rows)
     })
     const narrow = items
-      .filter(item => !states.get(item.step)!.isHidden && !states.get(item.step)!.inline && states.get(item.step)!.cap < item.maxCap)
-      .sort((x, y) => rowsOf(y, states.get(y.step)!) - rowsOf(x, states.get(x.step)!))
+      .filter(item => {
+        const state = stateOf(item)
+        return !state.isHidden && !state.inline && state.cap < item.maxCap
+      })
+      .sort((x, y) => rowsOf(y, stateOf(y)) - rowsOf(x, stateOf(x)))
     for (const item of narrow) {
-      const state = states.get(item.step)!
+      const state = stateOf(item)
       widen(() => state.cap, cap => (state.cap = cap), Math.max(state.cap, startCap(item)), tried => tried.rows > plan.rows)
     }
-    return measure(sequence, lanes, items, states, names, stacked, tree, isBare, undefined, width)
+    return measure(sequence, items, tree, layout(), width)
   }
 }
 
 const costOf = (items: Item[], plan: Plan) =>
-  (plan.lanes.filter((p, i) => nameCut(p, plan.names[i]!)).length +
+  (plan.lanes.filter((p, i) => nameCut(p, must(plan.names[i], 'name cap'))).length +
     items.filter(item => {
       const state = plan.states.get(item.step)
       return state !== undefined && (state.isHidden || labelOf(item, state).isCut)
@@ -1075,6 +1128,21 @@ const costOf = (items: Item[], plan: Plan) =>
 // gap left of its lane (`against`), since it can only run to the right edge.
 type Claim = { item: Item; lo: number; hi: number; against?: number; memo: Map<number, number> }
 
+function sign(claim: Claim, r: number): number {
+  if (claim.against !== undefined) return r < claim.against ? -1 : 0
+  if (claim.lo <= r && claim.hi > r) return 1
+  return 0
+}
+
+const roomOf = (resources: number[], lo: number, hi: number) => resources.slice(lo, hi).reduce((room, r) => room + r, 0)
+const arrowExtra = (step: Message) => (step.arrow === 'both' ? 1 : 0) + (step.isDashed ? DASHES : 0) + 5
+
+function rowsBeside(wrapped: Wrapped, text: string, extra: number, room: number): number {
+  const shown = balanced(wrapped, text, room - extra)
+  const last = shown.lines.at(-1) ?? ''
+  return shown.lines.length + (last !== '' && cellWidth(last) + extra <= room ? 0 : 1)
+}
+
 // Width goes where it saves the most rows. Every label starts at the narrowest width it wraps to
 // whole; then columns go one batch at a time to whichever gap buys the most rows per column, and
 // a few columns at a time move between gaps while that saves rows. A label's room is the sum of
@@ -1085,6 +1153,8 @@ function allocate(sequence: Sequence, lanes: Participant[], items: Item[], tree:
   const { lane, names, stacked, isBare, nested } = from
   const creates = createsOf(sequence.steps)
   const states = new Map([...from.states].map(([step, state]) => [step, { ...state }]))
+  const stateOf = (item: Item) => must(states.get(item.step), 'label state')
+  const laneOf = (id: string) => must(lane.get(id), 'lane')
   const isFree = (item: Item): boolean => {
     const step = item.step
     if (states.get(step)?.isHidden) return false
@@ -1093,16 +1163,14 @@ function allocate(sequence: Sequence, lanes: Participant[], items: Item[], tree:
   }
   const free = items.filter(isFree)
   if (free.length === 0) return undefined
-  for (const item of free) Object.assign(states.get(item.step)!, { inline: false, tight: false, cap: Math.max(item.pieceCap, item.minCap, 1) })
-  const floor = measure(sequence, lanes, items, states, names, stacked, tree, isBare, undefined, width)
+  for (const item of free) Object.assign(stateOf(item), { inline: false, tight: false, cap: Math.max(item.pieceCap, item.minCap, 1) })
+  const layout = { lanes, states, names, stacked, isBare }
+  const floor = measure(sequence, items, tree, layout, width)
   if (floor.width > width) return undefined
-  const gaps = floor.centre.slice(1).map((c, i) => c - floor.centre[i]!)
-  const lastWidth = boxWidth(lanes[n - 1]!, names[n - 1]!, isBare, stacked[n - 1])
-  const right = floor.width - 1 - floor.centre[n - 1]!
+  const centreAt = (i: number) => must(floor.centre[i], 'lifeline')
+  const gaps = floor.centre.slice(1).map((c, i) => c - centreAt(i))
+  const right = floor.width - 1 - centreAt(n - 1)
   const budget = width - floor.width
-  const attempt = (spend: number): Plan => {
-  const resources = [...gaps, right]
-  let slack = spend
   const most = width + 8
 
   // rows a label needs given `room` columns between its ends (or to the right edge), and how the
@@ -1111,67 +1179,38 @@ function allocate(sequence: Sequence, lanes: Participant[], items: Item[], tree:
     const step = item.step
     if (step.kind === 'note') return room + 1
     if (step.kind !== 'message') return room
-    const a = lane.get(step.from)!
-    const b = lane.get(step.to)!
+    const a = laneOf(step.from)
+    const b = laneOf(step.to)
     if (a === b) return a === n - 1 ? room - 4 : isSpilling(step, nested) ? room : room - 5
     return room - (b > a ? 3 : 5)
   }
   // A label that spills wraps against the right edge, whatever its gap; its gap only decides
   // whether the last line can sit on the arrow.
-  const spillRoom = (item: Item): number | undefined => {
-    const step = item.step
+  const spillRoom = (step: Step): number | undefined => {
     if (!canSpill(step, nested, creates)) return undefined
-    const lo = Math.min(lane.get(step.from)!, lane.get(step.to)!)
-    return Math.max(1, width - floor.centre[lo]! - (lane.get(step.to)! > lane.get(step.from)! ? 2 : 4) - 2)
+    const lo = Math.min(laneOf(step.from), laneOf(step.to))
+    return Math.max(1, width - centreAt(lo) - (laneOf(step.to) > laneOf(step.from) ? 2 : 4) - 2)
   }
-  const spilled = (item: Item, room: number): number => {
-    const step = item.step as Message
-    const wrapped = wrap(item.text, spillRoom(item)!)
-    if (wrapped.isCut) return 1e6
-    const extra = (step.arrow === 'both' ? 1 : 0) + (step.isDashed ? DASHES : 0) + 5
-    const shown = balanced(wrapped, item.text, room - extra)
-    const last = shown.lines.at(-1) ?? ''
-    return last !== '' && cellWidth(last) + extra <= room ? shown.lines.length : shown.lines.length + 1
+  const wrappedAt = (item: Item, room: number): Wrapped | undefined => {
+    const cap = capOf(item, room)
+    if (cap < Math.max(item.pieceCap, 1)) return undefined
+    const wrapped = wrap(item.text, cap)
+    if (wrapped.isCut) return undefined
+    return wrapped
   }
   const rowsAt = (item: Item, room: number): number => {
     const step = item.step
-    if (spillRoom(item) !== undefined) return spilled(item, room)
-    const cap = capOf(item, room)
-    if (cap < Math.max(item.pieceCap, 1)) return 1e6
-    const wrapped = wrap(item.text, cap)
-    if (wrapped.isCut) return 1e6
-    if (step.kind !== 'message') return Math.max(1, wrapped.lines.length)
-    if (step.from === step.to) return Math.max(2, wrapped.lines.length)
-    const extra = (step.arrow === 'both' ? 1 : 0) + (step.isDashed ? DASHES : 0) + 5
-    const fits = (line: string) => line !== '' && cellWidth(line) + extra <= room
-    const shown = balanced(wrapped, item.text, room - extra)
-    return fits(shown.lines.at(-1) ?? '') ? shown.lines.length : shown.lines.length + 1
-  }
-  const roomOf = (lo: number, hi: number) => {
-    let room = 0
-    for (let i = lo; i < hi; i++) room += resources[i]!
-    return room
-  }
-  const left = floor.centre[0]!
-  const claims: Claim[] = free.map(item => {
-    const step = item.step
-    let lo = 0
-    let hi = 0
-    let against: number | undefined
-    if (step.kind === 'message') {
-      const a = lane.get(step.from)!
-      const b = lane.get(step.to)!
-      if (a === b && a === n - 1) [lo, hi] = [n - 1, n]
-      else if (a === b && isSpilling(step, nested)) against = a
-      else if (a === b) [lo, hi] = [a, a + 1]
-      else [lo, hi] = [Math.min(a, b), Math.max(a, b)]
-    } else if (step.kind === 'note') {
-      const over = step.over.flatMap(id => lane.get(id) ?? []).sort((x, y) => x - y)
-      ;[lo, hi] = [over[0]!, over.at(-1)!]
+    if (step.kind !== 'message') return Math.max(1, wrappedAt(item, room)?.lines.length ?? 1e6)
+    const spill = spillRoom(step)
+    if (spill !== undefined) {
+      const wrapped = wrap(item.text, spill)
+      return wrapped.isCut ? 1e6 : rowsBeside(wrapped, item.text, arrowExtra(step), room)
     }
-    return { item, lo, hi, against, memo: new Map() }
-  })
-  const sign = (claim: Claim, r: number) => (claim.against !== undefined ? (r < claim.against ? -1 : 0) : claim.lo <= r && r < claim.hi ? 1 : 0)
+    const wrapped = wrappedAt(item, room)
+    if (!wrapped) return 1e6
+    if (step.from === step.to) return Math.max(2, wrapped.lines.length)
+    return rowsBeside(wrapped, item.text, arrowExtra(step), room)
+  }
   const rowsFor = (claim: Claim, room: number) => {
     const hit = claim.memo.get(room)
     if (hit !== undefined) return hit
@@ -1179,80 +1218,103 @@ function allocate(sequence: Sequence, lanes: Participant[], items: Item[], tree:
     claim.memo.set(room, rows)
     return rows
   }
-  const current = claims.map(claim => (claim.against !== undefined ? width - left - roomOf(0, claim.against) - 6 : roomOf(claim.lo, claim.hi)))
-  const touching = resources.map((_, r) => claims.flatMap((claim, k) => (sign(claim, r) !== 0 ? [k] : [])))
-  while (slack > 0) {
-    let pick: { r: number; k: number; score: number } | undefined
-    for (let r = 0; r < resources.length; r++) {
-      const touched = touching[r]!
-      if (!touched.some(k => sign(claims[k]!, r) > 0)) continue
-      const now = touched.reduce((sum, k) => sum + rowsFor(claims[k]!, current[k]!), 0)
-      for (let k = 1; k <= Math.min(slack, STEP_MOST); k++) {
-        const then = touched.reduce((sum, c) => sum + rowsFor(claims[c]!, current[c]! + sign(claims[c]!, r) * k), 0)
-        const saved = now - then
-        if (saved <= 0) continue
-        const score = saved / k
-        if (!pick || score > pick.score) pick = { r, k, score }
-      }
+  const claimOf = (item: Item): Claim => {
+    const step = item.step
+    if (step.kind === 'note') {
+      const over = step.over.flatMap(id => lane.get(id) ?? []).sort((x, y) => x - y)
+      return { item, lo: must(over[0], 'note lane'), hi: must(over.at(-1), 'note lane'), memo: new Map() }
     }
-    if (!pick) break
-    resources[pick.r]! += pick.k
-    slack -= pick.k
-    for (const k of touching[pick.r]!) current[k]! += sign(claims[k]!, pick.r) * pick.k
+    if (step.kind !== 'message') return { item, lo: 0, hi: 0, memo: new Map() }
+    const a = laneOf(step.from)
+    const b = laneOf(step.to)
+    if (a === b && a === n - 1) return { item, lo: n - 1, hi: n, memo: new Map() }
+    if (a === b && isSpilling(step, nested)) return { item, lo: 0, hi: 0, against: a, memo: new Map() }
+    if (a === b) return { item, lo: a, hi: a + 1, memo: new Map() }
+    return { item, lo: Math.min(a, b), hi: Math.max(a, b), memo: new Map() }
   }
-
-  // Greedy growth never takes width back. Moving a few columns from one gap to another often
-  // finds rows the growth order missed.
-  const floorOf = [...gaps, right]
-  const shift = (from: number, to: number, k: number) => {
-    resources[from]! -= k
-    resources[to]! += k
-    for (const c of new Set([...touching[from]!, ...touching[to]!])) current[c]! += (sign(claims[c]!, to) - sign(claims[c]!, from)) * k
-  }
-  for (let pass = 0; pass < 12; pass++) {
-    let best: { from: number; to: number; k: number; saved: number } | undefined
-    for (let a = 0; a < resources.length; a++) {
-      for (let b = 0; b < resources.length; b++) {
-        if (a === b || touching[b]!.length === 0) continue
-        const both = [...new Set([...touching[a]!, ...touching[b]!])]
-        const deltas = both.map(c => sign(claims[c]!, b) - sign(claims[c]!, a))
-        const now = both.reduce((sum, c) => sum + rowsFor(claims[c]!, current[c]!), 0)
-        for (let k = 1; k <= 8 && resources[a]! - k >= floorOf[a]!; k++) {
-          const then = both.reduce((sum, c, i) => sum + rowsFor(claims[c]!, current[c]! + deltas[i]! * k), 0)
-          const saved = now - then
-          if (saved > 0 && (!best || saved > best.saved)) best = { from: a, to: b, k, saved }
-        }
-      }
-    }
-    if (!best) break
-    shift(best.from, best.to, best.k)
-  }
-
-  claims.forEach((claim, k) => {
-    const { item } = claim
-    const state = states.get(item.step)!
-    const room = current[k]!
-    const cap = capOf(item, room)
-    state.cap = Math.max(cap, item.pieceCap, item.minCap, 1)
+  const settleClaim = (item: Item, room: number) => {
+    const state = stateOf(item)
+    state.cap = Math.max(capOf(item, room), item.pieceCap, item.minCap, 1)
     const step = item.step
     if (step.kind !== 'message' || step.from === step.to) return
-    const extra = (step.arrow === 'both' ? 1 : 0) + (step.isDashed ? DASHES : 0) + 5
-    if (spillRoom(item) !== undefined) {
-      const isOne = !item.text.includes('\n') && item.fullWidth + extra <= room
-      Object.assign(state, { inline: isOne && item.canInline, tight: isOne && item.canInline, cap: item.maxCap })
+    const extra = arrowExtra(step)
+    if (spillRoom(step) !== undefined) {
+      const isOne = !item.text.includes('\n') && item.fullWidth + extra <= room && item.canInline
+      Object.assign(state, { inline: isOne, tight: isOne, cap: item.maxCap })
       return
     }
-    const wrapped = wrap(item.text, state.cap)
-    const fits = (line: string) => line !== '' && cellWidth(line) + extra <= room
-    const shown = balanced(wrapped, item.text, room - extra)
-    if (item.canInline && fits(shown.lines.at(-1) ?? '') && widest(shown.lines) <= state.cap) {
+    const shown = balanced(wrap(item.text, state.cap), item.text, room - extra)
+    const last = shown.lines.at(-1) ?? ''
+    if (item.canInline && last !== '' && cellWidth(last) + extra <= room && widest(shown.lines) <= state.cap) {
       state.cap = Math.max(widest(shown.lines), item.pieceCap)
       state.inline = true
       state.tight = true
     }
-  })
-  const plan = measure(sequence, lanes, items, states, names, stacked, tree, isBare, resources.slice(0, -1), width)
-  return plan
+  }
+  const left = centreAt(0)
+  const attempt = (spend: number): Plan => {
+    const resources = [...gaps, right]
+    const claims = free.map(claimOf)
+    const current = claims.map(claim => (claim.against !== undefined ? width - left - roomOf(resources, 0, claim.against) - 6 : roomOf(resources, claim.lo, claim.hi)))
+    const touching = resources.map((_, r) => claims.flatMap((claim, k) => (sign(claim, r) !== 0 ? [k] : [])))
+    const claimAt = (k: number) => must(claims[k], 'claim')
+    const roomAt = (k: number) => must(current[k], 'claim room')
+    const touchedBy = (r: number) => must(touching[r], 'claims on gap')
+    const rowsWith = (ks: number[], delta: (k: number) => number) => ks.reduce((sum, k) => sum + rowsFor(claimAt(k), roomAt(k) + delta(k)), 0)
+    const bestGrowth = (slack: number) => {
+      let pick: { r: number; k: number; score: number } | undefined
+      for (const [r, touched] of touching.entries()) {
+        if (!touched.some(k => sign(claimAt(k), r) > 0)) continue
+        const now = rowsWith(touched, () => 0)
+        for (let k = 1; k <= Math.min(slack, STEP_MOST); k++) {
+          const saved = now - rowsWith(touched, c => sign(claimAt(c), r) * k)
+          if (saved <= 0) continue
+          const score = saved / k
+          if (!pick || score > pick.score) pick = { r, k, score }
+        }
+      }
+      return pick
+    }
+    let slack = spend
+    while (slack > 0) {
+      const pick = bestGrowth(slack)
+      if (!pick) break
+      addAt(resources, pick.r, pick.k)
+      slack -= pick.k
+      for (const k of touchedBy(pick.r)) addAt(current, k, sign(claimAt(k), pick.r) * pick.k)
+    }
+
+    // Greedy growth never takes width back. Moving a few columns from one gap to another often
+    // finds rows the growth order missed.
+    const floorOf = [...gaps, right]
+    const shift = (from: number, to: number, k: number) => {
+      addAt(resources, from, -k)
+      addAt(resources, to, k)
+      for (const c of new Set([...touchedBy(from), ...touchedBy(to)])) addAt(current, c, (sign(claimAt(c), to) - sign(claimAt(c), from)) * k)
+    }
+    const bestShift = () => {
+      let best: { from: number; to: number; k: number; saved: number } | undefined
+      for (let a = 0; a < resources.length; a++) {
+        for (let b = 0; b < resources.length; b++) {
+          if (a === b || touchedBy(b).length === 0) continue
+          const both = [...new Set([...touchedBy(a), ...touchedBy(b)])]
+          const now = rowsWith(both, () => 0)
+          for (let k = 1; k <= 8 && must(resources[a], 'gap') - k >= must(floorOf[a], 'gap floor'); k++) {
+            const saved = now - rowsWith(both, c => (sign(claimAt(c), b) - sign(claimAt(c), a)) * k)
+            if (saved > 0 && (!best || saved > best.saved)) best = { from: a, to: b, k, saved }
+          }
+        }
+      }
+      return best
+    }
+    for (let pass = 0; pass < 12; pass++) {
+      const best = bestShift()
+      if (!best) break
+      shift(best.from, best.to, best.k)
+    }
+
+    for (const [k, claim] of claims.entries()) settleClaim(claim.item, roomAt(k))
+    return measure(sequence, items, tree, layout, width, resources.slice(0, -1))
   }
   let spend = budget
   for (let tries = 0; tries < 4 && spend >= 0; tries++) {
@@ -1267,18 +1329,18 @@ function choose(sequence: Sequence, width: number): { plan: Plan; items: Item[];
   const { items, numbers } = itemsOf(sequence)
   const { blocks } = blocksOf(sequence.steps)
   const all = sequence.participants
-  const cutNames = (plan: Plan) => plan.lanes.filter((p, i) => nameCut(p, plan.names[i]!)).length
+  const cutNames = (plan: Plan) => plan.lanes.filter((p, i) => nameCut(p, laneName(plan, i))).length
   const fits = (n: number) => {
     const lanes = all.slice(0, n)
     const states = new Map<Step, State>(items.map(item => [item.step, { inline: false, cap: Math.max(HARD_CAP, item.minCap), isHidden: item.step.kind === 'note' }]))
     // a diagram is only worth drawing while every name stays whole; past that the list reads better
     const names = lanes.map(nameFloor)
-    return measure(sequence, lanes, items, states, names, lanes.map(canStack), blocks, true, undefined, width).width <= width
+    return measure(sequence, items, blocks, { lanes, states, names, stacked: lanes.map(canStack), isBare: true }, width).width <= width
   }
   const attempt = (n: number): Plan | undefined => {
     let found: Plan | undefined
     for (const ladder of LADDERS) {
-      const plan = fit(sequence, all.slice(0, n), items, blocks, width, ladder)
+      const plan = planWithin(sequence, all.slice(0, n), items, blocks, width, ladder)
       if (plan.width > width) continue
       if (!found || cutNames(plan) < cutNames(found)) found = plan
       if (cutNames(found) === 0) break
@@ -1297,28 +1359,16 @@ function choose(sequence: Sequence, width: number): { plan: Plan; items: Item[];
   }
   if (most < all.length) return undefined
   const whole = attempt(all.length)
-  return whole ? { plan: whole, items, numbers, blocks } : undefined
+  if (!whole) return undefined
+  return { plan: whole, items, numbers, blocks }
 }
 
-function isSurelyLost(sequence: Sequence, plan: Plan, itemOf: Map<Step, Item>): boolean {
-  const messages = sequence.steps.filter((s): s is Message => s.kind === 'message')
-  const lost = messages.filter(m => {
-    const from = plan.lane.has(m.from)
-    const to = plan.lane.has(m.to)
-    if (!from && !to) return true
-    const item = itemOf.get(m)
-    const state = plan.states.get(m)
-    return from && to && item !== undefined && state !== undefined && labelOf(item, state).isCut
-  }).length
-  return messages.length > 0 && lost > messages.length * COMPACT_SHARE
-}
 
-function isMostlyLost(sequence: Sequence, lanes: Participant[]): boolean {
-  const shown = new Set(lanes.map(p => p.id))
-  const messages = sequence.steps.filter((s): s is Message => s.kind === 'message')
-  const lost = messages.filter(m => !shown.has(m.from) || !shown.has(m.to)).length
-  return messages.length > 0 && lost > messages.length * COMPACT_SHARE * 2
-}
+
+const laneCentre = (plan: Plan, i: number) => must(plan.centre[i], 'lifeline')
+const laneName = (plan: Plan, i: number) => must(plan.names[i], 'name cap')
+const laneBoxWidth = (plan: Plan, i: number) => boxWidth(must(plan.lanes[i], 'lane'), laneName(plan, i), plan.isBare, plan.stacked[i])
+const laneBoxHeight = (plan: Plan, i: number) => boxHeight(must(plan.lanes[i], 'lane'), laneName(plan, i), plan.stacked[i])
 
 class Canvas {
   readonly rows: Cell[][] = []
@@ -1342,8 +1392,13 @@ class Canvas {
     this.alive = plan.lanes.map(p => !created.has(p.id))
   }
 
+  depthAt(i: number) {
+    return must(this.depth[i], 'activation depth')
+  }
+
   offset(i: number) {
-    return this.depth[i]! >= 2 ? 1 : 0
+    if (this.depthAt(i) >= 2) return 1
+    return 0
   }
 
   laneAt(x: number): number {
@@ -1355,7 +1410,9 @@ class Canvas {
   crossing(x: number, fallback: string, cuts = false): string {
     const i = this.laneAt(x)
     if (i < 0) return fallback
-    return this.depth[i]! > 0 ? '╂' : cuts ? fallback : '┼'
+    if (this.depthAt(i) > 0) return '╂'
+    if (cuts) return fallback
+    return '┼'
   }
 
   blank(): number {
@@ -1369,7 +1426,7 @@ class Canvas {
     this.plan.centre.forEach((x, i) => {
       if (!this.alive[i]) return
       this.paint = { lane: this.rank.get(i) }
-      const glyph: Cell = this.depth[i]! > 0 ? { char: '┃', ink: 'line' } : { char: '│', ink: 'frame' }
+      const glyph: Cell = this.depthAt(i) > 0 ? { char: '┃', ink: 'line' } : { char: '│', ink: 'frame' }
       this.put(y, x, glyph.char, glyph.ink)
       if (this.offset(i)) this.put(y, x + 1, '┃', 'line')
     })
@@ -1395,9 +1452,10 @@ class Canvas {
     const row = this.rows[y]
     if (!row || x < 0 || x >= this.width) return
     const keep = (cell: Cell, next: Cell): Cell => (cell.shade ? { ...next, shade: true } : next)
-    if (row[x]!.char === '' && x > 0) row[x - 1] = keep(row[x - 1]!, { char: ' ', ink: 'text' })
-    if (x + 1 < this.width && row[x + 1]!.char === '') row[x + 1] = keep(row[x + 1]!, { char: ' ', ink: 'text' })
-    row[x] = keep(row[x]!, { char, ink, ...this.paint })
+    const cellAt = (at: number) => must(row[at], 'canvas cell')
+    if (cellAt(x).char === '' && x > 0) row.splice(x - 1, 1, keep(cellAt(x - 1), { char: ' ', ink: 'text' }))
+    if (x + 1 < this.width && cellAt(x + 1).char === '') row.splice(x + 1, 1, keep(cellAt(x + 1), { char: ' ', ink: 'text' }))
+    row.splice(x, 1, keep(cellAt(x), { char, ink, ...this.paint }))
   }
 
   shadeAt(y: number, x: number) {
@@ -1412,10 +1470,16 @@ class Canvas {
       if (w === 0) continue
       if (at + w > this.width) break
       this.put(y, at, g, ink)
-      if (w === 2) this.rows[y]![at + 1] = { char: '', ink, ...(this.rows[y]![at + 1]!.shade ? { shade: true } : {}) }
+      if (w === 2) this.widen(y, at + 1, ink)
       at += w
     }
     return at
+  }
+
+  // the cell a wide grapheme covers, left empty so the row keeps its width
+  widen(y: number, x: number, ink: Ink) {
+    const row = must(this.rows[y], 'canvas row')
+    row[x] = { char: '', ink, ...(must(row[x], 'canvas cell').shade ? { shade: true } : {}) }
   }
 
   runs(): Run[][] {
@@ -1436,10 +1500,12 @@ class Canvas {
   }
 }
 
-function drawBox(canvas: Canvas, y: number, p: Participant, x: number, cap: number, isBare: boolean, stacked: boolean, height?: number) {
+function drawBox(canvas: Canvas, y: number, i: number, height?: number) {
+  const plan = canvas.plan
+  const x = laneCentre(plan, i)
   const paint = canvas.paint
-  canvas.paint = { lane: canvas.rank.get(canvas.plan.centre.indexOf(x)) }
-  drawBoxPainted(canvas, y, p, x, cap, isBare, stacked, height)
+  canvas.paint = { lane: canvas.rank.get(plan.centre.indexOf(x)) }
+  drawBoxPainted(canvas, y, must(plan.lanes[i], 'lane'), x, laneName(plan, i), plan.isBare, must(plan.stacked[i], 'stacked'), height)
   canvas.paint = paint
 }
 
@@ -1461,21 +1527,22 @@ function drawBoxPainted(canvas: Canvas, y: number, p: Participant, x: number, ca
   if (mark && cellWidth(mark) <= w - 2) canvas.write(y, start + 1, mark, 'number')
   canvas.write(bottom, start, `╰${across}╯`, 'frame')
   canvas.put(bottom, x, '┬', 'frame')
-  lines.forEach((text, i) => canvas.write(y + 1 + pad + i, start + 1 + Math.floor((w - 2 - cellWidth(text)) / 2), text, 'name'))
+  for (const [i, text] of lines.entries()) canvas.write(y + 1 + pad + i, start + 1 + Math.floor((w - 2 - cellWidth(text)) / 2), text, 'name')
 }
 
 function drawGroups(canvas: Canvas, sequence: Sequence, plan: Plan, notes: string[]) {
   const groups = sequence.boxes.flatMap((group, k) => {
     const members = plan.lanes.flatMap((p, i) => (p.box === k ? [i] : []))
-    return members.length > 0 && group.label !== '' ? [{ group, members }] : []
+    if (members.length === 0 || group.label === '') return []
+    return [{ group, members }]
   })
   if (groups.length === 0) return
   const y = canvas.blank()
   for (const { group, members } of groups) {
-    const first = members[0]!
-    const lastLane = members.at(-1)!
-    const start = plan.centre[first]! - leftOf(boxWidth(plan.lanes[first]!, plan.names[first]!, plan.isBare, plan.stacked[first]))
-    const end = Math.min(canvas.width - 1, Math.max(plan.centre[lastLane]! + rightOf(boxWidth(plan.lanes[lastLane]!, plan.names[lastLane]!, plan.isBare, plan.stacked[lastLane])), start + cellWidth(group.label) + 5))
+    const first = Math.min(...members)
+    const lastLane = Math.max(...members)
+    const start = laneCentre(plan, first) - leftOf(laneBoxWidth(plan, first))
+    const end = Math.min(canvas.width - 1, Math.max(laneCentre(plan, lastLane) + rightOf(laneBoxWidth(plan, lastLane)), start + cellWidth(group.label) + 5))
     canvas.write(y, start, `╭${'─'.repeat(Math.max(0, end - start - 1))}╮`, 'block')
     canvas.rails.push(start, end)
     const shown = cut(group.label, end - start - 5)
@@ -1486,7 +1553,7 @@ function drawGroups(canvas: Canvas, sequence: Sequence, plan: Plan, notes: strin
 
 type Frame = { left: number; right: number; lane: number; isRect?: boolean }
 
-const labelStart = (canvas: Canvas, frame: Frame) => canvas.plan.centre[frame.lane]! + canvas.offset(frame.lane) + 3
+const labelStart = (canvas: Canvas, frame: Frame) => laneCentre(canvas.plan, frame.lane) + canvas.offset(frame.lane) + 3
 
 function labelRoom(canvas: Canvas, frame: Frame): number {
   const x = labelStart(canvas, frame)
@@ -1521,149 +1588,209 @@ function writeLabel(canvas: Canvas, y: number, x: number, line: string, number: 
   return canvas.write(y, x, plain(line), 'text')
 }
 
-function drawMessage(canvas: Canvas, plan: Plan, step: Message, text: string, wrapped: Wrapped, inline: boolean, tight: boolean, number: string | undefined, arrival: Arrival, footnote: () => string) {
+type Label = { text: string; wrapped: Wrapped; inline: boolean; tight: boolean; number: string | undefined; footnote: () => string }
+type Tail = { text: string; number?: string; isTight: boolean }
+
+function drawMessage(canvas: Canvas, step: Message, label: Label, arrival: Arrival) {
+  const plan = canvas.plan
   const paint = canvas.paint
   const lane = plan.lane.get(step.from)
   canvas.paint = { lane: lane === undefined ? undefined : canvas.rank.get(lane), reply: step.isDashed }
-  drawMessagePainted(canvas, plan, step, text, wrapped, inline, tight, number, arrival, footnote)
+  const from = must(lane, 'lane')
+  const to = must(plan.lane.get(step.to), 'lane')
+  if (from === to) drawSelfCall(canvas, step, from, label, arrival)
+  else drawArrow(canvas, new Course(canvas, step, from, to, arrival.born), label, arrival)
   canvas.paint = paint
 }
 
-function drawMessagePainted(canvas: Canvas, plan: Plan, step: Message, text: string, wrapped: Wrapped, inline: boolean, tight: boolean, number: string | undefined, arrival: Arrival, footnote: () => string) {
-  const from = plan.lane.get(step.from)!
-  const to = plan.lane.get(step.to)!
-  const c = plan.centre
-  const stroke = step.isDashed ? '╌' : '─'
-  const heads = HEADS[step.arrow]
+function selfStop(canvas: Canvas, step: Message, from: number, start: number): number {
+  const plan = canvas.plan
+  if (isSpilling(step, plan.nested)) {
+    return plan.centre.reduce((most, lane, i) => (i !== from && canvas.alive[i] && canvas.depthAt(i) > 0 && lane > start && lane < most ? lane - 1 : most), canvas.width - 1)
+  }
+  if (from < plan.lanes.length - 1) return laneCentre(plan, from + 1) - 1
+  return canvas.width - 1
+}
 
-  if (from === to) {
-    // a call to itself is one `↺` row, its label beside it and any wrapped lines hanging under the
-    // label text; a call that activates its own lane lights the nested bar on that same row
-    if (arrival.lightsLane === from) canvas.depth[from]! += 1
-    const at = c[from]! + canvas.offset(from)
-    const start = at + 3
-    const isSpill = isSpilling(step, plan.nested)
-    const stop = isSpill
-      ? c.reduce((most, lane, i) => (i !== from && canvas.alive[i] && canvas.depth[i]! > 0 && lane > start && lane < most ? lane - 1 : most), canvas.width - 1)
-      : from < plan.lanes.length - 1 ? c[from + 1]! - 1 : canvas.width - 1
-    // later lines hang under the label text, past the number, so they wrap to the room left there
-    const indent = number ? cellWidth(number) + 1 : 0
-    const room = Math.max(1, stop - start - indent)
-    const lines = wrap(text, room).lines
-    lines.forEach((line, i) => {
-      const y = canvas.row()
-      // a right-aligned number's padding goes left of the `↺`, so the glyph always touches its number
-      if (i === 0) canvas.put(y, at + 1 + (number?.match(/^\u2007*/)![0].length ?? 0), '↺', 'line')
-      canvas.put(y, writeLabel(canvas, y, i === 0 ? start : start + indent, line, i === 0 ? number : undefined), ' ', 'text')
-    })
-    if (canvas.spaced.has(step) || (labelsAbove && lines.length > 1)) canvas.row()
-    return
+function drawSelfCall(canvas: Canvas, step: Message, from: number, { text, number }: Label, arrival: Arrival) {
+  // a call to itself is one `↺` row, its label beside it and any wrapped lines hanging under the
+  // label text; a call that activates its own lane lights the nested bar on that same row
+  if (arrival.lightsLane === from) addAt(canvas.depth, from, 1)
+  const at = laneCentre(canvas.plan, from) + canvas.offset(from)
+  const start = at + 3
+  const stop = selfStop(canvas, step, from, start)
+  // later lines hang under the label text, past the number, so they wrap to the room left there
+  const indent = number ? cellWidth(number) + 1 : 0
+  const room = Math.max(1, stop - start - indent)
+  const lines = wrap(text, room).lines
+  // a right-aligned number's padding goes left of the `↺`, so the glyph always touches its number
+  const padding = must(/^ */.exec(number ?? ''), 'number padding')[0].length
+  for (const [i, line] of lines.entries()) {
+    const y = canvas.row()
+    if (i === 0) canvas.put(y, at + 1 + padding, '↺', 'line')
+    canvas.put(y, writeLabel(canvas, y, i === 0 ? start : start + indent, line, i === 0 ? number : undefined), ' ', 'text')
+  }
+  if (canvas.spaced.has(step) || (labelsAbove && lines.length > 1)) canvas.row()
+}
+
+// where an arrow between two lanes runs, and where its label may sit
+class Course {
+  readonly isRight: boolean
+  readonly lo: number
+  readonly hi: number
+  readonly bornWidth: number
+  readonly both: number
+  readonly dashes: number
+  readonly planned: { start: number; end: number }
+  readonly x: number
+
+  constructor(readonly canvas: Canvas, readonly step: Message, from: number, to: number, readonly born: number | undefined) {
+    this.isRight = to > from
+    this.lo = Math.min(from, to)
+    this.hi = Math.max(from, to)
+    this.bornWidth = born === undefined ? 0 : laneBoxWidth(canvas.plan, born)
+    this.both = step.arrow === 'both' ? 1 : 0
+    this.dashes = step.isDashed ? DASHES : 0
+    this.planned = this.edgeAt(canvas.offset(this.lo))
+    const base = born === this.lo ? this.centre(this.lo) + rightOf(this.bornWidth) : this.centre(this.lo) + canvas.offset(this.lo)
+    this.x = base + (this.isRight ? LEADER + 2 : 4)
   }
 
-  const isRight = to > from
-  const lo = Math.min(from, to)
-  const hi = Math.max(from, to)
-  const born = arrival.born
-  const bornWidth = born === undefined ? 0 : boxWidth(plan.lanes[born]!, plan.names[born]!, plan.isBare, plan.stacked[born]!)
-  const edgeAt = (offsetLo: number) => ({
-    start: born === lo ? c[lo]! + rightOf(bornWidth) + 1 : c[lo]! + offsetLo + 1,
-    end: born === hi ? c[hi]! - leftOf(bornWidth) - 1 : c[hi]! - 1,
-  })
-  const both = step.arrow === 'both' ? 1 : 0
-  const planned = edgeAt(canvas.offset(lo))
-  const limit = isRight ? planned.end - 2 : planned.end - both - 1
+  centre(i: number) {
+    return laneCentre(this.canvas.plan, i)
+  }
+
+  edgeAt(offsetLo: number) {
+    const start = this.born === this.lo ? this.centre(this.lo) + rightOf(this.bornWidth) + 1 : this.centre(this.lo) + offsetLo + 1
+    const end = this.born === this.hi ? this.centre(this.hi) - leftOf(this.bornWidth) - 1 : this.centre(this.hi) - 1
+    return { start, end }
+  }
+
   // a label on an arrow that crosses other lifelines always starts with a stub from its sender
-  const lead = (isTight: boolean) => (!isRight || (isTight && hi - lo <= 1) ? 0 : LEADER)
-  const tailAt = (start: number, isTight: boolean) => (isRight ? start + both + lead(isTight) + 1 : start + 3)
-  const reach = (isTight: boolean) => (isRight ? limit : planned.end - lead(isTight))
-  const last = wrapped.lines.at(-1) ?? ''
-  const dashes = step.isDashed ? DASHES : 0
-  const isInline = inline && last !== '' && tailAt(planned.start, tight) + cellWidth(last) + dashes + 1 <= reach(tight)
-  let tail: { text: string; number?: string; isTight: boolean } | undefined
-  let above = wrapped.lines
+  lead(isTight: boolean) {
+    if (!this.isRight || (isTight && this.hi - this.lo <= 1)) return 0
+    return LEADER
+  }
 
-  if (isInline) {
-    tail = { text: last, number: wrapped.lines.length === 1 ? number : undefined, isTight: tight }
-    above = wrapped.lines.slice(0, -1)
+  tailAt(start: number, isTight: boolean) {
+    if (this.isRight) return start + this.both + this.lead(isTight) + 1
+    return start + 3
   }
-  const x = (born === lo ? c[lo]! + rightOf(bornWidth) : c[lo]! + canvas.offset(lo)) + (isRight ? LEADER + 2 : 4)
-  if (!isInline) {
-    const spill = born === undefined && !plan.nested.has(step)
-    const busy = spill ? c.findIndex((at, i) => i > lo && canvas.alive[i] && canvas.depth[i]! > 0) : -1
-    const stop = !spill ? (born === hi ? c[hi]! - leftOf(bornWidth) : c[hi]!) : busy >= 0 ? c[busy]! - 1 : canvas.width
-    const room = stop - x - 1
-    if (spill || wrapped.lines.some(line => cellWidth(line) > room)) {
-      const fitted = wrap(wrapped.isCut ? wrapped.lines.join(' ') : text, Math.max(1, room))
-      above = fitted.lines
-      if (fitted.isCut) {
-        const mark = footnote()
-        const last = above.at(-1) ?? ''
-        above = cellWidth(`${last} ${mark}`) <= room ? [...above.slice(0, -1), `${last} ${mark}`] : [...above, mark]
-      }
-    } else above = wrapped.lines
-    const fits = (line: string) => line !== '' && tailAt(planned.start, true) + cellWidth(line) + Math.max(dashes, ARROW_MIN) <= reach(true)
-    if (born === undefined && !wrapped.isCut && above.every(line => cellWidth(line) <= room)) {
-      const fitted = balanced({ lines: above, isCut: false }, text, reach(true) - tailAt(planned.start, true) - dashes)
-      if (fitted.lines.every(line => cellWidth(line) <= room)) above = fitted.lines
-    }
-    const end = above.at(-1)
-    if (!labelsAbove && born === undefined && end !== undefined && fits(end)) {
-      tail = { text: end, number: above.length === 1 ? number : undefined, isTight: true }
-      above = above.slice(0, -1)
-    }
+
+  reach(isTight: boolean) {
+    return this.isRight ? this.planned.end - 2 : this.planned.end - this.lead(isTight)
   }
-  // every label line starts at the same gutter, whether or not its arrow shares the row
+}
+
+function drawArrow(canvas: Canvas, course: Course, label: Label, arrival: Arrival) {
+  const { above, tail } = placeLabel(course, label)
+  drawAbove(course, above, tail, label.number)
+  const y = arrowRow(course, arrival)
+  const { start, end } = drawStroke(course, y)
+  if (tail === undefined) return
+  // the label sits at the sending end, LEADER stroke cells from its lifeline, mirrored for arrows
+  // that point left
+  const first = course.tailAt(start, tail.isTight)
+  const width = cellWidth(tail.text)
+  const at = course.isRight ? first : Math.max(first, end - course.lead(tail.isTight) - width)
+  canvas.put(y, at - 1, ' ', 'text')
+  canvas.put(y, writeLabel(canvas, y, at, tail.text, tail.number), ' ', 'text')
+}
+
+function placeLabel(course: Course, label: Label): { above: string[]; tail?: Tail } {
+  const { wrapped, inline, tight, number } = label
+  const last = wrapped.lines.at(-1) ?? ''
+  const isInline = inline && last !== '' && course.tailAt(course.planned.start, tight) + cellWidth(last) + course.dashes + 1 <= course.reach(tight)
+  if (!isInline) return offArrow(course, label)
+  return { above: wrapped.lines.slice(0, -1), tail: { text: last, number: wrapped.lines.length === 1 ? number : undefined, isTight: tight } }
+}
+
+function aboveRoom(course: Course): { spill: boolean; room: number } {
+  const { canvas, born, lo, hi } = course
+  const spill = born === undefined && !canvas.plan.nested.has(course.step)
+  if (!spill) return { spill, room: (born === hi ? course.centre(hi) - leftOf(course.bornWidth) : course.centre(hi)) - course.x - 1 }
+  const busy = canvas.plan.centre.findIndex((_at, i) => i > lo && canvas.alive[i] && canvas.depthAt(i) > 0)
+  return { spill, room: (busy >= 0 ? course.centre(busy) - 1 : canvas.width) - course.x - 1 }
+}
+
+function refitted({ wrapped, text, footnote }: Label, room: number): string[] {
+  const fitted = wrap(wrapped.isCut ? wrapped.lines.join(' ') : text, Math.max(1, room))
+  if (!fitted.isCut) return fitted.lines
+  const mark = footnote()
+  const last = fitted.lines.at(-1) ?? ''
+  if (cellWidth(`${last} ${mark}`) > room) return [...fitted.lines, mark]
+  return [...fitted.lines.slice(0, -1), `${last} ${mark}`]
+}
+
+function offArrow(course: Course, label: Label): { above: string[]; tail?: Tail } {
+  const { wrapped, text, number } = label
+  const { spill, room } = aboveRoom(course)
+  const fitsRoom = (lines: string[]) => lines.every(line => cellWidth(line) <= room)
+  let above = spill || !fitsRoom(wrapped.lines) ? refitted(label, room) : wrapped.lines
+  const start = course.tailAt(course.planned.start, true)
+  const reach = course.reach(true)
+  if (course.born === undefined && !wrapped.isCut && fitsRoom(above)) {
+    const fitted = balanced({ lines: above, isCut: false }, text, reach - start - course.dashes)
+    if (fitsRoom(fitted.lines)) above = fitted.lines
+  }
+  const end = above.at(-1)
+  if (labelsAbove || course.born !== undefined || end === undefined || end === '') return { above }
+  if (start + cellWidth(end) + Math.max(course.dashes, ARROW_MIN) > reach) return { above }
+  return { above: above.slice(0, -1), tail: { text: end, number: above.length === 1 ? number : undefined, isTight: true } }
+}
+
+// every label line starts at the same gutter, whether or not its arrow shares the row
+function drawAbove(course: Course, above: string[], tail: Tail | undefined, number: string | undefined) {
+  const { canvas, planned } = course
   const isTail = tail?.isTight ?? true
   const hang = number ? cellWidth(number) + 1 : 0
-  above.forEach((line, i) => {
+  // with labels above, a message's number lines up with a self-call's, which sits after its `↺`
+  const gutter = tail === undefined ? planned.start + (labelsAbove ? 2 : 1) : course.tailAt(planned.start, isTail)
+  for (const [i, line] of above.entries()) {
     const y = canvas.row()
-    // with labels above, a message's number lines up with a self-call's, which sits after its `↺`
-    const gutter = tail === undefined ? planned.start + (labelsAbove ? 2 : 1) : tailAt(planned.start, isTail)
     const at =
-      born !== undefined ? x : isRight || labelsAbove ? gutter + (i > 0 ? hang : 0) : Math.max(planned.start + 1, planned.end - lead(isTail) - cellWidth(line))
+      course.born !== undefined ? course.x : course.isRight || labelsAbove ? gutter + (i > 0 ? hang : 0) : Math.max(planned.start + 1, planned.end - course.lead(isTail) - cellWidth(line))
     canvas.put(y, writeLabel(canvas, y, at, line, i === 0 ? number : undefined), ' ', 'text')
-  })
-
-  let y: number
-  if (born !== undefined) {
-    const p = plan.lanes[born]!
-    const height = boxHeight(p, plan.names[born]!, plan.stacked[born]!)
-    const top = canvas.row()
-    for (let k = 1; k < height; k++) canvas.row()
-    y = top + Math.floor(height / 2)
-    drawBox(canvas, top, p, c[born]!, plan.names[born]!, plan.isBare, plan.stacked[born]!)
-    canvas.alive[born] = true
-  } else {
-    if (arrival.lightsLane !== undefined) canvas.depth[arrival.lightsLane]! += 1
-    y = canvas.row()
   }
-  const { start, end } = edgeAt(canvas.offset(lo))
+}
+
+function arrowRow({ canvas, born }: Course, arrival: Arrival): number {
+  if (born === undefined) {
+    if (arrival.lightsLane !== undefined) addAt(canvas.depth, arrival.lightsLane, 1)
+    return canvas.row()
+  }
+  const height = laneBoxHeight(canvas.plan, born)
+  const top = canvas.row()
+  for (let k = 1; k < height; k++) canvas.row()
+  drawBox(canvas, top, born)
+  canvas.alive[born] = true
+  return top + Math.floor(height / 2)
+}
+
+function drawStroke(course: Course, y: number): { start: number; end: number } {
+  const { canvas, step, isRight } = course
+  const heads = HEADS[step.arrow]
+  const stroke = step.isDashed ? '╌' : '─'
+  const { start, end } = course.edgeAt(canvas.offset(course.lo))
   for (let at = start; at <= end; at++) canvas.put(y, at, canvas.crossing(at, stroke, labelsAbove), 'line')
   if (isRight && heads.right) canvas.put(y, end, heads.right, 'line')
   if (!isRight && heads.left) canvas.put(y, start, heads.left, 'line')
   if (step.arrow === 'both') canvas.put(y, isRight ? start : end, isRight ? heads.left : heads.right, 'line')
-  if (tail === undefined) return
-  // the label sits at the sending end, LEADER stroke cells from its lifeline, mirrored for arrows
-  // that point left
-  const first = tailAt(start, tail.isTight)
-  const width = cellWidth(tail.text)
-  const at = isRight ? first : Math.max(first, end - lead(tail.isTight) - width)
-  canvas.put(y, at - 1, ' ', 'text')
-  canvas.put(y, writeLabel(canvas, y, at, tail.text, tail.number), ' ', 'text')
+  return { start, end }
 }
 
 type Placed = { x: number; bw: number; lines: string[]; side: 'left' | 'right' | 'over' }
 
 function placeNote(canvas: Canvas, plan: Plan, step: Note, over: number[], wrapped: Wrapped): Placed {
-  const c = plan.centre
-  const a = over[0]!
-  const b = over.at(-1)!
+  const c = (i: number) => laneCentre(plan, i)
+  const a = must(over[0], 'note lane')
+  const b = must(over.at(-1), 'note lane')
   const isWide = step.side === 'over' && a !== b
-  const span = c[b]! - c[a]! + 3
+  const span = c(b) - c(a) + 3
   // a note over two lanes widens past them but stops short of the next lifeline either side, so it
   // never reads as covering a participant it doesn't name; past that room it wraps
-  const left = a > 0 ? c[a - 1]! + canvas.offset(a - 1) + 2 : 0
-  const right = b < plan.lanes.length - 1 ? c[b + 1]! - 1 : canvas.width
+  const left = a > 0 ? c(a - 1) + canvas.offset(a - 1) + 2 : 0
+  const right = b < plan.lanes.length - 1 ? c(b + 1) - 1 : canvas.width
   const room = Math.max(span, right - left)
   const source = step.text.split('\n')
   const lines =
@@ -1674,10 +1801,10 @@ function placeNote(canvas: Canvas, plan: Plan, step: Note, over: number[], wrapp
   const bw = isWide ? Math.max(span, text + 2) : noteWidth(step, text)
   const hung = hang(lines, source, text)
   const x =
-    step.side === 'left' ? c[a]! - 1 - bw
-    : step.side === 'right' ? c[b]! + canvas.offset(b) + 2
-    : isWide ? Math.max(left, Math.min(c[a]! - 1 - Math.floor((bw - span) / 2), right - bw))
-    : c[a]! - half(bw)
+    step.side === 'left' ? c(a) - 1 - bw
+    : step.side === 'right' ? c(b) + canvas.offset(b) + 2
+    : isWide ? Math.max(left, Math.min(c(a) - 1 - Math.floor((bw - span) / 2), right - bw))
+    : c(a) - half(bw)
   return { x, bw, lines: hung.length > 0 ? hung : [''], side: step.side }
 }
 
@@ -1692,7 +1819,8 @@ function hang(lines: string[], source: string[], most: number): string[] {
       indent = cellWidth(/^\S+ → /.exec(flat(starts))?.[0] ?? '')
       return line
     }
-    return indent > 0 && cellWidth(line) + indent <= most ? ' '.repeat(indent) + line : line
+    if (indent > 0 && cellWidth(line) + indent <= most) return ' '.repeat(indent) + line
+    return line
   })
 }
 
@@ -1737,7 +1865,10 @@ function drawNotes(canvas: Canvas, given: Placed[]) {
   }
   for (let k = 0; k < height; k++) {
     const y = canvas.row()
-    for (const note of placed) if (k < note.lines.length) paintNote(canvas, y, note, note.lines[k]!)
+    for (const note of placed) {
+      const line = note.lines[k]
+      if (line !== undefined) paintNote(canvas, y, note, line)
+    }
   }
 }
 
@@ -1749,19 +1880,24 @@ function drawHidden(canvas: Canvas, plan: Plan, step: Message, text: string, num
   const visible = from ?? to
   const stub = canvas.stub
   if (visible === undefined || stub === undefined) return
-  const x = plan.centre[visible]! + canvas.offset(visible)
-  const stroke = step.isDashed ? '╌' : '─'
+  const x = laneCentre(plan, visible) + canvas.offset(visible)
   const room = stub - x - 3
   const wrapped = wrap(text, room)
   const isFootnoted = wrapped.isCut || wrapped.lines.length > 2
   const lines = isFootnoted ? [footnote(numbered(text), step)] : wrapped.lines
-  lines.forEach((line, i) => writeLabel(canvas, canvas.row(), x + 2, line, i === 0 && !isFootnoted ? number : undefined))
-  const y = canvas.row()
-  for (let at = x + 1; at < stub; at++) canvas.put(y, at, canvas.crossing(at, stroke), 'line')
-  if (from !== undefined) canvas.put(y, stub - 1, HEADS[step.arrow].right || stroke, 'line')
-  else canvas.put(y, x + 1, HEADS[step.arrow].left || stroke, 'line')
+  for (const [i, line] of lines.entries()) writeLabel(canvas, canvas.row(), x + 2, line, i === 0 && !isFootnoted ? number : undefined)
+  const y = hiddenStroke(canvas, step, x, stub, from !== undefined)
   const away = plan.lanes.length > 0 ? (from === undefined ? step.from : step.to) : ''
   canvas.write(y, stub + 2, cut(nameOf(away), canvas.width - stub - 2).text, 'frame')
+}
+
+function hiddenStroke(canvas: Canvas, step: Message, x: number, stub: number, isOutward: boolean): number {
+  const stroke = step.isDashed ? '╌' : '─'
+  const y = canvas.row()
+  for (let at = x + 1; at < stub; at++) canvas.put(y, at, canvas.crossing(at, stroke), 'line')
+  if (isOutward) canvas.put(y, stub - 1, HEADS[step.arrow].right || stroke, 'line')
+  else canvas.put(y, x + 1, HEADS[step.arrow].left || stroke, 'line')
+  return y
 }
 
 // read by draw() while a call to drawSequence is under way
@@ -1780,7 +1916,8 @@ export function drawSequence(sequence: Sequence, width: number, options: DrawOpt
   boxed = options.boxedNotes === true
   labelsAbove = options.labelsAbove === true
   const drawn = draw(sequence, width)
-  if (cache.size > 64) cache.delete(cache.keys().next().value!)
+  const oldest = cache.keys().next().value
+  if (cache.size > 64 && oldest !== undefined) cache.delete(oldest)
   cache.set(key, drawn)
   return drawn
 }
@@ -1793,7 +1930,7 @@ function breaksInside(p: Participant, cap: number): boolean {
   return lines.some((line, i) => {
     const next = lines[i + 1]
     if (next === undefined || line.endsWith('/')) return false
-    return /(_|::)$/.test(line) || (label.includes(line + next) && !label.includes(`${line} ${next}`))
+    return line.endsWith('_') || line.endsWith('::') || (label.includes(line + next) && !label.includes(`${line} ${next}`))
   })
 }
 
@@ -1807,7 +1944,7 @@ const TRAILING = /^(.+?)\s+(\([^()]*\))$/
 function split(p: Participant): { name: string; details: string[] } {
   const [first = '', ...rest] = p.label.split('\n').map(line => line.trim())
   const trailing = TRAILING.exec(first)
-  return trailing ? { name: trailing[1]!, details: [trailing[2]!, ...rest] } : { name: first, details: rest }
+  return trailing ? { name: must(trailing[1], 'name'), details: [must(trailing[2], 'detail'), ...rest] } : { name: first, details: rest }
 }
 
 const detailsFold = (p: Participant, cap: number) => {
@@ -1829,7 +1966,7 @@ function draw(given: Sequence, width: number, fold: ReadonlySet<string> = new Se
   const sequence = {
     ...given,
     participants: given.participants.map(p =>
-      mark.has(p.id) ? { ...p, label: `${split(p).name}\u00a0${mark.get(p.id)}` } : p.label.trim() === '' ? { ...p, label: p.id } : p,
+      mark.has(p.id) ? { ...p, label: `${split(p).name} ${mark.get(p.id)}` } : p.label.trim() === '' ? { ...p, label: p.id } : p,
     ),
   }
   const notes = legend.map(p => `${mark.get(p.id)} ${split(p).details.join(' · ')}`)
@@ -1840,23 +1977,15 @@ function draw(given: Sequence, width: number, fold: ReadonlySet<string> = new Se
     const drawn = compact(sequence, width)
     return { rows: drawn.rows, notes: [...notes, ...drawn.notes] }
   }
-  const more = chosen.plan.lanes.filter((p, i) => !fold.has(p.id) && detailsFold(p, chosen.plan.names[i]!))
+  const more = chosen.plan.lanes.filter((p, i) => !fold.has(p.id) && detailsFold(p, laneName(chosen.plan, i)))
   if (more.length > 0) return draw(given, width, new Set([...fold, ...more.map(p => p.id)]))
   const { plan, items, numbers, blocks } = chosen
   const itemOf = new Map(items.map(item => [item.step, item]))
   const created = new Set(sequence.steps.flatMap(step => (step.kind === 'create' ? [step.id] : [])))
   const canvas = new Canvas(width, plan, created)
   canvas.boxedNotes = boxed
-  const isSelfCall = (step: Step | undefined): step is Message => step?.kind === 'message' && step.from === step.to
-  if (labelsAbove)
-    sequence.steps.forEach((step, i) => {
-      const next = sequence.steps[i + 1]
-      if (isSelfCall(step) && !(isSelfCall(next) && next.from === step.from)) canvas.spaced.add(step)
-    })
-  for (const step of sequence.steps) {
-    const lane = step.kind === 'message' ? plan.lane.get(step.from) : undefined
-    if (lane !== undefined && !canvas.rank.has(lane)) canvas.rank.set(lane, canvas.rank.size)
-  }
+  if (labelsAbove) spaceSelfCalls(canvas, sequence.steps)
+  rankSenders(canvas, sequence.steps)
   const nameOf = (id: string) => all.find(p => p.id === id)?.label ?? id
   let refs = 0
   const lost = new Set<Step>()
@@ -1876,14 +2005,9 @@ function draw(given: Sequence, width: number, fold: ReadonlySet<string> = new Se
       const lines = wrap(one, room)
       if (!lines.isCut && lines.lines.length <= 2) return lines.lines
     }
-    const text = bare
-    const mark = `[${refs + 1}]`
-    const words = text.split(' ')
-    let first = ''
-    while (words.length > 0 && cellWidth(first === '' ? words[0]! : `${first} ${words[0]}`) <= room) first = first === '' ? words.shift()! : `${first} ${words.shift()}`
-    footnote(text, step)
-    if (first === '') return [`${cut(text, Math.max(1, room - cellWidth(mark) - 1)).text} ${mark}`]
-    return [first, `${cut(words.join(' '), Math.max(1, room - cellWidth(mark) - 1)).text} ${mark}`]
+    const lines = footnotedFrame(bare, room, `[${refs + 1}]`)
+    footnote(bare, step)
+    return lines
   }
   const labelRow = (frame: Frame, line: string) => {
     const y = canvas.row()
@@ -1894,7 +2018,7 @@ function draw(given: Sequence, width: number, fold: ReadonlySet<string> = new Se
   const labelled = (step: Step): Wrapped => {
     const item = itemOf.get(step)
     if (!item) return { lines: [], isCut: false }
-    const state = plan.states.get(step)!
+    const state = must(plan.states.get(step), 'label state')
     const wrapped = labelOf(item, state)
     const isFrame = step.kind === 'open' || step.kind === 'branch'
     if (isFrame && wrapped.isCut) {
@@ -1909,20 +2033,168 @@ function draw(given: Sequence, width: number, fold: ReadonlySet<string> = new Se
   }
 
   plan.lanes.forEach((p, i) => {
-    if (nameCut(p, plan.names[i]!)) canvas.marks.set(p.id, footnote(p.label.replace(/\s+/g, ' ').trim()))
+    if (nameCut(p, laneName(plan, i))) canvas.marks.set(p.id, footnote(p.label.replace(/\s+/g, ' ').trim()))
   })
+  drawHeader(canvas, sequence, notes)
+
+  const opened: Block[] = []
+  const blockFor = blocksByOpening(blocks)
+  const frameOf = (block: Block): Frame => {
+    const pad = must(plan.pads.get(block), 'frame pad')
+    return { left: laneCentre(plan, pad.lo) - pad.left, right: Math.min(canvas.width - 1, laneCentre(plan, pad.hi) + pad.right), lane: pad.lo }
+  }
+
+  const isTight = items.some(item => {
+    const state = plan.states.get(item.step)
+    return item.canInline && state !== undefined && !state.isHidden && (state.tight || !state.inline)
+  })
+  const pendingBirths = new Set(plan.creates.values())
+  const consumed = new Set<Step>()
+  const openFrame = (step: Block['open']) => {
+    const block = must(blockFor.get(step), 'frame block')
+    const frame = frameOf(block)
+    if (step.keyword === 'rect') {
+      canvas.frames.push({ ...frame, isRect: true })
+      opened.push(block)
+      return
+    }
+    const lines = frameLabel(step, frame)
+    frameRow(canvas, canvas.row(), frame, ['┌', '┐'], '─', step, lines[0])
+    canvas.frames.push(frame)
+    opened.push(block)
+    if (lines[1] !== undefined) labelRow(frame, lines[1])
+  }
+  const branchFrame = (step: Opening) => {
+    const frame = canvas.frames.at(-1)
+    if (!frame) return
+    const lines = frameLabel(step, frame)
+    frameRow(canvas, canvas.row(), frame, ['├', '┤'], '╌', step, lines[0])
+    if (lines[1] !== undefined) labelRow(frame, lines[1])
+  }
+  const closeFrame = () => {
+    const frame = canvas.frames.pop()
+    opened.pop()
+    if (frame && !frame.isRect) frameRow(canvas, canvas.row(), frame, ['└', '┘'], '─')
+  }
+  const activate = (step: Extract<Step, { kind: 'activate' }>) => {
+    const i = plan.lane.get(step.id)
+    if (i !== undefined) canvas.depth[i] = Math.max(0, canvas.depthAt(i) + (step.isOn ? 1 : -1))
+  }
+  const createLane = (id: string) => {
+    const i = plan.lane.get(id)
+    if (i === undefined || canvas.alive[i] || pendingBirths.has(id)) return
+    const y = canvas.row()
+    for (let row = 1; row < laneBoxHeight(plan, i); row++) canvas.row()
+    drawBox(canvas, y, i)
+    canvas.alive[i] = true
+  }
+  const destroyLane = (id: string) => {
+    // mermaid ends a destroyed lifeline in the participant's box
+    const i = plan.lane.get(id)
+    if (i === undefined || !canvas.alive[i]) return
+    const height = laneBoxHeight(plan, i)
+    const y = canvas.row()
+    for (let row = 1; row < height; row++) canvas.row()
+    drawBox(canvas, y, i)
+    canvas.put(y, laneCentre(plan, i), '┴', 'frame')
+    canvas.put(y + height - 1, laneCentre(plan, i), '─', 'frame')
+    canvas.alive[i] = false
+  }
+  const markNote = (step: Note, over: number[]) => {
+    const mark = footnote(step.text, step)
+    const end = must(over.at(-1), 'note lane')
+    const a = laneCentre(plan, must(over[0], 'note lane'))
+    const b = laneCentre(plan, end) + canvas.offset(end)
+    const x = step.side === 'left' && a >= cellWidth(mark) + 1 ? a - 1 - cellWidth(mark) : step.side === 'right' ? b + 2 : a + 2
+    const y = canvas.row()
+    canvas.put(y, x - 1, ' ', 'text')
+    canvas.write(y, x, mark, 'number')
+  }
+  const drawNote = (step: Note) => {
+    const over = step.over.flatMap(id => plan.lane.get(id) ?? []).sort((a, b) => a - b)
+    if (over.length === 0) notes.push(fullText(step, step.text, nameOf))
+    else if (plan.states.get(step)?.isHidden) markNote(step, over)
+    else drawNotes(canvas, [placeNote(canvas, plan, step, over, labelled(step))])
+  }
+  const lightsOf = (step: Message, after: Step | undefined): number | undefined => {
+    if (after?.kind !== 'activate' || !after.isOn || after.id !== step.to) return undefined
+    const lane = plan.lane.get(after.id)
+    if (lane !== undefined) consumed.add(after)
+    return lane
+  }
+  const bornOf = (step: Message): number | undefined => {
+    const bornId = plan.creates.get(step)
+    if (bornId === undefined) return undefined
+    const i = plan.lane.get(bornId)
+    const born = pendingBirths.has(bornId) && i !== undefined && !canvas.alive[i] ? i : undefined
+    pendingBirths.delete(bornId)
+    return born
+  }
+  const messageLabel = (step: Message, text: string, number: string | undefined): Label => {
+    const state = plan.states.get(step)
+    const inline = (state?.inline ?? false) && !isSpill(step, plan.states, items, plan.nested, plan.creates)
+    return { text, wrapped: labelled(step), inline, tight: isTight || (state?.tight ?? false), number, footnote: () => footnote(numbered(text), step) }
+  }
+  const drawLink = (step: Message, after: Step | undefined, number: string | undefined) => {
+    const text = itemOf.get(step)?.text ?? step.text
+    if (plan.lane.has(step.from) && plan.lane.has(step.to)) {
+      const arrival = { lightsLane: lightsOf(step, after), born: bornOf(step) }
+      drawMessage(canvas, step, messageLabel(step, text, number), arrival)
+      return
+    }
+    if (!plan.lane.has(step.from) && !plan.lane.has(step.to)) {
+      lost.add(step)
+      notes.push(fullText(step, numbered(text), nameOf))
+    } else drawHidden(canvas, plan, step, text, number, nameOf, footnote)
+  }
+  const drawStep = (step: Step, after: Step | undefined) => {
+    if (step.kind === 'open') openFrame(step)
+    else if (step.kind === 'branch') branchFrame(step)
+    else if (step.kind === 'close') closeFrame()
+    else if (step.kind === 'activate') activate(step)
+    else if (step.kind === 'create') createLane(step.id)
+    else if (step.kind === 'destroy') destroyLane(step.id)
+    else if (step.kind === 'note') drawNote(step)
+    else drawLink(step, after, numbers.get(step))
+  }
+  sequence.steps.forEach((step, k) => {
+    if (consumed.has(step)) return
+    drawStep(step, sequence.steps[k + 1])
+  })
+  for (let frame = canvas.frames.pop(); frame; frame = canvas.frames.pop()) if (!frame.isRect) frameRow(canvas, canvas.row(), frame, ['└', '┘'], '─')
+
+  return { rows: canvas.runs(), notes: [...new Set(notes)] }
+}
+
+function spaceSelfCalls(canvas: Canvas, steps: Step[]) {
+  const isSelfCall = (step: Step | undefined): step is Message => step?.kind === 'message' && step.from === step.to
+  steps.forEach((step, i) => {
+    const next = steps[i + 1]
+    if (isSelfCall(step) && !(isSelfCall(next) && next.from === step.from)) canvas.spaced.add(step)
+  })
+}
+
+function rankSenders(canvas: Canvas, steps: Step[]) {
+  for (const step of steps) {
+    const lane = step.kind === 'message' ? canvas.plan.lane.get(step.from) : undefined
+    if (lane !== undefined && !canvas.rank.has(lane)) canvas.rank.set(lane, canvas.rank.size)
+  }
+}
+
+function drawHeader(canvas: Canvas, sequence: Sequence, notes: string[]) {
+  const plan = canvas.plan
   const across = Math.min(canvas.width, Math.max(plan.width, cellWidth(sequence.title ?? '')))
   if (sequence.title) for (const line of wrap(sequence.title, across).lines) canvas.write(canvas.blank(), Math.max(0, Math.floor((across - cellWidth(line)) / 2)), line, 'name')
   drawGroups(canvas, sequence, plan, notes)
-  const tallest = Math.max(...plan.lanes.flatMap((p, i) => (canvas.alive[i] ? [boxHeight(p, plan.names[i]!, plan.stacked[i])] : [])), 3)
+  const tallest = Math.max(...plan.lanes.flatMap((_, i) => (canvas.alive[i] ? [laneBoxHeight(plan, i)] : [])), 3)
   const top = canvas.blank()
   for (let i = 1; i < tallest; i++) canvas.blank()
-  plan.lanes.forEach((p, i) => {
-    if (canvas.alive[i]) drawBox(canvas, top, p, plan.centre[i]!, plan.names[i]!, plan.isBare, plan.stacked[i]!, tallest)
+  plan.lanes.forEach((_, i) => {
+    if (canvas.alive[i]) drawBox(canvas, top, i, tallest)
   })
   for (let y = top; y < top + tallest; y++) canvas.railsOn(y)
 
-  const hidden = all.filter(p => !plan.lane.has(p.id))
+  const hidden = sequence.participants.filter(p => !plan.lane.has(p.id))
   if (hidden.length > 0) {
     const tag = `+${hidden.length}`
     canvas.stub = canvas.width - cellWidth(tag) - 2
@@ -1930,142 +2202,31 @@ function draw(given: Sequence, width: number, fold: ReadonlySet<string> = new Se
     canvas.put(top + tallest - 1, canvas.stub, '┆', 'frame')
     notes.push(`${tag} = ${hidden.map(p => p.label).join(', ')}`)
   }
+}
 
-  const opened: Block[] = []
-  const queue = [...blocks]
+function blocksByOpening(blocks: Block[]): Map<Step, Block> {
   const blockFor = new Map<Step, Block>()
-  while (queue.length > 0) {
-    const block = queue.shift()!
+  const queue = [...blocks]
+  for (const block of queue) {
     blockFor.set(block.open, block)
     queue.push(...block.children)
   }
-  const frameOf = (block: Block) => {
-    const pad = plan.pads.get(block)!
-    return { left: plan.centre[pad.lo]! - pad.left, right: Math.min(canvas.width - 1, plan.centre[pad.hi]! + pad.right), lane: pad.lo }
-  }
+  return blockFor
+}
 
-  let messageRows = 0
-  let leastRows = 0
-  const isTight = items.some(item => {
-    const state = plan.states.get(item.step)
-    return item.canInline && state !== undefined && !state.isHidden && (state.tight || !state.inline)
-  })
-  const pendingBirths = new Set(plan.creates.values())
-  const consumed = new Set<Step>()
-  sequence.steps.forEach((step, k) => {
-    if (consumed.has(step)) return
-    drawStep(step, sequence.steps[k + 1])
-  })
-  function drawStep(step: Step, after: Step | undefined) {
-    if (step.kind === 'open') {
-      const block = blockFor.get(step)!
-      const frame = frameOf(block)
-      if (step.keyword === 'rect') {
-        canvas.frames.push({ ...frame, isRect: true })
-        opened.push(block)
-        return
-      }
-      const lines = frameLabel(step, frame)
-      frameRow(canvas, canvas.row(), frame, ['┌', '┐'], '─', step, lines[0])
-      canvas.frames.push(frame)
-      opened.push(block)
-      if (lines[1] !== undefined) labelRow(frame, lines[1])
-      return
-    }
-    if (step.kind === 'branch') {
-      const frame = canvas.frames.at(-1)
-      if (!frame) return
-      const lines = frameLabel(step, frame)
-      frameRow(canvas, canvas.row(), frame, ['├', '┤'], '╌', step, lines[0])
-      if (lines[1] !== undefined) labelRow(frame, lines[1])
-      return
-    }
-    if (step.kind === 'close') {
-      const frame = canvas.frames.pop()
-      opened.pop()
-      if (frame && !frame.isRect) frameRow(canvas, canvas.row(), frame, ['└', '┘'], '─')
-      return
-    }
-    if (step.kind === 'activate') {
-      const i = plan.lane.get(step.id)
-      if (i !== undefined) canvas.depth[i] = Math.max(0, canvas.depth[i]! + (step.isOn ? 1 : -1))
-      return
-    }
-    if (step.kind === 'create') {
-      const i = plan.lane.get(step.id)
-      if (i === undefined || canvas.alive[i] || pendingBirths.has(step.id)) return
-      const y = canvas.row()
-      for (let row = 1; row < boxHeight(plan.lanes[i]!, plan.names[i]!, plan.stacked[i]); row++) canvas.row()
-      drawBox(canvas, y, plan.lanes[i]!, plan.centre[i]!, plan.names[i]!, plan.isBare, plan.stacked[i]!)
-      canvas.alive[i] = true
-      return
-    }
-    if (step.kind === 'destroy') {
-      // mermaid ends a destroyed lifeline in the participant's box
-      const i = plan.lane.get(step.id)
-      if (i === undefined || !canvas.alive[i]) return
-      const p = plan.lanes[i]!
-      const height = boxHeight(p, plan.names[i]!, plan.stacked[i])
-      const y = canvas.row()
-      for (let row = 1; row < height; row++) canvas.row()
-      drawBox(canvas, y, p, plan.centre[i]!, plan.names[i]!, plan.isBare, plan.stacked[i]!)
-      canvas.put(y, plan.centre[i]!, '┴', 'frame')
-      canvas.put(y + height - 1, plan.centre[i]!, '─', 'frame')
-      canvas.alive[i] = false
-      return
-    }
-    if (step.kind === 'note') {
-      const over = step.over.flatMap(id => plan.lane.get(id) ?? []).sort((a, b) => a - b)
-      if (over.length === 0) notes.push(fullText(step, step.text, nameOf))
-      else if (plan.states.get(step)?.isHidden) {
-        const mark = footnote(step.text, step)
-        const a = plan.centre[over[0]!]!
-        const b = plan.centre[over.at(-1)!]! + canvas.offset(over.at(-1)!)
-        const x = step.side === 'left' && a >= cellWidth(mark) + 1 ? a - 1 - cellWidth(mark) : step.side === 'right' ? b + 2 : a + 2
-        const y = canvas.row()
-        canvas.put(y, x - 1, ' ', 'text')
-        canvas.write(y, x, mark, 'number')
-      } else {
-        drawNotes(canvas, [placeNote(canvas, plan, step, over, labelled(step))])
-      }
-      return
-    }
-    const number = numbers.get(step)
-    const before = canvas.rows.length
-    const bornId = plan.creates.get(step)
-    const bornLane = bornId === undefined ? undefined : plan.lane.get(bornId)
-    const boxRows = bornLane !== undefined && pendingBirths.has(bornId!) && !canvas.alive[bornLane] ? boxHeight(plan.lanes[bornLane]!, plan.names[bornLane]!, plan.stacked[bornLane]) - 1 : 0
-    drawLink(step, after, number)
-    const used = canvas.rows.length - before
-    if (used === 0) return
-    messageRows += used - boxRows
-    const breaks = (itemOf.get(step)?.text ?? step.text).split('\n').length
-    leastRows += Math.max(step.from === step.to || !plan.lane.has(step.from) || !plan.lane.has(step.to) ? 2 : 1, breaks)
+function footnotedFrame(text: string, room: number, mark: string): string[] {
+  const words = text.split(' ')
+  let first = ''
+  let taken = 0
+  for (const word of words) {
+    const next = first === '' ? word : `${first} ${word}`
+    if (cellWidth(next) > room) break
+    first = next
+    taken++
   }
-  function drawLink(step: Message, after: Step | undefined, number: string | undefined) {
-    if (plan.lane.has(step.from) && plan.lane.has(step.to)) {
-      const lights = after?.kind === 'activate' && after.isOn && after.id === step.to ? plan.lane.get(after.id) : undefined
-      if (lights !== undefined) consumed.add(after!)
-      const bornId = plan.creates.get(step)
-      const born = bornId !== undefined && pendingBirths.has(bornId) && !canvas.alive[plan.lane.get(bornId)!] ? plan.lane.get(bornId) : undefined
-      if (bornId !== undefined) pendingBirths.delete(bornId)
-      const inline = (plan.states.get(step)?.inline ?? false) && !isSpill(step, plan.states, items, plan.nested, plan.creates)
-      drawMessage(canvas, plan, step, itemOf.get(step)?.text ?? step.text, labelled(step), inline, isTight || (plan.states.get(step)?.tight ?? false), number, { lightsLane: lights, born }, () => footnote(numbered(itemOf.get(step)?.text ?? step.text), step))
-      return
-    }
-    const text = itemOf.get(step)?.text ?? step.text
-    if (!plan.lane.has(step.from) && !plan.lane.has(step.to)) {
-      lost.add(step)
-      notes.push(fullText(step, numbered(text), nameOf))
-    }
-    else drawHidden(canvas, plan, step, text, number, nameOf, footnote)
-  }
-  while (canvas.frames.length > 0) {
-    const frame = canvas.frames.pop()!
-    if (!frame.isRect) frameRow(canvas, canvas.row(), frame, ['└', '┘'], '─')
-  }
-
-  return { rows: canvas.runs(), notes: [...new Set(notes)] }
+  const most = Math.max(1, room - cellWidth(mark) - 1)
+  if (first === '') return [`${cut(text, most).text} ${mark}`]
+  return [first, `${cut(words.slice(taken).join(' '), most).text} ${mark}`]
 }
 
 function fullText(step: Step, text: string, nameOf: (id: string) => string): string {
@@ -2079,10 +2240,6 @@ export function plainRows(rows: Run[][]): string[] {
   return rows.map(row => row.map(run => run.text).join('').trimEnd())
 }
 
-const COMPACT_SHARE = 0.25
-const COMPACT_ROWS = 1.6
-const COMPACT_LEAST = 3
-const COMPACT_SAVING = 0.8
 const COMPACT_PAIR = 0.35
 const COMPACT_NAME = 16
 
@@ -2109,24 +2266,11 @@ function compact(sequence: Sequence, width: number): { rows: Run[][]; notes: str
   const { short, legend } = shortNames(sequence.participants, Math.max(Math.floor((pairCap - 3) / 2), Math.min(COMPACT_NAME, width - 4)))
   const nameOf = (id: string) => short.get(id) ?? id
   for (const part of sequence.title ? wrap(sequence.title, width).lines : []) rows.push([{ text: part, ink: 'name' }])
-  const packed = legend.reduce<string[]>((lines, entry) => {
-    const last = lines.at(-1)
-    if (last !== undefined && cellWidth(`${last} · ${entry}`) <= width) lines[lines.length - 1] = `${last} · ${entry}`
-    else lines.push(entry)
-    return lines
-  }, [])
-  for (const line of packed) for (const part of wrap(line, width).lines) rows.push([{ text: part, ink: 'frame' }])
   const groups = sequence.boxes.flatMap((box, b) => {
     const members = sequence.participants.filter(one => one.box === b).map(one => nameOf(one.id))
     return members.length === 0 ? [] : [`${box.label || 'group'}: ${members.join(', ')}`]
   })
-  const joined = groups.reduce<string[]>((lines, group) => {
-    const last = lines.at(-1)
-    if (last !== undefined && cellWidth(`${last} · ${group}`) <= width) lines[lines.length - 1] = `${last} · ${group}`
-    else lines.push(group)
-    return lines
-  }, [])
-  for (const line of joined) for (const part of wrap(line, width).lines) rows.push([{ text: part, ink: 'frame' }])
+  for (const line of [...packed(legend, width), ...packed(groups, width)]) for (const part of wrap(line, width).lines) rows.push([{ text: part, ink: 'frame' }])
   const pairOf = (step: Step): Run[] => {
     if (step.kind !== 'message') return []
     if (step.from === step.to) return [{ text: nameOf(step.from), ink: 'name' }, { text: ' ↺', ink: 'line' }]
@@ -2145,7 +2289,7 @@ function compact(sequence: Sequence, width: number): { rows: Run[][]; notes: str
   const rowsAt = (pw: number) => {
     const known = counted.get(pw)
     if (known !== undefined) return known
-    const total = messages.reduce((sum, step, i) => sum + (pairs[i]! > pw ? 1 : 0) + Math.max(1, wrap(flat(step.text), Math.max(1, width - numberWidth - 2 * depthMost - pw - 2)).lines.length), 0)
+    const total = messages.reduce((sum, step, i) => sum + (must(pairs[i], 'pair width') > pw ? 1 : 0) + Math.max(1, wrap(flat(step.text), Math.max(1, width - numberWidth - 2 * depthMost - pw - 2)).lines.length), 0)
     counted.set(pw, total)
     return total
   }
@@ -2187,10 +2331,8 @@ function compact(sequence: Sequence, width: number): { rows: Run[][]; notes: str
     })
     if (!fitsAfter) rows.push([...pad(indent + 2), { text: where, ink: 'frame' }])
   }
-  for (const step of sequence.steps) {
-    if (step.kind === 'message') entry(step, flat(step.text), 'text', numberOf.get(step))
-    else if (step.kind === 'note') note(step)
-    else if (step.kind === 'open' || step.kind === 'branch') {
+  const frame = (step: Step) => {
+    if (step.kind === 'open' || step.kind === 'branch') {
       if (step.kind === 'branch') depth = Math.max(0, depth - 1)
       rows.push([...pad(2 * depth), { text: `${step.kind === 'open' ? '┌' : '├'} ${frameText(step)}`.trimEnd(), ink: 'block' }])
       depth++
@@ -2199,5 +2341,19 @@ function compact(sequence: Sequence, width: number): { rows: Run[][]; notes: str
       rows.push([...pad(2 * depth), { text: '└', ink: 'block' }])
     }
   }
+  for (const step of sequence.steps) {
+    if (step.kind === 'message') entry(step, flat(step.text), 'text', numberOf.get(step))
+    else if (step.kind === 'note') note(step)
+    else frame(step)
+  }
   return { rows, notes }
+}
+
+function packed(entries: string[], width: number): string[] {
+  return entries.reduce<string[]>((lines, entry) => {
+    const last = lines.at(-1)
+    if (last !== undefined && cellWidth(`${last} · ${entry}`) <= width) lines[lines.length - 1] = `${last} · ${entry}`
+    else lines.push(entry)
+    return lines
+  }, [])
 }

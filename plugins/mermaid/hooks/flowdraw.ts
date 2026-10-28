@@ -5,9 +5,10 @@
 // through a port of its own, so arrows never share a head. An edge that spans several ranks runs
 // through a one-cell placeholder in each rank it passes. Lines are kept as directions per cell and
 // turned into box-drawing glyphs at the end, so meeting lines join as ┬ ┼ ┤ instead of overwriting.
-import type { Direction, Flow, FlowEdge, FlowNode, Shape, Stroke } from './flow'
+import type { Direction, Flow, FlowEdge, FlowNode, Group, Shape, Stroke } from './flow'
 import type { Ink, Run } from './render'
 import { wrap } from './render'
+import { must } from './must'
 import { cellWidth } from './width'
 
 const UP = 1
@@ -30,9 +31,9 @@ class Grid {
     // off the grid's top or left edge a cell is thrown away, never drawn
     if (x < 0 || y < 0) return { mask: 0, stroke: 'solid', ink: 'line' }
     while (this.cells.length <= y) this.cells.push([])
-    const row = this.cells[y]!
+    const row = must(this.cells[y], 'grid row')
     while (row.length <= x) row.push({ mask: 0, stroke: 'solid', ink: 'line' })
-    return row[x]!
+    return must(row[x], 'grid cell')
   }
 
   isFree(x: number, y: number): boolean {
@@ -77,8 +78,7 @@ class Grid {
   runs(width: number): Run[][] {
     return this.cells.map(row => {
       const runs: Run[] = []
-      for (let x = 0; x < Math.min(width, row.length); x++) {
-        const cell = row[x]!
+      for (const cell of row.slice(0, width)) {
         const char = cell.char ?? glyph(cell)
         // a dotted edge is dimmed as well as dashed, so a run too short to show a gap still reads dotted
         const ink = cell.char === undefined && cell.stroke === 'dotted' ? 'frame' : cell.ink
@@ -100,7 +100,7 @@ function glyph(cell: Cell): string {
     if (mask === (UP | DOWN)) return '┊'
     if (mask === (LEFT | RIGHT)) return '╌'
   }
-  return GLYPHS[cell.stroke === 'thick' ? 'thick' : 'solid'][mask]!
+  return must(GLYPHS[cell.stroke === 'thick' ? 'thick' : 'solid'][mask], 'glyph')
 }
 
 // ── layout ────────────────────────────────────────────────────────────────────────────────────
@@ -141,6 +141,12 @@ function boxOf(node: FlowNode, cap: number, across: boolean): Pick<Vertex, 'line
 function ranksOf(flow: Flow): { rank: Map<string, number>; back: Set<FlowEdge> } {
   const out = new Map<string, FlowEdge[]>(flow.nodes.map(n => [n.id, []]))
   for (const edge of flow.edges) if (edge.from !== edge.to) out.get(edge.from)?.push(edge)
+  const back = againstFlow(flow, out, reachOrder(flow, out))
+  closeCycles(flow, out, back)
+  return { rank: longestPath(flow, back), back }
+}
+
+function reachOrder(flow: Flow, out: Map<string, FlowEdge[]>): Map<string, number> {
   const named = new Map<string, number>()
   const into = new Set(flow.edges.filter(e => e.from !== e.to).map(e => e.to))
   const roots = flow.nodes.filter(n => !into.has(n.id))
@@ -148,29 +154,37 @@ function ranksOf(flow: Flow): { rank: Map<string, number>; back: Set<FlowEdge> }
     if (named.has(start.id)) continue
     named.set(start.id, named.size)
     const queue = [start.id]
-    while (queue.length > 0) {
-      for (const edge of out.get(queue.shift()!) ?? []) {
+    for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+      for (const edge of out.get(id) ?? []) {
         if (named.has(edge.to)) continue
         named.set(edge.to, named.size)
         queue.push(edge.to)
       }
     }
   }
+  return named
+}
+
+function againstFlow(flow: Flow, out: Map<string, FlowEdge[]>, named: Map<string, number>): Set<FlowEdge> {
   const reaches = (from: string, to: string) => {
     const seen = new Set([from])
     const queue = [from]
-    while (queue.length > 0) {
-      const id = queue.shift()!
+    for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
       if (id === to) return true
       for (const edge of out.get(id) ?? []) if (!back.has(edge) && !seen.has(edge.to)) seen.add(edge.to) && queue.push(edge.to)
     }
     return false
   }
+  const order = (id: string) => must(named.get(id), 'reach order')
   // the edge furthest against the flow turns first; one that no longer closes a cycle stays put
   const back = new Set<FlowEdge>()
-  const against = flow.edges.filter(e => e.from !== e.to && named.get(e.to)! < named.get(e.from)!)
-  against.sort((a, b) => named.get(b.from)! - named.get(b.to)! - (named.get(a.from)! - named.get(a.to)!))
+  const against = flow.edges.filter(e => e.from !== e.to && order(e.to) < order(e.from))
+  against.sort((a, b) => order(b.from) - order(b.to) - (order(a.from) - order(a.to)))
   for (const edge of against) if (reaches(edge.to, edge.from)) back.add(edge)
+  return back
+}
+
+function closeCycles(flow: Flow, out: Map<string, FlowEdge[]>, back: Set<FlowEdge>) {
   const state = new Map<string, 1 | 2>()
   const visit = (id: string) => {
     state.set(id, 1)
@@ -183,22 +197,26 @@ function ranksOf(flow: Flow): { rank: Map<string, number>; back: Set<FlowEdge> }
     state.set(id, 2)
   }
   for (const node of flow.nodes) if (!state.has(node.id)) visit(node.id)
+}
+
+function longestPath(flow: Flow, back: Set<FlowEdge>): Map<string, number> {
   const rank = new Map<string, number>(flow.nodes.map(n => [n.id, 0]))
+  const rankOf = (id: string) => must(rank.get(id), 'rank')
   // longest path, relaxed until nothing moves (the graph is acyclic once back edges turn round)
   for (let pass = 0; pass < flow.nodes.length; pass++) {
     let moved = false
     for (const edge of flow.edges) {
       if (edge.from === edge.to) continue
       const [a, b] = back.has(edge) ? [edge.to, edge.from] : [edge.from, edge.to]
-      const want = rank.get(a)! + 1
-      if (rank.get(b)! < want) {
+      const want = rankOf(a) + 1
+      if (rankOf(b) < want) {
         rank.set(b, want)
         moved = true
       }
     }
     if (!moved) break
   }
-  return { rank, back }
+  return rank
 }
 
 // pool-adjacent-violators: places boxes in order, as close to where each wants to be as overlap allows
@@ -207,44 +225,83 @@ function settle(wants: number[], sizes: number[], gap: number, weights: number[]
   const blocks: Block[] = []
   const offset: number[] = []
   let run = 0
-  sizes.forEach((size, i) => {
+  sizes.forEach(size => {
     offset.push(run)
     run += size + gap
   })
   wants.forEach((want, i) => {
-    let block: Block = { first: i, last: i, sum: weights[i]! * (want - offset[i]!), weight: weights[i]!, at: want - offset[i]! }
-    while (blocks.length > 0 && blocks.at(-1)!.at > block.at) {
-      const prev = blocks.pop()!
+    const weight = must(weights[i], 'weight')
+    const from = must(offset[i], 'offset')
+    let block: Block = { first: i, last: i, sum: weight * (want - from), weight, at: want - from }
+    for (let prev = blocks.at(-1); prev && prev.at > block.at; prev = blocks.at(-1)) {
+      blocks.pop()
       block = { first: prev.first, last: block.last, sum: prev.sum + block.sum, weight: prev.weight + block.weight, at: 0 }
       block.at = block.sum / block.weight
     }
     blocks.push(block)
   })
   const at: number[] = []
-  for (const block of blocks) for (let i = block.first; i <= block.last; i++) at.push(Math.round(block.at) + offset[i]!)
+  for (const block of blocks) for (let i = block.first; i <= block.last; i++) at.push(Math.round(block.at) + must(offset[i], 'offset'))
   // rounding can close a gap by one; push right where it did
-  for (let i = 1; i < at.length; i++) at[i] = Math.max(at[i]!, at[i - 1]! + sizes[i - 1]! + gap)
-  return at
+  let end = -Infinity
+  return at.map((x, i) => {
+    const pushed = Math.max(x, end)
+    end = pushed + must(sizes[i], 'size') + gap
+    return pushed
+  })
 }
 
 type Layout = { vertices: Vertex[]; ranks: Vertex[][]; routes: Route[]; loops: Loop[]; across: boolean; reversed: boolean }
+
+// each vertex's neighbours a rank up and a rank down, and the gap kept between boxes in a rank
+type Ranked = { ranks: Vertex[][]; ups: Map<Vertex, Vertex[]>; downs: Map<Vertex, Vertex[]>; solid: Map<Vertex, Vertex[]>; gap: number }
+
+const centre = (v: Vertex) => v.at + Math.floor(v.cross / 2)
 
 function layout(flow: Flow, cap: number): Layout {
   const across = isAcross(flow.direction)
   const reversed = flow.direction === 'BT' || flow.direction === 'RL'
   const { rank, back } = ranksOf(flow)
-  const vertices: Vertex[] = []
-  const byId = new Map<string, Vertex>()
-  for (const node of flow.nodes) {
-    const v: Vertex = { key: node.id, node, rank: rank.get(node.id)!, order: 0, at: 0, ...boxOf(node, cap, across) }
-    vertices.push(v)
-    byId.set(node.id, v)
+  const vertices = flow.nodes.map((node): Vertex => ({ key: node.id, node, rank: must(rank.get(node.id), 'rank'), order: 0, at: 0, ...boxOf(node, cap, across) }))
+  const { routes, loops } = routesOf(flow, vertices, back)
+  portRoom(vertices, routes, across)
+  const top = Math.max(0, ...vertices.map(v => v.rank))
+  const ranks: Vertex[][] = Array.from({ length: top + 1 }, () => [])
+  for (const v of vertices) must(ranks[v.rank], 'rank').push(v)
+  // a frame needs a cell either side of its members and a cell between it and its neighbour
+  const t: Ranked = { ranks, ...neighbours(routes), gap: flow.groups.length > 0 ? 5 : across ? 1 : 3 }
+  for (const list of ranks) list.forEach((v, i) => {
+    v.order = i
+  })
+  orderRanks(vertices, t)
+  gatherGroups(ranks)
+  sideLoops(loops, ranks)
+  loopRows(vertices, loops)
+  spread(t)
+  for (let pass = 0; pass < 2; pass++) {
+    overChild(t)
+    underParent(t)
   }
+  // centring a box can leave its parent a cell off; the two settle together over a few rounds
+  for (let round = 0; round < 3; round++) {
+    overChildren(t)
+    overChild(t)
+  }
+  clearFrames(flow, vertices, t)
+  // a chart with subgraphs keeps two cells clear on its near side for a frame's border
+  const least = Math.min(...vertices.map(v => v.at)) - (flow.groups.length > 0 ? 2 : 0)
+  for (const v of vertices) v.at -= least
+  return { vertices, ranks, routes, loops, across, reversed }
+}
+
+function routesOf(flow: Flow, vertices: Vertex[], back: Set<FlowEdge>): { routes: Route[]; loops: Loop[] } {
+  const byId = new Map<string, Vertex>(vertices.map(v => [v.key, v]))
+  const vertexOf = (id: string) => must(byId.get(id), 'vertex')
   const routes: Route[] = []
   const loops: Loop[] = []
   for (const edge of flow.edges) {
     if (edge.from === edge.to) continue
-    const [a, b] = [byId.get(edge.from)!, byId.get(edge.to)!]
+    const [a, b] = [vertexOf(edge.from), vertexOf(edge.to)]
     if (back.has(edge) || a.rank === b.rank) {
       loops.push({ edge, from: a, to: b, near: false })
       continue
@@ -258,9 +315,13 @@ function layout(flow: Flow, cap: number): Layout {
     path.push(b)
     routes.push({ edge, path })
   }
-  // a box is long enough along its sides to give each arriving edge and each leaving stroke a port
-  // of its own, two cells apart, so no two of them share a line
-  // (left to right, extra strokes and arrows use a box's top and bottom instead, so it never grows)
+  return { routes, loops }
+}
+
+// a box is long enough along its sides to give each arriving edge and each leaving stroke a port
+// of its own, two cells apart, so no two of them share a line
+// (left to right, extra strokes and arrows use a box's top and bottom instead, so it never grows)
+function portRoom(vertices: Vertex[], routes: Route[], across: boolean) {
   for (const v of vertices) {
     if (!v.node || across) continue
     // edges into a left-right decision all meet at its tip, so they need no room along its sides
@@ -269,82 +330,106 @@ function layout(flow: Flow, cap: number): Layout {
     const strokes = new Set(routes.filter(r => r.path[0] === v).map(r => r.edge.stroke)).size
     v.cross = Math.max(v.cross, 2 * Math.max(arriving, strokes) + 1)
   }
-  const top = Math.max(0, ...vertices.map(v => v.rank))
-  const ranks: Vertex[][] = Array.from({ length: top + 1 }, () => [])
-  for (const v of vertices) ranks[v.rank]!.push(v)
+}
+
+function neighbours(routes: Route[]): Pick<Ranked, 'ups' | 'downs' | 'solid'> {
   const ups = new Map<Vertex, Vertex[]>()
   const downs = new Map<Vertex, Vertex[]>()
   // the children a box reaches by solid edges: the main line it sits over
   const solid = new Map<Vertex, Vertex[]>()
-  for (const { edge, path } of routes) if (edge.stroke === 'solid') solid.set(path[0]!, [...(solid.get(path[0]!) ?? []), path[1]!])
+  const add = (map: Map<Vertex, Vertex[]>, from: Vertex, to: Vertex) => map.set(from, [...(map.get(from) ?? []), to])
+  for (const { edge, path } of routes) if (edge.stroke === 'solid') add(solid, must(path[0], 'source'), must(path[1], 'step'))
   for (const { path } of routes)
-    for (let i = 1; i < path.length; i++) {
-      ups.set(path[i]!, [...(ups.get(path[i]!) ?? []), path[i - 1]!])
-      downs.set(path[i - 1]!, [...(downs.get(path[i - 1]!) ?? []), path[i]!])
+    for (const [i, v] of path.slice(1).entries()) {
+      const u = must(path[i], 'step')
+      add(ups, v, u)
+      add(downs, u, v)
     }
-  ranks.forEach(list => list.forEach((v, i) => (v.order = i)))
-  // barycentre sweeps cut crossings; ties keep the order the source gave
-  const mean = (list: Vertex[] | undefined) => (list && list.length > 0 ? list.reduce((s, v) => s + v.order, 0) / list.length : undefined)
-  // every sweep is scored by the crossings it leaves, and the best order seen is the one kept
-  const crossings = () => {
-    let count = 0
-    for (const list of ranks) {
-      const pairs = list.flatMap(u => (downs.get(u) ?? []).map(v => [u.order, v.order] as const))
-      for (let i = 0; i < pairs.length; i++)
-        for (let j = i + 1; j < pairs.length; j++) if ((pairs[i]![0] - pairs[j]![0]) * (pairs[i]![1] - pairs[j]![1]) < 0) count++
-    }
-    return count
+  return { ups, downs, solid }
+}
+
+// every sweep is scored by the crossings it leaves, and the best order seen is the one kept
+function crossings(ranks: Vertex[][], downs: Map<Vertex, Vertex[]>): number {
+  let count = 0
+  for (const list of ranks) {
+    const pairs = list.flatMap(u => (downs.get(u) ?? []).map(v => [u.order, v.order] as const))
+    for (const [i, [a0, a1]] of pairs.entries()) for (const [b0, b1] of pairs.slice(i + 1)) if ((a0 - b0) * (a1 - b1) < 0) count++
   }
-  let best = { count: crossings(), order: vertices.map(v => v.order) }
+  return count
+}
+
+// barycentre sweeps cut crossings; ties keep the order the source gave
+function orderRanks(vertices: Vertex[], { ranks, ups, downs }: Ranked) {
+  const mean = (list: Vertex[] | undefined) => (list && list.length > 0 ? list.reduce((s, v) => s + v.order, 0) / list.length : undefined)
+  let best = { count: crossings(ranks, downs), order: vertices.map(v => v.order) }
   for (let sweep = 0; sweep < 16; sweep++) {
     const down = sweep % 2 === 0
     const order = down ? ranks.slice(1) : ranks.slice(0, -1).reverse()
     for (const list of order) {
       const keyed = list.map(v => ({ v, at: mean(down ? ups.get(v) : downs.get(v)) ?? v.order }))
       keyed.sort((a, b) => a.at - b.at || a.v.order - b.v.order)
-      keyed.forEach(({ v }, i) => (v.order = i))
+      keyed.forEach(({ v }, i) => {
+        v.order = i
+      })
       list.sort((a, b) => a.order - b.order)
     }
-    const count = crossings()
+    const count = crossings(ranks, downs)
     if (count < best.count) best = { count, order: vertices.map(v => v.order) }
   }
-  vertices.forEach((v, i) => (v.order = best.order[i]!))
-  // a subgraph's members in one rank sit together, at the place its first member took
+  vertices.forEach((v, i) => {
+    v.order = must(best.order[i], 'order')
+  })
+}
+
+// a subgraph's members in one rank sit together, at the place its first member took
+function gatherGroups(ranks: Vertex[][]) {
   for (const list of ranks) {
     const first = new Map<string, number>()
     for (const v of [...list].sort((a, b) => a.order - b.order)) if (v.node?.group && !first.has(v.node.group)) first.set(v.node.group, v.order)
-    list.sort((a, b) => (a.node?.group ? first.get(a.node.group)! : a.order) - (b.node?.group ? first.get(b.node.group)! : b.order) || a.order - b.order)
-    list.forEach((v, i) => (v.order = i))
+    const place = (v: Vertex) => (v.node?.group ? must(first.get(v.node.group), 'group order') : v.order)
+    list.sort((a, b) => place(a) - place(b) || a.order - b.order)
+    list.forEach((v, i) => {
+      v.order = i
+    })
   }
-  // a loop runs on the side its source already sits: from the first box in a rank down the near
-  // side, from the last down the far side, from a lone box down whichever side has fewer loops into
-  // its target. A source or target in the middle of its rank moves to the end its loop runs by, so
-  // the loop never runs through a neighbour; the rest of the rank keeps its declared order.
+}
+
+// a loop runs on the side its source already sits: from the first box in a rank down the near
+// side, from the last down the far side, from a lone box down whichever side has fewer loops into
+// its target. A source or target in the middle of its rank moves to the end its loop runs by, so
+// the loop never runs through a neighbour; the rest of the rank keeps its declared order.
+function sideLoops(loops: Loop[], ranks: Vertex[][]) {
   loops.sort((a, b) => Math.abs(a.from.rank - a.to.rank) - Math.abs(b.from.rank - b.to.rank))
   const toEnd = (v: Vertex, near: boolean) => {
-    const list = ranks[v.rank]!
+    const list = must(ranks[v.rank], 'rank')
     list.splice(list.indexOf(v), 1)
     if (near) list.unshift(v)
     else list.push(v)
-    list.forEach((w, i) => (w.order = i))
+    list.forEach((w, i) => {
+      w.order = i
+    })
   }
   for (const loop of loops) {
-    const list = ranks[loop.from.rank]!.filter(v => v.node)
+    const list = must(ranks[loop.from.rank], 'rank').filter(v => v.node)
     const into = loops.filter(other => other !== loop && other.to === loop.to && loops.indexOf(other) < loops.indexOf(loop))
     const nearer = list.indexOf(loop.from) < (list.length - 1) / 2
     loop.near = list.length > 1 ? nearer : into.filter(o => o.near).length < into.filter(o => !o.near).length
     toEnd(loop.from, loop.near)
     toEnd(loop.to, loop.near)
   }
-  // each loop leaving or entering a box gets a row of its own on its side of the box, so every loop
-  // keeps its own head
+}
+
+// each loop leaving or entering a box gets a row of its own on its side of the box, so every loop
+// keeps its own head
+function loopRows(vertices: Vertex[], loops: Loop[]) {
   for (const v of vertices) {
     const on = (near: boolean) => loops.filter(loop => loop.near === near && (loop.from === v || loop.to === v)).length
     const n = Math.max(on(true), on(false))
     if (n > 1) v.main = Math.max(v.main, 2 * n + 1)
   }
-  // a frame needs a cell either side of its members and a cell between it and its neighbour
-  const gap = flow.groups.length > 0 ? 5 : across ? 1 : 3
+}
+
+function spread({ ranks, ups, downs, gap }: Ranked) {
   for (const list of ranks) {
     let at = 0
     for (const v of list) {
@@ -352,7 +437,6 @@ function layout(flow: Flow, cap: number): Layout {
       at += v.cross + gap
     }
   }
-  const centre = (v: Vertex) => v.at + Math.floor(v.cross / 2)
   for (let sweep = 0; sweep < 12; sweep++) {
     const down = sweep % 2 === 0
     const order = down ? ranks.slice(1) : ranks.slice(0, -1).reverse()
@@ -361,77 +445,108 @@ function layout(flow: Flow, cap: number): Layout {
         const near = [...((down ? ups.get(v) : downs.get(v)) ?? []), ...(sweep > 4 ? ((down ? downs.get(v) : ups.get(v)) ?? []) : [])]
         // a long edge pulls harder than a short one, so it runs straight and the short ones bend
         const weight = (n: Vertex) => (v.node && n.node ? 1 : 8)
+        if (near.length === 0) return v.at
         const total = near.reduce((s, n) => s + weight(n), 0)
-        return near.length > 0 ? near.reduce((s, n) => s + weight(n) * centre(n), 0) / total - Math.floor(v.cross / 2) : v.at
+        return near.reduce((s, n) => s + weight(n) * centre(n), 0) / total - Math.floor(v.cross / 2)
       })
       // a long edge's placeholder outweighs a box when two crowd each other, so the edge stays put
       const placed = settle(wants, list.map(v => v.cross), gap, list.map(v => (v.node ? 1 : 8)))
-      list.forEach((v, i) => (v.at = placed[i]!))
+      list.forEach((v, i) => {
+        v.at = must(placed[i], 'placed')
+      })
     }
   }
-  // an only child sits straight under an only-child parent whenever its neighbours leave room, so
-  // a chain runs down one column instead of jogging by a cell at each step
-  const only = (v: Vertex, near: Map<Vertex, Vertex[]>) => (near.get(v)?.length === 1 ? near.get(v)![0] : undefined)
-  // a parent with one child moves over that child when the child couldn't move under it
-  const overChild = () => {
-    for (const list of [...ranks].reverse())
-      list.forEach((v, i) => {
-        const d = only(v, downs)
-        if (!v.node || !d || only(d, ups) !== v || centre(d) === centre(v)) return
-        // the boxes beside it in its rank move aside to make room, keeping their order
-        const want = centre(d) - Math.floor(v.cross / 2)
-        v.at = want
-        for (let k = i + 1; k < list.length; k++) list[k]!.at = Math.max(list[k]!.at, list[k - 1]!.at + list[k - 1]!.cross + gap)
-        for (let k = i - 1; k >= 0; k--) list[k]!.at = Math.min(list[k]!.at, list[k + 1]!.at - gap - list[k]!.cross)
-      })
+}
+
+// an only child sits straight under an only-child parent whenever its neighbours leave room, so
+// a chain runs down one column instead of jogging by a cell at each step
+function only(v: Vertex, near: Map<Vertex, Vertex[]>): Vertex | undefined {
+  const list = near.get(v)
+  if (list?.length === 1) return list[0]
+  return undefined
+}
+
+const hasRoom = (list: Vertex[], i: number, v: Vertex, want: number, gap: number) => {
+  const left = list[i - 1]
+  const right = list[i + 1]
+  return (!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)
+}
+
+// the boxes beside it in its rank move aside to make room, keeping their order
+function makeRoom(list: Vertex[], i: number, gap: number) {
+  let prev = must(list[i], 'box')
+  for (const w of list.slice(i + 1)) {
+    w.at = Math.max(w.at, prev.at + prev.cross + gap)
+    prev = w
   }
-  for (let pass = 0; pass < 2; pass++) {
-    overChild()
-    for (const list of ranks)
-      list.forEach((v, i) => {
-        // a box also lines up under a long edge coming into it, which then never steps aside
-        const long = ups.get(v)?.find(n => !n.node)
-        const u = long ?? only(v, ups)
-        if (!u || (v.node && !long && only(u, downs) !== v)) return
-        const want = centre(u) - Math.floor(v.cross / 2)
-        const left = list[i - 1]
-        const right = list[i + 1]
-        if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
-      })
+  let next = must(list[i], 'box')
+  for (const w of list.slice(0, i).reverse()) {
+    w.at = Math.min(w.at, next.at - gap - w.cross)
+    next = w
   }
-  // a parent of several children sits over the middle of their span when its neighbours leave room,
-  // so its fan-out bar is even on both sides
-  const overChildren = () => {
-    for (const list of [...ranks].reverse())
-      list.forEach((v, i) => {
-        // a dotted side edge doesn't pull a box off its main line: it centres over its solid children
-        const all = downs.get(v) ?? []
-        const kids = (solid.get(v)?.length ?? 0) > 0 && all.length > 1 ? solid.get(v)! : all
-        // a parent starting a long edge, or one a long edge comes into, stays on it, so the long
-        // edge keeps running straight
-        if (!v.node || all.length < 2 || kids.some(k => !k.node) || (ups.get(v) ?? []).some(u => !u.node)) return
-        if (kids.length === 1) {
-          v.at = centre(kids[0]!) - Math.floor(v.cross / 2)
-          for (let k = i + 1; k < list.length; k++) list[k]!.at = Math.max(list[k]!.at, list[k - 1]!.at + list[k - 1]!.cross + gap)
-          for (let k = i - 1; k >= 0; k--) list[k]!.at = Math.min(list[k]!.at, list[k + 1]!.at - gap - list[k]!.cross)
-          return
-        }
-        // with an odd number of children it sits over the middle one, whose edge then runs straight
-        const sorted = [...kids].sort((a, b) => centre(a) - centre(b))
-        const middle = kids.length % 2 === 1 ? centre(sorted[(kids.length - 1) / 2]!) : (centre(sorted[0]!) + centre(sorted.at(-1)!)) / 2
-        const want = Math.round(middle) - Math.floor(v.cross / 2)
-        const left = list[i - 1]
-        const right = list[i + 1]
-        if ((!left || want >= left.at + left.cross + gap) && (!right || want + v.cross + gap <= right.at)) v.at = want
-      })
+}
+
+// a parent with one child moves over that child when the child couldn't move under it
+function overChild({ ranks, ups, downs, gap }: Ranked) {
+  for (const list of [...ranks].reverse())
+    for (const [i, v] of list.entries()) {
+      const d = only(v, downs)
+      if (!v.node || !d || only(d, ups) !== v || centre(d) === centre(v)) continue
+      v.at = centre(d) - Math.floor(v.cross / 2)
+      makeRoom(list, i, gap)
+    }
+}
+
+function underParent({ ranks, ups, downs, gap }: Ranked) {
+  for (const list of ranks)
+    for (const [i, v] of list.entries()) {
+      // a box also lines up under a long edge coming into it, which then never steps aside
+      const long = ups.get(v)?.find(n => !n.node)
+      const u = long ?? only(v, ups)
+      if (!u || (v.node && !long && only(u, downs) !== v)) continue
+      const want = centre(u) - Math.floor(v.cross / 2)
+      if (hasRoom(list, i, v, want, gap)) v.at = want
+    }
+}
+
+// a parent of several children sits over the middle of their span when its neighbours leave room,
+// so its fan-out bar is even on both sides
+function overChildren(t: Ranked) {
+  for (const list of [...t.ranks].reverse()) for (const [i, v] of list.entries()) centreOverChildren(t, list, i, v)
+}
+
+function centreOverChildren(t: Ranked, list: Vertex[], i: number, v: Vertex) {
+  const all = t.downs.get(v) ?? []
+  const kids = mainChildren(t, v, all)
+  // a parent starting a long edge, or one a long edge comes into, stays on it, so the long
+  // edge keeps running straight
+  if (!v.node || all.length < 2 || kids.some(k => !k.node) || (t.ups.get(v) ?? []).some(u => !u.node)) return
+  if (kids.length === 1) {
+    v.at = centre(must(kids[0], 'child')) - Math.floor(v.cross / 2)
+    makeRoom(list, i, t.gap)
+    return
   }
-  // centring a box can leave its parent a cell off; the two settle together over a few rounds
-  for (let round = 0; round < 3; round++) {
-    overChildren()
-    overChild()
-  }
-  // a box outside a subgraph that sits within the span of the subgraph's frame moves past it, along
-  // with the boxes beyond it in its rank, so the frame never takes it in
+  const want = Math.round(middleOf(kids)) - Math.floor(v.cross / 2)
+  if (hasRoom(list, i, v, want, t.gap)) v.at = want
+}
+
+// a dotted side edge doesn't pull a box off its main line: it centres over its solid children
+function mainChildren(t: Ranked, v: Vertex, all: Vertex[]): Vertex[] {
+  const main = t.solid.get(v) ?? []
+  if (main.length > 0 && all.length > 1) return main
+  return all
+}
+
+// with an odd number of children it sits over the middle one, whose edge then runs straight
+function middleOf(kids: Vertex[]): number {
+  const sorted = [...kids].sort((a, b) => centre(a) - centre(b))
+  if (kids.length % 2 === 1) return centre(must(sorted[(kids.length - 1) / 2], 'child'))
+  return (centre(must(sorted[0], 'child')) + centre(must(sorted.at(-1), 'child'))) / 2
+}
+
+// a box outside a subgraph that sits within the span of the subgraph's frame moves past it, along
+// with the boxes beyond it in its rank, so the frame never takes it in
+function clearFrames(flow: Flow, vertices: Vertex[], { ranks, gap }: Ranked) {
   for (const group of flow.groups) {
     const members = vertices.filter(v => v.node?.group === group.id)
     if (members.length === 0) continue
@@ -440,17 +555,13 @@ function layout(flow: Flow, cap: number): Layout {
     const near = Math.min(...members.map(v => v.at))
     const far = Math.max(...members.map(v => v.at + v.cross))
     for (const list of ranks.slice(first, last + 1)) {
-      list.forEach((v, i) => {
-        if (!v.node || v.node.group === group.id || v.at >= far + 2 || v.at + v.cross <= near - 2) return
+      for (const [i, v] of list.entries()) {
+        if (!v.node || v.node.group === group.id || v.at >= far + 2 || v.at + v.cross <= near - 2) continue
         const shift = v.at + v.cross / 2 >= (near + far) / 2 ? far + gap - v.at : near - gap - (v.at + v.cross)
         for (const w of shift > 0 ? list.slice(i) : list.slice(0, i + 1)) w.at += shift
-      })
+      }
     }
   }
-  // a chart with subgraphs keeps two cells clear on its near side for a frame's border
-  const least = Math.min(...vertices.map(v => v.at)) - (flow.groups.length > 0 ? 2 : 0)
-  for (const v of vertices) v.at -= least
-  return { vertices, ranks, routes, loops, across, reversed }
 }
 
 // ── drawing ───────────────────────────────────────────────────────────────────────────────────
@@ -471,7 +582,7 @@ const CORNERS: Record<Shape, Corners> = {
 }
 
 function drawNode(grid: Grid, v: Vertex, x: number, y: number, width: number, height: number) {
-  const shape = v.node!.shape
+  const shape = must(v.node, 'box').shape
   const [tl, tr, bl, br, sl, sr] = CORNERS[shape]
   // a database's doubled top and bottom stand in for the cylinder's curved ends
   const rule = shape === 'database' ? '═' : '─'
@@ -490,12 +601,35 @@ function drawNode(grid: Grid, v: Vertex, x: number, y: number, width: number, he
     for (let i = 1; i < width - 1; i++) grid.put(x + i, y + k, ' ', 'name')
   }
   const lift = Math.floor((height - 2 - v.lines.length) / 2)
-  v.lines.forEach((line, k) => grid.write(x + Math.floor((width - cellWidth(line)) / 2), y + 1 + lift + k, line, 'name'))
+  v.lines.forEach((line, k) => {
+    grid.write(x + Math.floor((width - cellWidth(line)) / 2), y + 1 + lift + k, line, 'name')
+  })
 }
 
 const HEADS = { up: '▲', down: '▼', left: '◀', right: '▶' } as const
 
 type Placed = { route: Route; tracks: number[] }
+
+type Channel = { tracks: number; label: number }
+type Label = { route: Route; m: number; k: number; lines: string[]; spots?: Array<[number, number]> }
+type Side = 'top' | 'bottom'
+
+// everything drawing needs once the chart is laid out and its ports, tracks and offsets are known
+type Sheet = {
+  plan: Layout
+  grid: Grid
+  pad: number
+  channels: Channel[]
+  bandStart: number[]
+  bandSize: number[]
+  channelStart: number[]
+  xy: (m: number, k: number) => [number, number]
+  crossAt: (route: Route, i: number) => number
+  off: Map<Route, number>
+  onto: Map<Route, Side>
+  labelOf: (edge: FlowEdge) => string[]
+  labels: Label[]
+}
 
 export function drawFlow(flow: Flow, width: number): FlowDrawn | undefined {
   for (const cap of [28, 22, 18, 14, 10, 8]) {
@@ -507,458 +641,619 @@ export function drawFlow(flow: Flow, width: number): FlowDrawn | undefined {
 
 function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   const plan = layout(flow, cap)
-  const { ranks, routes, loops, across, reversed } = plan
-  const labelCap = Math.max(8, Math.min(cap, 20))
-  // a one-word label (an event or field name) stays whole rather than splitting mid-identifier
-  const labelOf = (edge: FlowEdge) =>
-    edge.label === '' ? [] : edge.label.split('\n').flatMap(part => (!/\s/.test(part) && cellWidth(part) <= 32 ? [part] : wrap(part, labelCap).lines)).map(l => l.replace(/\u00a0/g, ' '))
-  // near-side loops' lanes, and their labels top-down, sit before the chart, so every box moves over
-  const nearRoom = loops.filter(l => l.near).reduce((sum, l) => sum + 2 + (across ? 0 : Math.max(0, ...labelOf(l.edge).map(w => cellWidth(w) + 2))), 0)
-  const shift = nearRoom > 0 ? nearRoom + 1 : 0
+  const { routes, loops, across } = plan
+  const labelOf = (edge: FlowEdge) => labelLines(edge, cap)
+  const shift = nearShift(loops, across, labelOf)
   for (const v of plan.vertices) v.at += shift
 
-  // each channel between rank r and r+1 holds a track per edge that changes cross position there
-  const channels = ranks.slice(0, -1).map(() => ({ tracks: 0, label: 0 }))
-  const portOut = new Map<Vertex, number>()
-  const portIn = new Map<Vertex, Route[]>()
-  const centre = (v: Vertex) => v.at + Math.floor(v.cross / 2)
-  for (const route of routes) {
-    const last = route.path.at(-1)!
-    portIn.set(last, [...(portIn.get(last) ?? []), route])
-  }
-  // edges of one stroke fan out of a shared port at the middle; a dotted or thick edge from the same
-  // box leaves through a port of its own beside it, so its stroke shows from the border on
+  const { leaving, outOf } = portsOut(routes, across)
+  const off = sideExits(plan, outOf, leaving)
+  const { landing, onto } = landings(plan, leaving)
+  const crossAt = (route: Route, i: number) => (i === route.path.length - 1 ? must(landing.get(route), 'landing') : through(route, i, leaving))
+  const placed: Placed[] = routes.map(route => ({ route, tracks: [] }))
+  const channels = channelsOf(plan, placed, crossAt, landing, labelOf)
+  const axes = axesOf(flow, plan, channels)
+  const laneAt = lanesFor(loops, across, labelOf, shift, axes.crossTotal)
+  const outer = loops.filter(loop => !loop.near).at(-1)
+  const farRoom = outer ? laneAt(outer) - axes.crossTotal + 1 : 0
+  const total = across ? axes.mainTotal : axes.crossTotal + farRoom
+  if (total > width || (across && axes.crossTotal + farRoom > 400)) return undefined
+
+  const s: Sheet = { plan, grid: new Grid(), channels, ...axes, crossAt, off, onto, labelOf, labels: [] }
+  // nodes first, so lines stop at their borders
+  for (const v of plan.vertices) if (v.node) drawBox(s, v)
+  for (const p of placed) drawRoute(s, p)
+  const slots = loopSlots(loops)
+  for (const loop of loops) drawLoop(s, loop, laneAt(loop), slots)
+  for (const group of flow.groups) drawFrame(s, group, width)
+  const notes = [...placeLabels(s, width), ...flow.edges.filter(edge => edge.from === edge.to).map(selfLoopNote)]
+  return { rows: trimmed(s.grid.runs(width)), notes }
+}
+
+// rows kept clear for frames that were never drawn come off both ends
+function trimmed(rows: Run[][]): Run[][] {
+  while (rows[0]?.length === 0) rows.shift()
+  while (rows.at(-1)?.length === 0) rows.pop()
+  return rows
+}
+
+// near-side loops' lanes, and their labels top-down, sit before the chart, so every box moves over
+function nearShift(loops: Loop[], across: boolean, labelOf: Sheet['labelOf']): number {
+  const nearRoom = loops.filter(l => l.near).reduce((sum, l) => sum + 2 + (across ? 0 : Math.max(0, ...labelOf(l.edge).map(w => cellWidth(w) + 2))), 0)
+  if (nearRoom > 0) return nearRoom + 1
+  return 0
+}
+
+function selfLoopNote(loop: FlowEdge): string {
+  if (!loop.label) return `↺ ${loop.from} loops to itself`
+  return `↺ ${loop.from} loops to itself: ${loop.label}`
+}
+
+// a one-word label (an event or field name) stays whole rather than splitting mid-identifier
+function labelLines(edge: FlowEdge, cap: number): string[] {
+  const labelCap = Math.max(8, Math.min(cap, 20))
+  return edge.label === '' ? [] : edge.label.split('\n').flatMap(part => (!/\s/.test(part) && cellWidth(part) <= 32 ? [part] : wrap(part, labelCap).lines)).map(l => l.replace(/\u00a0/g, ' '))
+}
+
+const mainStroke = (list: Route[]): Stroke | undefined => {
+  const count = (stroke: Stroke) => list.filter(r => r.edge.stroke === stroke).length
+  return [...new Set(list.map(r => r.edge.stroke))].sort((a, b) => count(b) - count(a) || Number(b === 'solid') - Number(a === 'solid'))[0]
+}
+
+// edges of one stroke fan out of a shared port at the middle; a dotted or thick edge from the same
+// box leaves through a port of its own beside it, so its stroke shows from the border on
+function portsOut(routes: Route[], across: boolean): { leaving: Map<Route, number>; outOf: Map<Vertex, Route[]> } {
   const leaving = new Map<Route, number>()
   const outOf = new Map<Vertex, Route[]>()
-  for (const route of routes) if (route.path[0]!.node) outOf.set(route.path[0]!, [...(outOf.get(route.path[0]!) ?? []), route])
-  for (const [v, list] of outOf) {
-    // ports sit in the order of where their edges head, so two strokes never cross under the box
-    const toward = (stroke: Stroke) => {
-      const mine = list.filter(r => r.edge.stroke === stroke)
-      return mine.reduce((sum, r) => sum + centre(r.path[1]!), 0) / mine.length
-    }
-    // the stroke most edges share keeps the middle; each other stroke steps out toward where it heads
-    const count = (stroke: Stroke) => list.filter(r => r.edge.stroke === stroke).length
-    const strokes = [...new Set(list.map(r => r.edge.stroke))]
-    const main = [...strokes].sort((a, b) => count(b) - count(a) || Number(b === 'solid') - Number(a === 'solid'))[0]!
-    const step = across ? 2 : 4
-    const others = strokes.filter(stroke => stroke !== main).sort((a, b) => toward(a) - toward(b))
-    const lefts = others.filter(stroke => toward(stroke) < centre(v)).reverse()
-    const rights = others.filter(stroke => toward(stroke) >= centre(v))
-    const place = (stroke: Stroke, at: number) => {
-      for (const r of list) if (r.edge.stroke === stroke) leaving.set(r, Math.max(v.at + 1, Math.min(v.at + v.cross - 2, at)))
-    }
-    place(main, centre(v))
-    // a short edge fanning out beside a long one leaves through its own port, toward where it heads,
-    // so the long edge's line never doubles as the short one's way out
-    const long = list.filter(r => r.edge.stroke === main && r.path.length > 2)
-    const short = list.filter(r => r.edge.stroke === main && r.path.length === 2)
-    if (long.length > 0 && short.length > 0) {
-      const side = short.reduce((sum, r) => sum + centre(r.path[1]!), 0) / short.length < centre(v) ? -1 : 1
-      const at = Math.max(v.at + 1, Math.min(v.at + v.cross - 2, centre(v) + side * Math.max(2, Math.floor(v.cross / 4))))
-      for (const r of short) leaving.set(r, at)
-    }
-    lefts.forEach((stroke, k) => place(stroke, centre(v) - step * (k + 1)))
-    rights.forEach((stroke, k) => place(stroke, centre(v) + step * (k + 1)))
+  for (const route of routes) {
+    const source = must(route.path[0], 'source')
+    if (source.node) outOf.set(source, [...(outOf.get(source) ?? []), route])
   }
-  // left to right, a stroke other than a box's main one leaves through its top or bottom, toward
-  // where it heads, and runs along that row; the box keeps its height and its side keeps one port
+  for (const [v, list] of outOf) portsFrom(v, list, across, leaving)
+  return { leaving, outOf }
+}
+
+function portsFrom(v: Vertex, list: Route[], across: boolean, leaving: Map<Route, number>) {
+  const next = (r: Route) => centre(must(r.path[1], 'step'))
+  // ports sit in the order of where their edges head, so two strokes never cross under the box
+  const toward = (stroke: Stroke) => {
+    const mine = list.filter(r => r.edge.stroke === stroke)
+    return mine.reduce((sum, r) => sum + next(r), 0) / mine.length
+  }
+  // the stroke most edges share keeps the middle; each other stroke steps out toward where it heads
+  const strokes = [...new Set(list.map(r => r.edge.stroke))]
+  const main = must(mainStroke(list), 'main stroke')
+  const step = across ? 2 : 4
+  const others = strokes.filter(stroke => stroke !== main).sort((a, b) => toward(a) - toward(b))
+  const lefts = others.filter(stroke => toward(stroke) < centre(v)).reverse()
+  const rights = others.filter(stroke => toward(stroke) >= centre(v))
+  const place = (stroke: Stroke, at: number) => {
+    for (const r of list) if (r.edge.stroke === stroke) leaving.set(r, Math.max(v.at + 1, Math.min(v.at + v.cross - 2, at)))
+  }
+  place(main, centre(v))
+  // a short edge fanning out beside a long one leaves through its own port, toward where it heads,
+  // so the long edge's line never doubles as the short one's way out
+  const long = list.filter(r => r.edge.stroke === main && r.path.length > 2)
+  const short = list.filter(r => r.edge.stroke === main && r.path.length === 2)
+  if (long.length > 0 && short.length > 0) {
+    const side = short.reduce((sum, r) => sum + next(r), 0) / short.length < centre(v) ? -1 : 1
+    const at = Math.max(v.at + 1, Math.min(v.at + v.cross - 2, centre(v) + side * Math.max(2, Math.floor(v.cross / 4))))
+    for (const r of short) leaving.set(r, at)
+  }
+  lefts.forEach((stroke, k) => {
+    place(stroke, centre(v) - step * (k + 1))
+  })
+  rights.forEach((stroke, k) => {
+    place(stroke, centre(v) + step * (k + 1))
+  })
+}
+
+const isClear = (ranks: Vertex[][], v: Vertex, lo: number, hi: number) => must(ranks[v.rank], 'rank').every(w => w === v || w.at + w.cross <= lo || w.at > hi)
+
+// left to right, a stroke other than a box's main one leaves through its top or bottom, toward
+// where it heads, and runs along that row; the box keeps its height and its side keeps one port
+function sideExits(plan: Layout, outOf: Map<Vertex, Route[]>, leaving: Map<Route, number>): Map<Route, number> {
   const off = new Map<Route, number>()
-  if (across)
-    for (const [v, list] of outOf) {
-      const count = (stroke: Stroke) => list.filter(r => r.edge.stroke === stroke).length
-      const main = [...new Set(list.map(r => r.edge.stroke))].sort((x, y) => count(y) - count(x) || Number(y === 'solid') - Number(x === 'solid'))[0]
-      for (const route of list) {
-        if (route.edge.stroke === main) {
-          leaving.set(route, centre(v))
-          continue
-        }
-        const row = centre(route.path[1]!)
-        const up = row < v.at
-        const [lo, hi] = up ? [row, v.at] : [v.at + v.cross, row]
-        const clear = ranks[v.rank]!.every(w => w === v || w.at + w.cross <= lo || w.at > hi)
-        if ((up || row >= v.at + v.cross) && clear) {
-          off.set(route, up ? v.at - 1 : v.at + v.cross)
-          leaving.set(route, row)
-        }
+  if (!plan.across) return off
+  for (const [v, list] of outOf) {
+    const main = mainStroke(list)
+    for (const route of list) {
+      if (route.edge.stroke === main) {
+        leaving.set(route, centre(v))
+        continue
+      }
+      const row = centre(must(route.path[1], 'step'))
+      const up = row < v.at
+      const [lo, hi] = up ? [row, v.at] : [v.at + v.cross, row]
+      if ((up || row >= v.at + v.cross) && isClear(plan.ranks, v, lo, hi)) {
+        off.set(route, up ? v.at - 1 : v.at + v.cross)
+        leaving.set(route, row)
       }
     }
-  // a long edge's placeholders follow its port when that is a cell or two off their middle, so the
-  // edge runs straight down instead of stepping aside under its box
-  const through = (route: Route, i: number) => {
-    const v = route.path[i]!
-    if (i === 0) return leaving.get(route) ?? centre(v)
-    if (v.node) return centre(v)
-    const port = leaving.get(route)
-    return port !== undefined && route.path.slice(1, -1).every(d => Math.abs(centre(d) - port) <= 2) ? port : centre(v)
   }
-  // an arrow lands where its line already runs when that is over the box, so it drops straight in.
-  // A solid edge claims its spot first; the others take the nearest spot a cell clear of every
-  // arrow already placed. A decision's arrows keep off its slanted corners.
+  return off
+}
+
+// a long edge's placeholders follow its port when that is a cell or two off their middle, so the
+// edge runs straight down instead of stepping aside under its box
+function through(route: Route, i: number, leaving: Map<Route, number>): number {
+  const v = must(route.path[i], 'step')
+  if (i === 0) return leaving.get(route) ?? centre(v)
+  if (v.node) return centre(v)
+  const port = leaving.get(route)
+  return port !== undefined && route.path.slice(1, -1).every(d => Math.abs(centre(d) - port) <= 2) ? port : centre(v)
+}
+
+// where a route's line runs in the rank before its target, so where it comes in from
+const inbound = (route: Route, leaving: Map<Route, number>) => through(route, route.path.length - 2, leaving)
+const isDecision = (shape: Shape) => shape === 'diamond' || shape === 'hexagon'
+const solidFirst = (a: Route, b: Route) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid')
+
+// an arrow lands where its line already runs when that is over the box, so it drops straight in.
+// A solid edge claims its spot first; the others take the nearest spot a cell clear of every
+// arrow already placed. A decision's arrows keep off its slanted corners.
+function landings(plan: Layout, leaving: Map<Route, number>): { landing: Map<Route, number>; onto: Map<Route, Side> } {
+  const portIn = new Map<Vertex, Route[]>()
+  for (const route of plan.routes) {
+    const last = must(route.path.at(-1), 'target')
+    portIn.set(last, [...(portIn.get(last) ?? []), route])
+  }
   const landing = new Map<Route, number>()
   // left to right, a decision takes its main arrow at its tip; another arriving from above or below
   // drops onto its top or bottom with a head of its own, never onto a slanted side
-  const onto = new Map<Route, 'top' | 'bottom'>()
+  const onto = new Map<Route, Side>()
   for (const [v, list] of portIn) {
-    const from = (route: Route) => through(route, route.path.length - 2)
-    const inset = v.node!.shape === 'diamond' || v.node!.shape === 'hexagon' ? (across ? 1 : 2) : 1
-    const lo = v.at + inset
-    const hi = v.at + v.cross - 1 - inset
-    // separate heads into one box sit five cells apart top-down, so neither reads as part of the other
-    const apart = across ? 2 : Math.min(5, Math.max(3, Math.floor((hi - lo) / Math.max(1, list.length - 1))))
-    if (across && (v.node!.shape === 'diamond' || v.node!.shape === 'hexagon')) {
-      const ranked = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(from(a) - centre(v)) - Math.abs(from(b) - centre(v)))
-      ranked.forEach((route, i) => {
-        landing.set(route, centre(v))
-        const row = from(route)
-        const side = row < v.at - 1 ? 'top' : row > v.at + v.cross ? 'bottom' : undefined
-        const [lo, hi] = side === 'top' ? [row, v.at] : [v.at + v.cross, row]
-        const clear = ranks[v.rank]!.every(w => w === v || w.at + w.cross <= lo || w.at > hi)
-        if (i > 0 && side && clear) onto.set(route, side)
-      })
+    const shape = must(v.node, 'target box').shape
+    if (plan.across && isDecision(shape)) landOnDecision(plan.ranks, v, list, leaving, landing, onto)
+    else landOnBox(v, shape, list, leaving, plan.across, landing)
+  }
+  return { landing, onto }
+}
+
+function landOnDecision(ranks: Vertex[][], v: Vertex, list: Route[], leaving: Map<Route, number>, landing: Map<Route, number>, onto: Map<Route, Side>) {
+  const from = (route: Route) => inbound(route, leaving)
+  const ranked = [...list].sort((a, b) => solidFirst(a, b) || Math.abs(from(a) - centre(v)) - Math.abs(from(b) - centre(v)))
+  for (const [i, route] of ranked.entries()) {
+    landing.set(route, centre(v))
+    const row = from(route)
+    const side = row < v.at - 1 ? 'top' : row > v.at + v.cross ? 'bottom' : undefined
+    const [lo, hi] = side === 'top' ? [row, v.at] : [v.at + v.cross, row]
+    if (i > 0 && side && isClear(ranks, v, lo, hi)) onto.set(route, side)
+  }
+}
+
+function landOnBox(v: Vertex, shape: Shape, list: Route[], leaving: Map<Route, number>, across: boolean, landing: Map<Route, number>) {
+  const from = (route: Route) => inbound(route, leaving)
+  const inset = isDecision(shape) ? (across ? 1 : 2) : 1
+  const lo = v.at + inset
+  const hi = v.at + v.cross - 1 - inset
+  // separate heads into one box sit five cells apart top-down, so neither reads as part of the other
+  const apart = across ? 2 : Math.min(5, Math.max(3, Math.floor((hi - lo) / Math.max(1, list.length - 1))))
+  // a bus lands where one of its edges already runs straight in near the box's middle, so that edge
+  // never steps aside; with none that close it lands mid-box
+  // a long edge keeps out of a bus: it lands on its own straight line with its own head, so its
+  // line never doubles as another edge's way in
+  const isLong = (route: Route) => route.path.length > 2
+  const bus = (route: Route) => {
+    if (isLong(route)) return undefined
+    const mine = list.filter(r => r.edge.stroke === route.edge.stroke && !isLong(r))
+    if (mine.length < 2) return undefined
+    let nearest: number | undefined
+    for (const r of mine) {
+      const at = from(r)
+      const off = Math.abs(at - centre(v))
+      if (off <= 2 && (nearest === undefined || off < Math.abs(nearest - centre(v)))) nearest = at
+    }
+    return nearest ?? centre(v)
+  }
+  const want = (route: Route) => Math.max(lo, Math.min(hi, bus(route) ?? (list.length === 1 && must(route.path.at(-2), 'step').node ? centre(v) : from(route))))
+  const first = [...list].sort((a, b) => solidFirst(a, b) || Math.abs(want(a) - from(a)) - Math.abs(want(b) - from(b)))
+  const taken: number[] = []
+  const joined = new Map<Stroke, number>()
+  for (const route of first) {
+    // edges of one stroke join on one bus into the box and share its head, which sits mid-box
+    // when more than one of them comes in
+    const shared = isLong(route) ? undefined : joined.get(route.edge.stroke)
+    if (shared !== undefined) {
+      landing.set(route, shared)
       continue
     }
-    // a bus lands where one of its edges already runs straight in near the box's middle, so that edge
-    // never steps aside; with none that close it lands mid-box
-    // a long edge keeps out of a bus: it lands on its own straight line with its own head, so its
-    // line never doubles as another edge's way in
-    const isLong = (route: Route) => route.path.length > 2
-    const bus = (route: Route) => {
-      if (isLong(route)) return undefined
-      const mine = list.filter(r => r.edge.stroke === route.edge.stroke && !isLong(r))
-      if (mine.length < 2) return undefined
-      const straight = mine.map(from).filter(at => Math.abs(at - centre(v)) <= 2).sort((a, b) => Math.abs(a - centre(v)) - Math.abs(b - centre(v)))
-      return straight[0] ?? centre(v)
-    }
-    const want = (route: Route) => Math.max(lo, Math.min(hi, bus(route) ?? (list.length === 1 && route.path.at(-2)!.node ? centre(v) : from(route))))
-    const first = [...list].sort((a, b) => Number(a.edge.stroke !== 'solid') - Number(b.edge.stroke !== 'solid') || Math.abs(want(a) - from(a)) - Math.abs(want(b) - from(b)))
-    const taken: number[] = []
-    const joined = new Map<Stroke, number>()
-    for (const route of first) {
-      // edges of one stroke join on one bus into the box and share its head, which sits mid-box
-      // when more than one of them comes in
-      const shared = isLong(route) ? undefined : joined.get(route.edge.stroke)
-      if (shared !== undefined) {
-        landing.set(route, shared)
-        continue
-      }
-      const free = (at: number) => at >= lo && at <= hi && taken.every(t => Math.abs(t - at) >= apart)
-      // it only looks on the side of the heads already placed that its line comes from, so it never
-      // crosses another head's line; with no spot there far enough off, it takes the furthest one
-      const near = taken.length === 0 ? undefined : taken.reduce((a, t) => (Math.abs(t - from(route)) < Math.abs(a - from(route)) ? t : a))
-      const onSide = (x: number) => near === undefined || from(route) === near || (x !== near && Math.sign(x - near) === Math.sign(from(route) - near))
-      const spots = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).filter(onSide)
-      const room = (x: number) => (taken.length === 0 ? Infinity : Math.min(...taken.map(t => Math.abs(t - x))))
-      let at = spots.filter(free).sort((x, y) => Math.abs(x - want(route)) - Math.abs(y - want(route)))[0] ?? spots.reduce((best, x) => (room(x) > room(best) ? x : best), spots[0] ?? want(route))
-      // heads side by side read as one; past the other head is better than that
-      if (room(at) < 2) {
-        const all = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
-        at = all.filter(free).sort((x, y) => Math.abs(x - want(route)) - Math.abs(y - want(route)))[0] ?? all.reduce((best, x) => (room(x) > room(best) ? x : best), at)
-      }
-      taken.push(at)
-      if (!isLong(route)) joined.set(route.edge.stroke, at)
-      landing.set(route, at)
-    }
+    const at = headSpot(from(route), want(route), { lo, hi, apart }, taken)
+    taken.push(at)
+    if (!isLong(route)) joined.set(route.edge.stroke, at)
+    landing.set(route, at)
   }
-  const crossAt = (route: Route, i: number) => (i === route.path.length - 1 ? landing.get(route)! : through(route, i))
-  const placed: Placed[] = routes.map(route => ({ route, tracks: [] }))
-  for (let c = 0; c < channels.length; c++) {
-    const spans: Array<{ p: Placed; lo: number; hi: number; owner: string }> = []
-    for (const p of placed) {
-      const i = p.route.path.findIndex(v => v.rank === c)
-      if (i < 0 || i === p.route.path.length - 1) continue
-      const a = crossAt(p.route, i)
-      const b = crossAt(p.route, i + 1)
-      if (a === b) continue
-      // edges fanning out of one port share a track, and so do edges meeting at one head
-      const meets = i + 1 === p.route.path.length - 1
-      spans.push({ p, lo: Math.min(a, b), hi: Math.max(a, b), owner: meets && landing.get(p.route) !== undefined && [...landing].filter(([r, at]) => r.path.at(-1) === p.route.path.at(-1) && at === b).length > 1 ? `in:${p.route.path.at(-1)!.key}:${b}` : `${p.route.path[i]!.key}:${i === 0 ? crossAt(p.route, 0) : ''}` })
-    }
-    // edges fanning out of one node share a track; others take the first track they don't overlap
-    const used: Array<Array<{ lo: number; hi: number; owner: string }>> = []
-    spans.sort((a, b) => a.lo - b.lo)
-    for (const span of spans) {
-      let t = used.findIndex(track => track.every(o => o.owner === span.owner || o.hi < span.lo - 1 || o.lo > span.hi + 1))
-      if (t < 0) {
-        t = used.length
-        used.push([])
-      }
-      used[t]!.push(span)
-      span.p.tracks[c] = t
-    }
-    channels[c]!.tracks = used.length
+}
+
+function headSpot(from: number, want: number, { lo, hi, apart }: { lo: number; hi: number; apart: number }, taken: number[]): number {
+  const free = (at: number) => at >= lo && at <= hi && taken.every(t => Math.abs(t - at) >= apart)
+  // it only looks on the side of the heads already placed that its line comes from, so it never
+  // crosses another head's line; with no spot there far enough off, it takes the furthest one
+  const near = taken.length === 0 ? undefined : taken.reduce((a, t) => (Math.abs(t - from) < Math.abs(a - from) ? t : a))
+  const onSide = (x: number) => near === undefined || from === near || (x !== near && Math.sign(x - near) === Math.sign(from - near))
+  const spots = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).filter(onSide)
+  const room = (x: number) => (taken.length === 0 ? Infinity : Math.min(...taken.map(t => Math.abs(t - x))))
+  const at = spots.filter(free).sort((x, y) => Math.abs(x - want) - Math.abs(y - want))[0] ?? spots.reduce((best, x) => (room(x) > room(best) ? x : best), spots[0] ?? want)
+  // heads side by side read as one; past the other head is better than that
+  if (room(at) < 2) {
+    const all = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
+    return all.filter(free).sort((x, y) => Math.abs(x - want) - Math.abs(y - want))[0] ?? all.reduce((best, x) => (room(x) > room(best) ? x : best), at)
   }
-  for (const route of routes) {
-    const into = route.path.at(-1)!.rank - 1
+  return at
+}
+
+// each channel between rank r and r+1 holds a track per edge that changes cross position there
+function channelsOf(plan: Layout, placed: Placed[], crossAt: Sheet['crossAt'], landing: Map<Route, number>, labelOf: Sheet['labelOf']): Channel[] {
+  const channels = plan.ranks.slice(0, -1).map(() => ({ tracks: 0, label: 0 }))
+  for (const [c, channel] of channels.entries()) channel.tracks = trackChannel(c, placed, crossAt, landing)
+  for (const route of plan.routes) {
+    const into = must(route.path.at(-1), 'target').rank - 1
     const lines = labelOf(route.edge)
     if (lines.length === 0 || into < 0) continue
-    const room = across ? Math.max(...lines.map(cellWidth)) + 2 : lines.length
-    channels[into]!.label = Math.max(channels[into]!.label, room)
+    const room = plan.across ? Math.max(...lines.map(cellWidth)) + 2 : lines.length
+    const channel = must(channels[into], 'channel')
+    channel.label = Math.max(channel.label, room)
   }
+  return channels
+}
 
+function trackChannel(c: number, placed: Placed[], crossAt: Sheet['crossAt'], landing: Map<Route, number>): number {
+  type Span = { lo: number; hi: number; owner: string }
+  const spans: Array<Span & { p: Placed }> = []
+  for (const p of placed) {
+    const i = p.route.path.findIndex(v => v.rank === c)
+    if (i < 0 || i === p.route.path.length - 1) continue
+    const a = crossAt(p.route, i)
+    const b = crossAt(p.route, i + 1)
+    if (a === b) continue
+    spans.push({ p, lo: Math.min(a, b), hi: Math.max(a, b), owner: ownerOf(p.route, i, b, crossAt, landing) })
+  }
+  // edges fanning out of one node share a track; others take the first track they don't overlap
+  const used: Span[][] = []
+  spans.sort((a, b) => a.lo - b.lo)
+  for (const span of spans) {
+    let track = used.find(list => list.every(o => o.owner === span.owner || o.hi < span.lo - 1 || o.lo > span.hi + 1))
+    if (!track) {
+      track = []
+      used.push(track)
+    }
+    track.push(span)
+    span.p.tracks[c] = used.indexOf(track)
+  }
+  return used.length
+}
+
+// edges fanning out of one port share a track, and so do edges meeting at one head
+function ownerOf(route: Route, i: number, b: number, crossAt: Sheet['crossAt'], landing: Map<Route, number>): string {
+  const target = must(route.path.at(-1), 'target')
+  const meets = i + 1 === route.path.length - 1
+  if (meets && landing.get(route) !== undefined && [...landing].filter(([r, at]) => r.path.at(-1) === target && at === b).length > 1) return `in:${target.key}:${b}`
+  return `${must(route.path[i], 'step').key}:${i === 0 ? crossAt(route, 0) : ''}`
+}
+
+function axesOf(flow: Flow, plan: Layout, channels: Channel[]) {
   // a chart with subgraphs gets four spare rows at each end of every channel: a frame's border runs
   // on the one by the boxes, and the others keep it clear of the edges turning beyond
   const pad = flow.groups.length > 0 ? 4 : 0
   // main-axis offsets: rank bands and the channels between them
   const bandStart: number[] = []
-  const bandSize = ranks.map(list => Math.max(0, ...list.map(v => v.main)))
+  const bandSize = plan.ranks.map(list => Math.max(0, ...list.map(v => v.main)))
   const channelStart: number[] = []
   let run = 2 * pad
-  ranks.forEach((_, r) => {
+  for (const [r, size] of bandSize.entries()) {
     bandStart.push(run)
-    run += bandSize[r]!
-    if (r < channels.length) {
+    run += size
+    const channel = channels[r]
+    if (channel) {
       channelStart.push(run)
       // left to right, a head gets a two-cell stub so it never crowds the box it enters
-      run += 1 + 2 * pad + channels[r]!.tracks + channels[r]!.label + (across ? 2 : 1)
+      run += 1 + 2 * pad + channel.tracks + channel.label + (plan.across ? 2 : 1)
     }
-  })
+  }
   const mainTotal = run
   const crossTotal = Math.max(1, ...plan.vertices.map(v => v.at + v.cross))
   const xy = (m: number, k: number): [number, number] => {
-    const main = reversed ? mainTotal - 1 - m : m
-    return across ? [main, k] : [k, main]
+    const main = plan.reversed ? mainTotal - 1 - m : m
+    if (plan.across) return [main, k]
+    return [k, main]
   }
-  // loops nest outside the chart on their side, the shortest innermost, each on a lane of its own.
-  // Top-down, a labelled loop's lane stands far enough out for its label to sit on the run leaving
-  // its source, short of the lane, where it can only belong to that loop
+  return { pad, bandStart, bandSize, channelStart, mainTotal, crossTotal, xy }
+}
+
+// loops nest outside the chart on their side, the shortest innermost, each on a lane of its own.
+// Top-down, a labelled loop's lane stands far enough out for its label to sit on the run leaving
+// its source, short of the lane, where it can only belong to that loop
+function lanesFor(loops: Loop[], across: boolean, labelOf: Sheet['labelOf'], shift: number, crossTotal: number): (loop: Loop) => number {
   const far = loops.filter(loop => !loop.near)
   const near = loops.filter(loop => loop.near)
   const before = (loop: Loop) => (across ? 0 : Math.max(0, ...labelOf(loop.edge).map(w => cellWidth(w) + 2)))
-  const laneAt = (loop: Loop) => {
+  return loop => {
     const side = loop.near ? near : far
     const k = side.indexOf(loop)
     const out = 2 * k + side.slice(0, k + 1).reduce((sum, l) => sum + before(l), 0)
-    return loop.near ? shift - 2 - out : crossTotal + 1 + out
+    if (loop.near) return shift - 2 - out
+    return crossTotal + 1 + out
   }
-  const farRoom = far.length === 0 ? 0 : laneAt(far.at(-1)!) - crossTotal + 1
-  const total = across ? mainTotal : crossTotal + farRoom
-  if (total > width || (across && crossTotal + farRoom > 400)) return undefined
+}
 
-  const grid = new Grid()
-  // nodes first, so lines stop at their borders
-  for (const v of plan.vertices) {
-    if (!v.node) continue
-    const m0 = bandStart[v.rank]! + (reversed ? bandSize[v.rank]! - v.main : 0)
-    const [x0, y0] = xy(m0, v.at)
-    const [x1, y1] = xy(m0 + v.main - 1, v.at + v.cross - 1)
-    drawNode(grid, v, Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0) + 1, Math.abs(y1 - y0) + 1)
-  }
-  const segment = (m0: number, k0: number, m1: number, k1: number, stroke: Stroke) => {
-    const [x0, y0] = xy(m0, k0)
-    const [x1, y1] = xy(m1, k1)
-    grid.line(x0, y0, x1, y1, stroke)
-  }
-  // heads stay bright on a dimmed dotted edge, so where it lands never fades
-  const head = (m: number, k: number, forward: boolean) => {
-    const [x, y] = xy(m, k)
-    const ahead = forward !== reversed
-    grid.put(x, y, across ? (ahead ? HEADS.right : HEADS.left) : ahead ? HEADS.down : HEADS.up, 'line')
-  }
-  const labels: Array<{ route: Route; m: number; k: number; lines: string[]; spots?: Array<[number, number]> }> = []
-  for (const p of placed) {
-    const { route } = p
-    const stroke = route.edge.stroke
-    const path = route.path
-    for (let i = 0; i < path.length - 1; i++) {
-      const v = path[i]!
-      const c = v.rank
-      const from = v.node ? bandStart[c]! + v.main : bandStart[c]!
-      const a = crossAt(route, i)
-      const b = crossAt(route, i + 1)
-      const lane = channelStart[c]! + 1 + pad + (p.tracks[c] ?? 0)
-      const end = channelStart[c + 1] === undefined && c + 1 === ranks.length - 1 ? bandStart[c + 1]! - 1 : bandStart[c + 1]! - 1
-      if (!v.node) segment(bandStart[c]!, a, bandStart[c]! + bandSize[c]! - 1, a, stroke)
-      if (i === 0 && off.has(route)) {
-        const row = off.get(route)!
-        const m = bandStart[c]! + Math.max(1, v.main - 3)
-        segment(m, row, m, b, stroke)
-        // its label rides along the row it runs on, just past the turn
-        const said = labelOf(route.edge)
-        if (said.length > 0 && i === path.length - 2) labels.push({ route, m: m + 2, k: b, lines: said })
-        if (i === path.length - 2 && onto.has(route)) {
-          const target = path[i + 1]!
-          const mid = bandStart[c + 1]! + Math.floor(target.main / 2)
-          const edge = onto.get(route) === 'top' ? target.at - 1 : target.at + target.cross
-          segment(m, b, mid, b, stroke)
-          segment(mid, b, mid, edge, stroke)
-          const [hx, hy] = xy(mid, edge)
-          if (route.edge.head) grid.put(hx, hy, onto.get(route) === 'top' ? HEADS.down : HEADS.up, 'line')
-        } else segment(m, b, i === path.length - 2 ? end : bandStart[c + 1]! + bandSize[c + 1]! - 1, b, stroke)
-        continue
-      }
-      if (i === path.length - 2 && onto.has(route)) {
-        const target = path[i + 1]!
-        const mid = bandStart[c + 1]! + Math.floor(target.main / 2)
-        const edge = onto.get(route) === 'top' ? target.at - 1 : target.at + target.cross
-        const said = labelOf(route.edge)
-        if (said.length > 0) labels.push({ route, m: from + 1, k: a, lines: said })
-        segment(from, a, mid, a, stroke)
-        segment(mid, a, mid, edge, stroke)
-        const [hx, hy] = xy(mid, edge)
-        if (route.edge.head) grid.put(hx, hy, onto.get(route) === 'top' ? HEADS.down : HEADS.up, 'line')
-        continue
-      }
-      const turn = a === b ? from : lane
-      segment(from, a, turn, a, stroke)
-      segment(turn, a, turn, b, stroke)
-      segment(turn, b, end, b, stroke)
-      if (i === path.length - 2) {
-        const lines = labelOf(route.edge)
-        if (lines.length > 0) labels.push({ route, m: channelStart[c]! + 2 + pad + channels[c]!.tracks, k: b, lines })
-      }
-    }
-    const last = path.at(-1)!
-    const first = path[0]!
-    // the line leaves through the border, so the border shows where: ┬ under a box, ├ beside it
-    const exit = off.get(route)
-    const [bx, by] = exit !== undefined ? xy(bandStart[first.rank]! + Math.max(1, first.main - 3), exit < first.at ? first.at : first.at + first.cross - 1) : xy(bandStart[first.rank]! + first.main - 1, crossAt(route, 0))
-    if (exit !== undefined) {
-      const cell = grid.cells[by]?.[bx]
-      if (cell) cell.char = exit < first.at ? '┴' : '┬'
-    }
-    const border = grid.cells[by]?.[bx]
-    if (exit !== undefined) void 0
-    else if (border?.char === '═') border.char = reversed ? '╧' : '╤'
-    else if (border?.char === '║') border.char = reversed ? '╢' : '╟'
-    else if (border?.char === '─' || border?.char === '│') border.char = across ? (reversed ? '┤' : '├') : reversed ? '┴' : '┬'
-    const landingAt = crossAt(route, path.length - 1)
-    if (route.edge.head && !onto.has(route)) head(bandStart[last.rank]! - 1, landingAt, true)
-    if (route.edge.tail) head(bandStart[first.rank]! + first.main, crossAt(route, 0), false)
-  }
-  // a loop leaves its source through the side facing out, runs up its lane and comes into its
-  // target's same side: right of a top-down chart, under a left-right one
-  // a box's loop rows: the ways in on top, the outer loop highest, then the ways out, the inner loop
-  // first, so no two loops' runs cross
+const bandOf = (s: Sheet, v: Vertex) => must(s.bandStart[v.rank], 'band')
+// where a box starts along the main axis: a band's boxes line up on the side their edges leave
+const boxStart = (s: Sheet, v: Vertex) => bandOf(s, v) + (s.plan.reversed ? must(s.bandSize[v.rank], 'band') - v.main : 0)
+
+function drawBox(s: Sheet, v: Vertex) {
+  const m0 = boxStart(s, v)
+  const [x0, y0] = s.xy(m0, v.at)
+  const [x1, y1] = s.xy(m0 + v.main - 1, v.at + v.cross - 1)
+  drawNode(s.grid, v, Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0) + 1, Math.abs(y1 - y0) + 1)
+}
+
+function segment(s: Sheet, m0: number, k0: number, m1: number, k1: number, stroke: Stroke) {
+  const [x0, y0] = s.xy(m0, k0)
+  const [x1, y1] = s.xy(m1, k1)
+  s.grid.line(x0, y0, x1, y1, stroke)
+}
+
+// heads stay bright on a dimmed dotted edge, so where it lands never fades
+function head(s: Sheet, m: number, k: number, forward: boolean) {
+  const [x, y] = s.xy(m, k)
+  const ahead = forward !== s.plan.reversed
+  s.grid.put(x, y, s.plan.across ? (ahead ? HEADS.right : HEADS.left) : ahead ? HEADS.down : HEADS.up, 'line')
+}
+
+function drawRoute(s: Sheet, p: Placed) {
+  const { route } = p
+  const { path } = route
+  for (let i = 0; i < path.length - 1; i++) drawStep(s, p, i)
+  const last = must(path.at(-1), 'target')
+  const first = must(path[0], 'source')
+  // the line leaves through the border, so the border shows where: ┬ under a box, ├ beside it
+  const exit = s.off.get(route)
+  const [bx, by] = exit !== undefined ? s.xy(bandOf(s, first) + Math.max(1, first.main - 3), exit < first.at ? first.at : first.at + first.cross - 1) : s.xy(bandOf(s, first) + first.main - 1, s.crossAt(route, 0))
+  const border = s.grid.cells[by]?.[bx]
+  const joined = exit === undefined ? joinBorder(border?.char, s.plan) : (exit < first.at ? '┴' : '┬')
+  if (border && joined !== undefined) border.char = joined
+  const landingAt = s.crossAt(route, path.length - 1)
+  if (route.edge.head && !s.onto.has(route)) head(s, bandOf(s, last) - 1, landingAt, true)
+  if (route.edge.tail) head(s, bandOf(s, first) + first.main, s.crossAt(route, 0), false)
+}
+
+function joinBorder(char: string | undefined, { across, reversed }: Layout): string | undefined {
+  if (char === '═') return reversed ? '╧' : '╤'
+  if (char === '║') return reversed ? '╢' : '╟'
+  if (char === '─' || char === '│') return across ? (reversed ? '┤' : '├') : (reversed ? '┴' : '┬')
+  return undefined
+}
+
+function drawStep(s: Sheet, p: Placed, i: number) {
+  const { route } = p
+  const v = must(route.path[i], 'step')
+  const band = bandOf(s, v)
+  const a = s.crossAt(route, i)
+  const isLast = i === route.path.length - 2
+  if (!v.node) segment(s, band, a, band + must(s.bandSize[v.rank], 'band') - 1, a, route.edge.stroke)
+  const row = s.off.get(route)
+  if (i === 0 && row !== undefined) runAlongRow(s, route, v, row, isLast)
+  else if (isLast && s.onto.has(route)) runOnto(s, route, v, a)
+  else crossChannel(s, p, i, isLast)
+}
+
+function runAlongRow(s: Sheet, route: Route, v: Vertex, row: number, isLast: boolean) {
+  const c = v.rank
+  const b = s.crossAt(route, 1)
+  const stroke = route.edge.stroke
+  const m = bandOf(s, v) + Math.max(1, v.main - 3)
+  segment(s, m, row, m, b, stroke)
+  // its label rides along the row it runs on, just past the turn
+  const said = s.labelOf(route.edge)
+  if (said.length > 0 && isLast) s.labels.push({ route, m: m + 2, k: b, lines: said })
+  if (isLast && s.onto.has(route)) dropOnto(s, route, c, m, b)
+  else segment(s, m, b, isLast ? must(s.bandStart[c + 1], 'band') - 1 : must(s.bandStart[c + 1], 'band') + must(s.bandSize[c + 1], 'band') - 1, b, stroke)
+}
+
+function runOnto(s: Sheet, route: Route, v: Vertex, a: number) {
+  const band = bandOf(s, v)
+  const from = v.node ? band + v.main : band
+  const said = s.labelOf(route.edge)
+  if (said.length > 0) s.labels.push({ route, m: from + 1, k: a, lines: said })
+  dropOnto(s, route, v.rank, from, a)
+}
+
+function crossChannel(s: Sheet, p: Placed, i: number, isLast: boolean) {
+  const { route } = p
+  const v = must(route.path[i], 'step')
+  const c = v.rank
+  const band = bandOf(s, v)
+  const from = v.node ? band + v.main : band
+  const a = s.crossAt(route, i)
+  const b = s.crossAt(route, i + 1)
+  const lane = must(s.channelStart[c], 'channel') + 1 + s.pad + (p.tracks[c] ?? 0)
+  const end = must(s.bandStart[c + 1], 'band') - 1
+  const stroke = route.edge.stroke
+  const turn = a === b ? from : lane
+  segment(s, from, a, turn, a, stroke)
+  segment(s, turn, a, turn, b, stroke)
+  segment(s, turn, b, end, b, stroke)
+  const lines = isLast ? s.labelOf(route.edge) : []
+  if (lines.length > 0) s.labels.push({ route, m: must(s.channelStart[c], 'channel') + 2 + s.pad + must(s.channels[c], 'channel').tracks, k: b, lines })
+}
+
+// the last run turns along the channel to the middle of its target, then drops onto its top or bottom
+function dropOnto(s: Sheet, route: Route, c: number, m: number, k: number) {
+  const stroke = route.edge.stroke
+  const target = must(route.path.at(-1), 'target')
+  const mid = must(s.bandStart[c + 1], 'band') + Math.floor(target.main / 2)
+  const side = s.onto.get(route)
+  const edge = side === 'top' ? target.at - 1 : target.at + target.cross
+  segment(s, m, k, mid, k, stroke)
+  segment(s, mid, k, mid, edge, stroke)
+  const [hx, hy] = s.xy(mid, edge)
+  if (route.edge.head) s.grid.put(hx, hy, side === 'top' ? HEADS.down : HEADS.up, 'line')
+}
+
+const LOOP_EXITS = new Set(['│', '─', '<', '>', '(', ')'])
+
+// a loop leaves its source through the side facing out, runs up its lane and comes into its
+// target's same side: right of a top-down chart, under a left-right one
+// a box's loop rows: the ways in on top, the outer loop highest, then the ways out, the inner loop
+// first, so no two loops' runs cross
+function loopSlots(loops: Loop[]): Map<string, Loop[]> {
   const slots = new Map<string, Loop[]>()
-  const slotOf = (v: Vertex, loop: Loop) => `${v.key}:${loop.near}`
   for (const loop of loops) for (const v of [loop.to, loop.from]) slots.set(slotOf(v, loop), [...(slots.get(slotOf(v, loop)) ?? []), loop])
   const key = (v: Vertex, loop: Loop) => (loop.to === v ? -1000 - loops.indexOf(loop) : loops.indexOf(loop))
   for (const [k, list] of slots) list.sort((x, y) => key(list.find(l => slotOf(l.to, l) === k) ? x.to : x.from, x) - key(list.find(l => slotOf(l.to, l) === k) ? y.to : y.from, y))
-  loops.forEach(loop => {
-    const lane = laneAt(loop)
-    // loops on one box spread along its side, so no two share an arrow or a stub
-    const row = (v: Vertex) => {
-      const list = slots.get(slotOf(v, loop))!
-      const i = list.indexOf(loop)
-      const start = bandStart[v.rank]! + (reversed ? bandSize[v.rank]! - v.main : 0)
-      return list.length === 1 ? start + Math.floor(v.main / 2) : start + Math.round(((i + 1) * (v.main - 1)) / (list.length + 1))
-    }
-    const side = (v: Vertex) => (loop.near ? v.at - 1 : v.at + v.cross)
-    const stroke = loop.edge.stroke
-    const a = row(loop.from)
-    const b = row(loop.to)
-    segment(a, side(loop.from), a, lane, stroke)
-    segment(a, lane, b, lane, stroke)
-    segment(b, lane, b, side(loop.to), stroke)
-    const out = (v: Vertex, m: number) => {
-      const [x, y] = xy(m, loop.near ? side(v) + 1 : side(v) - 1)
-      const cell = grid.cells[y]?.[x]
-      if (cell?.char === '│' || cell?.char === '─' || cell?.char === '<' || cell?.char === '>' || cell?.char === '(' || cell?.char === ')') cell.char = across ? (loop.near ? '┴' : '┬') : loop.near ? '┤' : '├'
-    }
-    const arrow = (m: number, v: Vertex) => {
-      const [x, y] = xy(m, side(v))
-      grid.put(x, y, across ? (loop.near ? HEADS.down : HEADS.up) : loop.near ? HEADS.right : HEADS.left, 'line')
-    }
-    out(loop.from, a)
-    if (loop.edge.head) arrow(b, loop.to)
-    if (loop.edge.tail) arrow(a, loop.from)
-    const lines = labelOf(loop.edge)
-    // a loop's label sits on the run leaving its source, before the run turns up its lane
-    if (lines.length > 0)
-      labels.push({
-        route: { edge: loop.edge, path: [] },
-        m: across ? a + 2 : a,
-        k: across ? side(loop.from) + lines.length : side(loop.from) - 1,
-        lines,
-        // top-down, it moves right of its lane when the run is too short to hold it
-        spots: across ? undefined : loop.near ? [[a - lines.length, lane + 2]] : [[a - lines.length, side(loop.from) + 1], [Math.round((a + b) / 2) - Math.floor(lines.length / 2), lane + 2]],
-      })
-  })
-  // each subgraph is framed round its members, unless a box outside it would land inside the frame
-  for (const group of flow.groups) {
-    const members = plan.vertices.filter(v => v.node?.group === group.id)
-    if (members.length === 0) continue
-    // a cell of edge runs between a frame and the boxes it holds, so a head lands inside the frame
-    const lo = Math.min(...members.map(v => bandStart[v.rank]!)) - 3
-    const hi = Math.max(...members.map(v => bandStart[v.rank]! + bandSize[v.rank]!)) + 2
-    const near = Math.min(...members.map(v => v.at)) - 2
-    const title = ` ${group.label} `
-    // top-down, the frame is at least wide enough for its title
-    const far = Math.max(...members.map(v => v.at + v.cross)) + 1 + (across ? 0 : Math.max(0, near + cellWidth(title) + 5 - Math.max(...members.map(v => v.at + v.cross)) - 1))
-    const inside = (v: Vertex) => v.node && v.node.group !== group.id && bandStart[v.rank]! + v.main > lo && bandStart[v.rank]! < hi && v.at + v.cross > near && v.at < far
-    if (plan.vertices.some(inside) || near < 0 || lo < 0) continue
-    const [x0, y0] = xy(lo, near)
-    const [x1, y1] = xy(hi, far)
-    const [left, top, bottom] = [Math.min(x0, x1), Math.min(y0, y1), Math.max(y0, y1)]
-    // the frame reaches far enough past the last line crossing its top for the title to fit there
-    const crossed = Array.from({ length: Math.max(x0, x1) - left + 1 }, (_, i) => left + i).filter(x => (grid.cells[top]?.[x]?.mask ?? 0) !== 0)
-    const right = Math.max(Math.max(x0, x1), crossed.length > 0 && cellWidth(title) + 3 > crossed[0]! - left ? Math.max(...crossed) + cellWidth(title) + 4 : 0)
-    if (right >= width) continue
-    // where an edge crosses the border the crossing is drawn, so neither the edge nor the frame breaks
-    const edge = (x: number, y: number, char: string) => {
-      if (grid.isFree(x, y)) grid.put(x, y, char, 'frame')
-      else {
-        const cell = grid.cells[y]?.[x]
-        const across = char === '─' ? UP | DOWN : char === '│' ? LEFT | RIGHT : 0
-        if (cell && cell.char === undefined && across !== 0 && (cell.mask & across) === across) cell.mask |= UP | DOWN | LEFT | RIGHT
-      }
-    }
-    for (let x = left + 1; x < right; x++) {
-      edge(x, top, '─')
-      edge(x, bottom, '─')
-    }
-    for (let y = top + 1; y < bottom; y++) {
-      edge(left, y, '│')
-      edge(right, y, '│')
-    }
-    edge(left, top, '╭')
-    edge(right, top, '╮')
-    edge(left, bottom, '╰')
-    edge(right, bottom, '╯')
-    // the title takes the first stretch of the top border no edge crosses
-    const clear = (at: number) => [...title, '─'].every((_, i) => grid.cells[top]?.[at - 1 + i]?.char === '─' || (at - 1 + i === left && i === 0))
-    const spot = Array.from({ length: Math.max(0, right - left - cellWidth(title) - 1) }, (_, i) => left + 2 + i).find(clear)
-    // with no clear stretch on the border it sits just inside the frame's top corner
-    if (spot !== undefined) grid.write(spot, top, title, 'name')
-    else if ([...title].every((_, i) => grid.isFree(left + 1 + i, top + 1))) grid.write(left + 1, top + 1, title, 'name')
+  return slots
+}
+
+const slotOf = (v: Vertex, loop: Loop) => `${v.key}:${loop.near}`
+
+function drawLoop(s: Sheet, loop: Loop, lane: number, slots: Map<string, Loop[]>) {
+  const { across } = s.plan
+  // loops on one box spread along its side, so no two share an arrow or a stub
+  const row = (v: Vertex) => {
+    const list = must(slots.get(slotOf(v, loop)), 'loop slot')
+    const i = list.indexOf(loop)
+    const start = boxStart(s, v)
+    return list.length === 1 ? start + Math.floor(v.main / 2) : start + Math.round(((i + 1) * (v.main - 1)) / (list.length + 1))
   }
+  const side = (v: Vertex) => (loop.near ? v.at - 1 : v.at + v.cross)
+  const stroke = loop.edge.stroke
+  const a = row(loop.from)
+  const b = row(loop.to)
+  segment(s, a, side(loop.from), a, lane, stroke)
+  segment(s, a, lane, b, lane, stroke)
+  segment(s, b, lane, b, side(loop.to), stroke)
+  loopExit(s, loop, a, side(loop.from))
+  if (loop.edge.head) loopArrow(s, loop, b, side(loop.to))
+  if (loop.edge.tail) loopArrow(s, loop, a, side(loop.from))
+  const lines = s.labelOf(loop.edge)
+  // a loop's label sits on the run leaving its source, before the run turns up its lane
+  if (lines.length > 0)
+    s.labels.push({
+      route: { edge: loop.edge, path: [] },
+      m: across ? a + 2 : a,
+      k: across ? side(loop.from) + lines.length : side(loop.from) - 1,
+      lines,
+      // top-down, it moves right of its lane when the run is too short to hold it
+      spots: across ? undefined : loop.near ? [[a - lines.length, lane + 2]] : [[a - lines.length, side(loop.from) + 1], [Math.round((a + b) / 2) - Math.floor(lines.length / 2), lane + 2]],
+    })
+}
+
+function loopExit(s: Sheet, loop: Loop, m: number, side: number) {
+  const [x, y] = s.xy(m, loop.near ? side + 1 : side - 1)
+  const cell = s.grid.cells[y]?.[x]
+  if (cell?.char !== undefined && LOOP_EXITS.has(cell.char)) cell.char = s.plan.across ? (loop.near ? '┴' : '┬') : (loop.near ? '┤' : '├')
+}
+
+function loopArrow(s: Sheet, loop: Loop, m: number, side: number) {
+  const [x, y] = s.xy(m, side)
+  s.grid.put(x, y, s.plan.across ? (loop.near ? HEADS.down : HEADS.up) : loop.near ? HEADS.right : HEADS.left, 'line')
+}
+
+// each subgraph is framed round its members, unless a box outside it would land inside the frame
+function drawFrame(s: Sheet, group: Group, width: number) {
+  const { vertices, across } = s.plan
+  const members = vertices.filter(v => v.node?.group === group.id)
+  if (members.length === 0) return
+  // a cell of edge runs between a frame and the boxes it holds, so a head lands inside the frame
+  const lo = Math.min(...members.map(v => bandOf(s, v))) - 3
+  const hi = Math.max(...members.map(v => bandOf(s, v) + must(s.bandSize[v.rank], 'band'))) + 2
+  const near = Math.min(...members.map(v => v.at)) - 2
+  const title = ` ${group.label} `
+  // top-down, the frame is at least wide enough for its title
+  const far = Math.max(...members.map(v => v.at + v.cross)) + 1 + (across ? 0 : Math.max(0, near + cellWidth(title) + 5 - Math.max(...members.map(v => v.at + v.cross)) - 1))
+  const inside = (v: Vertex) => v.node && v.node.group !== group.id && bandOf(s, v) + v.main > lo && bandOf(s, v) < hi && v.at + v.cross > near && v.at < far
+  if (vertices.some(inside) || near < 0 || lo < 0) return
+  const [x0, y0] = s.xy(lo, near)
+  const [x1, y1] = s.xy(hi, far)
+  const [left, top, bottom] = [Math.min(x0, x1), Math.min(y0, y1), Math.max(y0, y1)]
+  const right = frameRight(s.grid, left, Math.max(x0, x1), top, title)
+  if (right >= width) return
+  frameBorder(s.grid, left, top, right, bottom)
+  frameTitle(s.grid, left, top, right, title)
+}
+
+// the frame reaches far enough past the last line crossing its top for the title to fit there
+function frameRight(grid: Grid, left: number, end: number, top: number, title: string): number {
+  const crossed = Array.from({ length: end - left + 1 }, (_, i) => left + i).filter(x => (grid.cells[top]?.[x]?.mask ?? 0) !== 0)
+  const [first] = crossed
+  return Math.max(end, first !== undefined && cellWidth(title) + 3 > first - left ? Math.max(...crossed) + cellWidth(title) + 4 : 0)
+}
+
+// where an edge crosses the border the crossing is drawn, so neither the edge nor the frame breaks
+function frameCell(grid: Grid, x: number, y: number, char: string) {
+  if (grid.isFree(x, y)) {
+    grid.put(x, y, char, 'frame')
+    return
+  }
+  const cell = grid.cells[y]?.[x]
+  const across = char === '─' ? UP | DOWN : char === '│' ? LEFT | RIGHT : 0
+  if (cell && cell.char === undefined && across !== 0 && (cell.mask & across) === across) cell.mask |= UP | DOWN | LEFT | RIGHT
+}
+
+function frameBorder(grid: Grid, left: number, top: number, right: number, bottom: number) {
+  for (let x = left + 1; x < right; x++) {
+    frameCell(grid, x, top, '─')
+    frameCell(grid, x, bottom, '─')
+  }
+  for (let y = top + 1; y < bottom; y++) {
+    frameCell(grid, left, y, '│')
+    frameCell(grid, right, y, '│')
+  }
+  frameCell(grid, left, top, '╭')
+  frameCell(grid, right, top, '╮')
+  frameCell(grid, left, bottom, '╰')
+  frameCell(grid, right, bottom, '╯')
+}
+
+// the title takes the first stretch of the top border no edge crosses
+function frameTitle(grid: Grid, left: number, top: number, right: number, title: string) {
+  const clear = (at: number) => [...title, '─'].every((_, i) => grid.cells[top]?.[at - 1 + i]?.char === '─' || (at - 1 + i === left && i === 0))
+  const spot = Array.from({ length: Math.max(0, right - left - cellWidth(title) - 1) }, (_, i) => left + 2 + i).find(clear)
+  // with no clear stretch on the border it sits just inside the frame's top corner
+  if (spot !== undefined) grid.write(spot, top, title, 'name')
+  else if ([...title].every((_, i) => grid.isFree(left + 1 + i, top + 1))) grid.write(left + 1, top + 1, title, 'name')
+}
+
+function placeLabels(s: Sheet, width: number): string[] {
   const notes: string[] = []
-  let footnotes = 0
-  for (const label of labels) {
-    const fits = (m: number, k: number) =>
-      label.lines.every((line, j) => {
-        for (let i = 0; i < cellWidth(line); i++) {
-          const [x, y] = across ? xy(m + i, k - label.lines.length + j) : xy(m + j, k + i)
-          if (!grid.isFree(x, y) || x >= width) return false
-        }
-        return true
-      })
-    const put = (m: number, k: number) =>
-      label.lines.forEach((line, j) => {
-        const [x, y] = across ? xy(m, k - label.lines.length + j) : xy(m + j, k)
-        grid.write(across && reversed ? x - cellWidth(line) + 1 : x, y, line, 'text')
-      })
-    const widest = Math.max(...label.lines.map(cellWidth))
-    const tries: Array<[number, number]> = label.spots ?? (across
-      ? [[label.m, label.k], [label.m, label.k + label.lines.length + 1]]
-      : [[label.m - 1, label.k + 2], [label.m - 1, label.k - 1 - widest]])
-    const spot = tries.find(([m, k]) => k >= 0 && fits(m, k))
-    if (spot) put(...spot)
-    else {
-      footnotes++
-      const mark = superscript(footnotes)
-      const [x, y] = across ? xy(label.m - 1, label.k - 1) : xy(label.m - 1, label.k + 2)
-      if (grid.isFree(x, y)) grid.write(x, y, mark, 'text')
-      notes.push(`${mark} ${label.lines.join(' ')}`)
-    }
+  for (const label of s.labels) {
+    const spot = labelSpot(s, label, width)
+    if (spot) putLabel(s, label, ...spot)
+    else notes.push(footnote(s, label, notes.length + 1))
   }
-  for (const loop of flow.edges.filter(edge => edge.from === edge.to)) notes.push(`↺ ${loop.from} loops to itself${loop.label ? `: ${loop.label}` : ''}`)
-  // rows kept clear for frames that were never drawn come off both ends
-  const rows = grid.runs(width)
-  while (rows.length > 0 && rows[0]!.length === 0) rows.shift()
-  while (rows.length > 0 && rows.at(-1)!.length === 0) rows.pop()
-  return { rows, notes }
+  return notes
+}
+
+function labelSpot(s: Sheet, label: Label, width: number): [number, number] | undefined {
+  const { across } = s.plan
+  const fits = (m: number, k: number) =>
+    label.lines.every((line, j) => {
+      for (let i = 0; i < cellWidth(line); i++) {
+        const [x, y] = across ? s.xy(m + i, k - label.lines.length + j) : s.xy(m + j, k + i)
+        if (!s.grid.isFree(x, y) || x >= width) return false
+      }
+      return true
+    })
+  const widest = Math.max(...label.lines.map(cellWidth))
+  const tries: Array<[number, number]> = label.spots ?? (across
+    ? [[label.m, label.k], [label.m, label.k + label.lines.length + 1]]
+    : [[label.m - 1, label.k + 2], [label.m - 1, label.k - 1 - widest]])
+  return tries.find(([m, k]) => k >= 0 && fits(m, k))
+}
+
+function putLabel(s: Sheet, label: Label, m: number, k: number) {
+  const { across, reversed } = s.plan
+  label.lines.forEach((line, j) => {
+    const [x, y] = across ? s.xy(m, k - label.lines.length + j) : s.xy(m + j, k)
+    s.grid.write(across && reversed ? x - cellWidth(line) + 1 : x, y, line, 'text')
+  })
+}
+
+function footnote(s: Sheet, label: Label, n: number): string {
+  const mark = superscript(n)
+  const [x, y] = s.plan.across ? s.xy(label.m - 1, label.k - 1) : s.xy(label.m - 1, label.k + 2)
+  if (s.grid.isFree(x, y)) s.grid.write(x, y, mark, 'text')
+  return `${mark} ${label.lines.join(' ')}`
 }
 
 const SUPERSCRIPT = '⁰¹²³⁴⁵⁶⁷⁸⁹'

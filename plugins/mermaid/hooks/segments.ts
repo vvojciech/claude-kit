@@ -8,36 +8,42 @@ const OPENER = /^( *)(`{3,}|~{3,})(.*)$/
 const LIST_ITEM = /^( *)(?:[-*+]|\d{1,9}[.)])( +|$)/
 const MERMAID_INFO = /^mermaid(?:[ \t]|$)/
 
-const QUOTE = /^ {0,3}> ?/
+// length of a blockquote marker opening text: up to 3 spaces, `>`, then an optional space
+function quoteMark(text: string): number | undefined {
+  let at = 0
+  while (at < 3 && text[at] === ' ') at++
+  if (text[at] !== '>') return undefined
+  return text[at + 1] === ' ' ? at + 2 : at + 1
+}
 const COMMENT_START = /^ {0,3}<!--/
 // CommonMark HTML blocks of type 6 run to the next blank line, and a fence inside one is raw HTML.
 const HTML_BLOCK =
   /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[\s/>]|$)/i
 
-const quotesOf = (line: string) => {
+function stripQuotes(line: string): { count: number; rest: string } {
   let count = 0
   let rest = line
-  for (let found = QUOTE.exec(rest); found; found = QUOTE.exec(rest)) {
-    rest = rest.slice(found[0].length)
+  for (let mark = quoteMark(rest); mark !== undefined; mark = quoteMark(rest)) {
+    rest = rest.slice(mark)
     count++
   }
-  return count
+  return { count, rest }
 }
 
 function unquoted(line: string, levels: number, lead = 0): string | undefined {
   if (lead > 0 && indentOf(line) < lead && line.trim() !== '') return undefined
   let rest = dedent(line, lead)
   for (let i = 0; i < levels; i++) {
-    const found = QUOTE.exec(rest)
-    if (!found) return undefined
-    rest = rest.slice(found[0].length)
+    const mark = quoteMark(rest)
+    if (mark === undefined) return undefined
+    rest = rest.slice(mark)
   }
   return rest
 }
 
 const indentOf = (line: string) => line.length - line.trimStart().length
 
-const trimBlankLines = (text: string) => text.replace(/^(?:[ \t]*\n)+/, '').replace(/(?:\n[ \t]*)+$/, '')
+const trimBlankLines = (text: string) => text.replace(/^[ \t\n]*\n/, '').replace(/\n[ \t\n]*$/, '')
 
 function dedent(line: string, by: number): string {
   let cut = 0
@@ -48,11 +54,12 @@ function dedent(line: string, by: number): string {
 function opener(line: string, container: number): Open | undefined {
   const found = OPENER.exec(line)
   if (!found) return undefined
-  const indent = found[1]!.length
-  const [char, info] = [found[2]![0]!, found[3]!.trim()]
+  const [, spaces = '', marker = '', rest = ''] = found
+  const indent = spaces.length
+  const [char, info] = [marker.charAt(0), rest.trim()]
   if (indent - container > 3 || indent < container) return undefined
   if (char === '`' && info.includes('`')) return undefined
-  return { char, length: found[2]!.length, indent, container, isMermaid: MERMAID_INFO.test(info), from: 0, quotes: 0, lead: 0 }
+  return { char, length: marker.length, indent, container, isMermaid: MERMAID_INFO.test(info), from: 0, quotes: 0, lead: 0 }
 }
 
 function closes(line: string, open: Open): boolean {
@@ -101,8 +108,7 @@ export function fencesOf(markdown: string): Fence[] {
       isHtml = raw.trim() !== ''
       continue
     }
-    const quotes = quotesOf(raw)
-    const line = unquoted(raw, quotes)!
+    const { count: quotes, rest: line } = stripQuotes(raw)
     if (quotes > 0) {
       const inner = LIST_ITEM.exec(line)
       const width = inner ? inner[0].length : 0
@@ -111,11 +117,11 @@ export function fencesOf(markdown: string): Fence[] {
       continue
     }
     const item = LIST_ITEM.exec(line)
-    const quotedItem = item ? quotesOf(line.slice(item[0].length)) : 0
-    if (item && quotedItem > 0) {
+    const itemQuotes = item ? stripQuotes(line.slice(item[0].length)) : undefined
+    if (item && itemQuotes && itemQuotes.count > 0) {
       list = item[0].length
-      const found = opener(unquoted(line.slice(list), quotedItem)!, 0)
-      if (found) open = { ...found, from: at, quotes: quotedItem, lead: list }
+      const found = opener(itemQuotes.rest, 0)
+      if (found) open = { ...found, from: at, quotes: itemQuotes.count, lead: list }
       continue
     }
     if (item) list = item[0].length

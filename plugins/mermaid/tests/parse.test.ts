@@ -265,10 +265,10 @@ describe('parseSequence', () => {
   test('decodes numeric entities a terminal cannot show as the replacement character', async () => {
     for (const code of ['#0;', '#27;', '#55296;']) {
       const seq = parseSequence(`sequenceDiagram\nA->>B: a${code}b`)
-      expect(seq.steps[0]!.kind === 'message' && seq.steps[0]!.text).toBe('a\uFFFDb')
+      expect(seq.steps[0]).toMatchObject({ kind: 'message', text: 'a\uFFFDb' })
     }
     const fine = parseSequence('sequenceDiagram\nA->>B: #9731;')
-    expect(fine.steps[0]!.kind === 'message' && fine.steps[0]!.text).toBe('☃')
+    expect(fine.steps[0]).toMatchObject({ kind: 'message', text: '☃' })
   })
 
   test('reports a message without a colon but still draws it', async () => {
@@ -577,7 +577,7 @@ const MERMAID_VERDICTS: [string, string, 'accept' | 'reject'][] = [
   ['note over three', 'participant A\nparticipant B\nparticipant C\nNote over A,C: wide', 'accept'],
   ['dash alone', 'A-B: x', 'reject'],
   ['arrow typo', 'A->>>B: x', 'reject'],
-  ['actor type', 'participant D as Db@{\"type\":\"queue\"}\nA->>D: q', 'accept'],
+  ['actor type', 'participant D as Db@{"type":"queue"}\nA->>D: q', 'accept'],
   ['A-->>>B: x', 'A-->>>B: x', 'reject'],
   ['A->>->B: x', 'A->>->B: x', 'reject'],
   ['A->->>B: x', 'A->->>B: x', 'reject'],
@@ -599,7 +599,7 @@ const MERMAID_VERDICTS: [string, string, 'accept' | 'reject'][] = [
   ['A-B->>C: x', 'A-B->>C: x', 'accept'],
   ['A->>B: x', 'A->>B: x\nautonumber\nNote over A: n\nB->>A: y', 'accept'],
   ['participant A as A->>B', 'participant A as A->>B\nA->>B: x', 'accept'],
-  ['participant A as \"Quoted\"', 'participant A as \"Quoted\"\nA->>B: x', 'accept'],
+  ['participant A as "Quoted"', 'participant A as "Quoted"\nA->>B: x', 'accept'],
   ['A->>B: x', 'A->>B: x\n\n\nB->>A: y', 'accept'],
   ['  A->>B: x', '  A->>B: x', 'accept'],
   ['A->>B: <br>', 'A->>B: <br>', 'accept'],
@@ -637,8 +637,8 @@ const MERMAID_VERDICTS: [string, string, 'accept' | 'reject'][] = [
   ['dashIdUndeclared', 'my-service->>B: x', 'accept'],
   ['relabel', 'A->>B: x\nparticipant B as Bee', 'accept'],
   ['retype', 'participant A\nactor A\nA->>B: x', 'accept'],
-  ['dbShape', 'participant D@{ \"type\": \"database\" }\nA->>D: q', 'accept'],
-  ['dbAlias', 'participant D@{ \"type\": \"database\", \"alias\": \"Store\" }\nA->>D: q', 'accept'],
+  ['dbShape', 'participant D@{ "type": "database" }\nA->>D: q', 'accept'],
+  ['dbAlias', 'participant D@{ "type": "database", "alias": "Store" }\nA->>D: q', 'accept'],
   ['autonumDecimal', 'autonumber 1.5 0.5\nA->>B: x', 'accept'],
   ['aliasEmpty', 'participant A as\nA->>B: x', 'accept'],
   ['colonInText', 'A->>B: x:y:z', 'accept'],
@@ -662,7 +662,7 @@ const MERMAID_VERDICTS: [string, string, 'accept' | 'reject'][] = [
   ['titlePlain', 'title Hello world\nA->>B: x', 'accept'],
   ['accDescrBlock', 'accDescr {\nmulti\nline\n}\nA->>B: x', 'accept'],
   ['accTitle', 'accTitle: t\naccDescr: d\nA->>B: x', 'accept'],
-  ['links', 'participant A\nlinks A: {\"Dash\": \"https://x\"}\nlink A: Wiki @ https://y\nA->>B: x', 'accept'],
+  ['links', 'participant A\nlinks A: {"Dash": "https://x"}\nlink A: Wiki @ https://y\nA->>B: x', 'accept'],
   ['tabIndent', '\tA->>B: x\n\t\tB-->>A: y', 'accept'],
   ['caseSensitive', 'A->>b: x\nB->>A: y', 'accept'],
   ['idAs', 'participant as\nas->>B: x', 'accept'],
@@ -684,7 +684,7 @@ const MERMAID_VERDICTS: [string, string, 'accept' | 'reject'][] = [
   ['elseNoText', 'alt\nA->>B: y\nelse\nA->>B: z\nend', 'accept'],
   ['msgSelfNote', 'A->>A: x\nNote over A: n', 'accept'],
   ['unicodeArrowText', 'A->>B: → ← ⇒', 'accept'],
-  ['quoteIds', 'participant \"A B\"\n\"A B\"->>C: x', 'accept'],
+  ['quoteIds', 'participant "A B"\n"A B"->>C: x', 'accept'],
   ['longChain', 'A->>B: 1\nB->>C: 2\nC->>D: 3\nD->>E: 4\nE->>F: 5\nF->>G: 6', 'accept'],
   ['noteComma3', 'Note over A, B, C: x', 'reject'],
   ['activateTwice', 'activate A\nactivate A\ndeactivate A', 'accept'],

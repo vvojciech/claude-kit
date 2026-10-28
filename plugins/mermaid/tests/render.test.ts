@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
+import { must } from '../hooks/must'
 import { parseSequence } from '../hooks/parse'
 import { drawSequence, plainRows, wrap } from '../hooks/render'
 import { cellWidth } from '../hooks/width'
@@ -99,9 +100,9 @@ describe('drawSequence', () => {
     const { lines } = draw('participant A as Alice\nparticipant B as Bob\nparticipant C as Christopher\nA->>B: hi\nB->>C: hi')
     const [top, , bottom] = lines
 
-    for (const x of columnsOf(bottom!, '┬')) {
-      const start = top!.lastIndexOf('╭', x)
-      const end = top!.indexOf('╮', x)
+    for (const x of columnsOf(must(bottom), '┬')) {
+      const start = must(top).lastIndexOf('╭', x)
+      const end = must(top).indexOf('╮', x)
       expect(x - start).toBe(end - x)
     }
   })
@@ -115,10 +116,10 @@ describe('drawSequence', () => {
 
   test('never writes a label over the lifelines at either end', async () => {
     const { lines } = draw('A->>B: a label long enough to need its own row\nB->>C: next\nC-->>A: a reply that crosses B on the way back', 60)
-    const [a, , c] = columnsOf(lines[2]!, '┬')
+    const [a, , c] = columnsOf(must(lines[2]), '┬')
 
     for (const line of lines.slice(3)) {
-      for (const x of [a!, c!]) expect('│┃▶◀▷◁×─╌'.includes([...line][x] ?? '│')).toBe(true)
+      for (const x of [must(a), must(c)]) expect('│┃▶◀▷◁×─╌'.includes([...line][x] ?? '│')).toBe(true)
     }
   })
 
@@ -155,13 +156,13 @@ describe('drawSequence', () => {
   test('with labels above, puts every label over a stroke that runs from sender to receiver', async () => {
     const sequence = parseSequence('sequenceDiagram\nA->>B: hi\nB->>C: next\nC-->>A: done')
     const lines = plainRows(drawSequence(sequence, 80, { labelsAbove: true }).rows)
-    const [a, b, c] = columnsOf(lines[2]!, '┬')
+    const [a, b, c] = columnsOf(must(lines[2]), '┬')
     const strokes = lines.slice(3).filter(line => /[─╌]/.test(line))
 
     expect(strokes).toHaveLength(3)
     for (const line of strokes) expect(line).not.toMatch(/[a-z]/)
-    expect([...strokes[0]!].slice(a! + 1, b!).join('')).toMatch(/^─+▶$/)
-    expect([...strokes[2]!].slice(a! + 1, c!).join('')).toMatch(/^◀[╌┼]+$/)
+    expect([...must(strokes[0])].slice(must(a) + 1, b).join('')).toMatch(/^─+▶$/)
+    expect([...must(strokes[2])].slice(must(a) + 1, c).join('')).toMatch(/^◀[╌┼]+$/)
   })
 
   test('with labels above, cuts through idle lifelines and leaves a row after a self-call', async () => {
@@ -176,7 +177,7 @@ describe('drawSequence', () => {
   test('with labels above, ends every number in one column and keeps each ↺ next to its number', async () => {
     const steps = Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? 'A->>A: think' : 'A->>B: ask')).join('\n')
     const lines = plainRows(drawSequence(parseSequence(`sequenceDiagram\nautonumber\n${steps}`), 80, { labelsAbove: true }).rows)
-    const ends = lines.flatMap(line => [...line.matchAll(/\d+(?= (think|ask))/g)].map(match => match.index! + match[0].length))
+    const ends = lines.flatMap(line => [...line.matchAll(/\d+(?= (think|ask))/g)].map(match => must(match.index) + match[0].length))
 
     expect(new Set(ends).size).toBe(1)
     expect(lines.filter(line => line.includes('↺')).every(line => /↺[ \u2007]\d/.test(line))).toBe(true)
@@ -252,7 +253,7 @@ describe('drawSequence', () => {
 
   test('never mirrors a left note onto the right of its lifeline', async () => {
     const { lines } = draw('participant A as Alice\nparticipant B as Bobby\nA->>B: hi\nNote left of A: a note that would need a very wide gutter', 30)
-    const a = columnsOf(lines[2]!, '┬')[0]!
+    const a = must(columnsOf(must(lines[2]), '┬')[0])
 
     for (const line of lines.filter(line => /note|gutter|wide/.test(line))) expect(line.search(/\S/)).toBeLessThan(a)
   })
@@ -274,9 +275,9 @@ describe('drawSequence', () => {
 
   test('never paints a frame label over a lifeline crossing', async () => {
     const { lines } = draw('participant U as User\nparticipant S as Service\nparticipant C as Cache\nU->>S: go\nloop every 5s\nS->>C: poll\nalt hit\nC-->>S: v\nelse miss\nC--)S: refresh later\nend\nend', 37)
-    const lanes = columnsOf(lines[2]!, '┬')
+    const lanes = columnsOf(must(lines[2]), '┬')
 
-    for (const line of lines.filter(line => /[┌├]/.test(line))) for (const x of lanes.slice(1)) expect('┼╂'.includes([...line][x]!)).toBe(true)
+    for (const line of lines.filter(line => /[┌├]/.test(line))) for (const x of lanes.slice(1)) expect('┼╂'.includes(must([...line][x]))).toBe(true)
   })
 
   test('closes a block the source left open', async () => {
@@ -290,8 +291,8 @@ describe('drawSequence', () => {
     const { rows } = drawSequence(sequence, 40)
 
     expect(plainRows(rows).slice(3)).toEqual(['  │─ hi ──▶│'])
-    expect(rows[3]!.some(run => run.shade)).toBe(true)
-    expect(rows[0]!.some(run => run.shade)).toBe(false)
+    expect(must(rows[3]).some(run => run.shade)).toBe(true)
+    expect(must(rows[0]).some(run => run.shade)).toBe(false)
   })
 
   test('thickens the lifeline from the arrow that activates it', async () => {
@@ -309,7 +310,7 @@ describe('drawSequence', () => {
   test('frames a block from just left of its first lane, the condition running along the top edge', async () => {
     const { lines } = draw('participant A\nparticipant B\nA->>B: hi\nalt the customer has an active policy\nB-->>A: ok\nend')
 
-    expect(lines[4]!.indexOf('┌')).toBe(0)
+    expect(must(lines[4]).indexOf('┌')).toBe(0)
     expect(lines[4]).toContain('alt [the customer has an active policy]')
   })
 
@@ -328,7 +329,7 @@ describe('drawSequence', () => {
   test('marks actors with a figure in the same box style', async () => {
     const { lines } = draw('actor U as User\nU->>S: hi')
 
-    expect(lines[0]!.startsWith('╭')).toBe(true)
+    expect(must(lines[0]).startsWith('╭')).toBe(true)
     expect(lines[1]).toContain('☺ User')
   })
 
@@ -368,10 +369,12 @@ describe('drawSequence', () => {
 
   test('measures wide characters by terminal cells', async () => {
     const { lines } = draw('participant Z as Zürich\nparticipant T as 東京\nZ->>T: こんにちは')
-    const lane = cellWidth(lines[2]!.slice(0, lines[2]!.lastIndexOf('┬')))
+    const header = must(lines[2])
+    const lane = cellWidth(header.slice(0, header.lastIndexOf('┬')))
 
     expect(lines[3]).toBe('     │─ こんにちは ──▶│')
-    expect(cellWidth(lines[3]!.slice(0, lines[3]!.lastIndexOf('│')))).toBe(lane)
+    const lifeline = must(lines[3])
+    expect(cellWidth(lifeline.slice(0, lifeline.lastIndexOf('│')))).toBe(lane)
   })
 
   test('drops box padding before cutting names, and both before dropping anyone', async () => {
@@ -565,9 +568,9 @@ describe('spending spare columns', () => {
 
   test('wraps a self message rather than letting it stretch the gap to the next lane', async () => {
     const { lines } = draw('participant W as Worker\nparticipant Q as Queue\nW->>W: retry with exponential backoff and jitter\nW->>Q: ack', 97)
-    const lanes = columnsOf(lines[2]!, '┬')
+    const lanes = columnsOf(must(lines[2]), '┬')
 
-    expect(lanes[1]! - lanes[0]!).toBeLessThanOrEqual(30)
+    expect(must(lanes[1]) - must(lanes[0])).toBeLessThanOrEqual(30)
     expect(lines.join(' ')).toContain('backoff and jitter')
   })
 
@@ -656,8 +659,8 @@ describe('spending spare columns', () => {
     const [top, name, bottom] = lines
 
     expect(name).toContain('│ A │')
-    const x = bottom!.indexOf('┬')
-    expect(x - top!.indexOf('╭')).toBe(top!.indexOf('╮') - x)
+    const x = must(bottom).indexOf('┬')
+    expect(x - must(top).indexOf('╭')).toBe(must(top).indexOf('╮') - x)
   })
 })
 
@@ -716,7 +719,7 @@ describe('round 11', () => {
     const shown = plainRows(rows)
 
     expect(shown.slice(0, 2)).toEqual(['Frontend: User, Web app', 'Backend: API, Postgres'])
-    expect(rows[0]!.every(run => run.ink === 'frame')).toBe(true)
+    expect(must(rows[0]).every(run => run.ink === 'frame')).toBe(true)
   })
 
   test('puts a footnoted left-of note marker left of the first lifeline', async () => {
@@ -742,7 +745,8 @@ describe('round 11', () => {
 
       expect(lines.slice(0, 9).some(line => line.includes('╭'))).toBe(true)
       for (const name of ['Bazaar', 'Gate', 'Risk', 'Contact', 'Tarif', 'Kafka']) expect(shown).toContain(name)
-      for (let n = 1; n <= 22; n++) expect(shown).toMatch(new RegExp(`(^|[^\\d])${n} [^\\[\\s]`, 'm'))
+      const numbered = new Set([...shown.matchAll(/(?<!\d)(\d+) (?=[^[\s])/g)].map(match => Number(match[1])))
+      for (let n = 1; n <= 22; n++) expect(numbered.has(n)).toBe(true)
       for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(width)
       if (width >= 165) expect(notes.filter(note => note.startsWith('['))).toEqual([])
     }
@@ -774,9 +778,9 @@ describe('label-driven layout', () => {
     const rows = [124, 162, 197].map(width => draw(OFFERSET, width))
 
     expect(rows.map(({ notes }) => notes.filter(note => note.startsWith('[')))).toEqual([[], [], []])
-    expect(rows[0]!.lines.length).toBeLessThanOrEqual(80)
-    expect(rows[1]!.lines.length).toBeLessThanOrEqual(62)
-    expect(rows[2]!.lines.length).toBeLessThanOrEqual(52)
+    expect(must(rows[0]).lines.length).toBeLessThanOrEqual(80)
+    expect(must(rows[1]).lines.length).toBeLessThanOrEqual(62)
+    expect(must(rows[2]).lines.length).toBeLessThanOrEqual(52)
   })
 
   test('lists a reply whose participants cannot all fit with their names whole', async () => {

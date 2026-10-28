@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine, TestBody } from 'claude-code/testing'
 
-import { PALETTE, TINT, notDrawn } from '../hooks/register'
+import { PALETTES, TINT, notDrawn, styles } from '../hooks/register'
 
 type On = Parameters<TestBody>[1]
 type Surface = 'terminal' | 'desktop'
@@ -75,6 +75,19 @@ test('draws a flowchart in place of its fence', async ($, on) => {
   await ui.unmount()
 })
 
+test('a flowchart that throws while drawing shows as source without undrawing the others in the reply', async ($, on) => {
+  const seen: { text: string; isFirst: boolean }[] = []
+  beneath(on, seen)
+  const bad = '```mermaid\nflowchart LR\nA[odd &#9999999;]-->B[Stop]\n```'
+  const ui = await mount($, `${FLOWCHART}\n\n${bad}\n\nAfter.`)
+  const all = await texts(ui)
+  expect(all.some(t => t.includes('Start'))).toBe(true)
+  expect(seen.map(one => one.text)).toEqual(['Before.', bad, 'After.'])
+  expect(all).toContain(`engine: ${bad}`)
+  expect(all.some(t => t.startsWith('mermaid: could not draw this diagram ('))).toBe(true)
+  await ui.unmount()
+})
+
 test('keeps another kind of diagram as source and says it is not drawn yet beneath it', async ($, on) => {
   beneath(on)
   const ui = await mount($, PIE)
@@ -113,7 +126,7 @@ test('colours each sender and dims only the stroke of a return', async ($, on) =
   beneath(on)
   const ui = await mount($, '```mermaid\nsequenceDiagram\nA->>B: ask\nB-->>A: answer\n```')
   const name = await ui.find({ type: 'Text', text: /^ ?A ?$/ })
-  expect(name?.props.color).toBe(PALETTE[0])
+  expect(name?.props.color).toBe(PALETTES.dark[0])
   const answer = await ui.find({ type: 'Text', text: /answer/ })
   expect(answer?.props.dimColor).toBeUndefined()
   await ui.unmount()
@@ -166,7 +179,7 @@ test('leaves one blank row between a diagram and its footnotes', async ($, on) =
   const all = await texts(ui)
   const first = all.findIndex(t => t.startsWith('[1] '))
   expect(first).toBeGreaterThan(0)
-  expect(all[first - 1]!.trim()).toBe('')
+  expect(all[first - 1]?.trim()).toBe('')
   await ui.unmount()
 })
 
@@ -199,4 +212,21 @@ test('keeps the text around a diagram whose boxes send details to the legend, at
     expect(all).toContain('engine: Done drawing.')
     await ui.unmount()
   }
+})
+
+const channel = (hex: string, at: number) => {
+  const c = parseInt(hex.slice(at, at + 2), 16) / 255
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+}
+const luminance = (hex: string) => 0.2126 * channel(hex, 1) + 0.7152 * channel(hex, 3) + 0.0722 * channel(hex, 5)
+const contrast = (a: string, b: string) => {
+  const [x, y] = [luminance(a), luminance(b)] as const
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+}
+
+test('colours senders from a palette that reads at 4.5:1 on the theme it is for', async () => {
+  expect(styles(TINT.light).palette).toEqual(PALETTES.light)
+  expect(styles(TINT.dark).palette).toEqual(PALETTES.dark)
+  for (const colour of PALETTES.light) expect(contrast(colour, '#ffffff')).toBeGreaterThanOrEqual(4.5)
+  for (const colour of PALETTES.dark) expect(contrast(colour, '#000000')).toBeGreaterThanOrEqual(4.5)
 })
