@@ -65,6 +65,13 @@ describe('markdown image links', () => {
     expect(markdownImages(text)).toEqual([{ alt: 'w', src: 'd.png' }])
   })
 
+  test('reads balanced and escaped parentheses in a destination', () => {
+    expect(markdownImages('![chart](out/chart(1).png) and ![b](out/b\\).png)')).toEqual([
+      { alt: 'chart', src: 'out/chart(1).png' },
+      { alt: 'b', src: 'out/b).png' },
+    ])
+  })
+
   test('keeps local images only: no URLs, no plain links, no non-image files', () => {
     const text = '![a](https://e.com/a.png) [b](/tmp/b.png) ![c](/tmp/c.pdf) ![d](./d.gif)'
     expect(localImages(text)).toEqual([{ alt: 'd', src: './d.gif' }])

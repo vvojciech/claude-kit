@@ -6,7 +6,7 @@ import { probe, settleCapability } from './capability'
 import { ARGUMENT_HINT, COMMAND, DESCRIPTION, parseCommand, runPeek } from './commands'
 import { imageKeysIn, itemsFor, maxColumnsFor, picturesFor, withThumbs } from './draws'
 import type { Frame, Wanted } from './draws'
-import { BAND_ROWS, THUMB_ROWS, bandColumns } from './fit'
+import { BAND_ROWS, THUMB_ROWS, bandColumns, bandCount } from './fit'
 import { hostOf } from './host'
 import { barePaths, imageTags, localImages, resolvePath, toolImagePaths } from './paths'
 import type { Places } from './places'
@@ -100,7 +100,7 @@ export const register: Register = on => {
 
   on('prompt.edit', async ($, e, next) => {
     const result = await next(e)
-    void syncDraft($, result.text)
+    await syncDraft($, result.text)
     return result
   })
 
@@ -152,8 +152,9 @@ export const register: Register = on => {
     if (imageTags(text).length === 0 && barePaths(text).length === 0) return below
     const shared = await frameOf($, e, $.ui.resolve(e), Math.max(1, Math.min(BAND_ROWS, e.props.maxRows - 2)))
     const wanted = await draftWanted($, shared.places, text)
-    const frame = { ...shared, maxColumns: Math.min(shared.maxColumns, bandColumns(e.viewport?.columns, wanted.length)) }
+    const count = bandCount(e.viewport?.columns, wanted.length)
+    const frame = { ...shared, maxColumns: Math.min(shared.maxColumns, bandColumns(e.viewport?.columns, count)) }
     const items = await itemsFor($, frame, wanted).catch(() => [])
-    return items.length === 0 ? below : band(frame.kit, below, frame.pictures ? items : items.slice(0, frame.maxRows), frame.pictures)
+    return items.length === 0 ? below : band(frame.kit, below, items.slice(0, frame.pictures ? count : frame.maxRows), frame.pictures)
   }).catch((_$, e, next) => next(e))
 }

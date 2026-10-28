@@ -2,7 +2,6 @@ const IMAGE_FILE = /\.(?:png|jpg|jpeg|gif|webp|heic)$/i
 
 const URL = /^[a-z][a-z0-9+.-]*:/i
 
-const MARKDOWN_IMAGE = /!\[([^\]]*)\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+"[^"]*")?\s*\)/g
 
 const IMAGE_TAG = /\[Image #(\d+)\]/g
 
@@ -26,10 +25,6 @@ export function nameOf(path: string): string {
 
 export function extensionOf(path: string): string {
   return (path.match(/\.([^./]+)$/)?.[1] ?? '').toLowerCase()
-}
-
-function unwrap(src: string): string {
-  return src.startsWith('<') && src.endsWith('>') ? src.slice(1, -1) : src
 }
 
 function decoded(path: string): string {
@@ -62,9 +57,55 @@ function outsideCode(text: string): string {
   return kept.join('\n')
 }
 
+const isSpace = (char: string) => char === ' ' || char === '\t' || char === '\n'
+
+function skipSpaces(text: string, at: number): number {
+  let next = at
+  while (next < text.length && isSpace(text.charAt(next))) next++
+  return next
+}
+
+// a destination runs to whitespace or to the `)` that balances its own parentheses; `\)` is a literal
+function bareEnd(text: string, from: number): number {
+  let depth = 0
+  for (let at = from; at < text.length; at++) {
+    const char = text.charAt(at)
+    if (char === '\\') at++
+    else if (isSpace(char) || (char === ')' && depth === 0)) return at
+    else if (char === '(') depth++
+    else if (char === ')') depth--
+  }
+  return text.length
+}
+
+function destinationAt(text: string, from: number): { raw: string; end: number } | undefined {
+  if (text.charAt(from) === '<') {
+    const close = text.indexOf('>', from + 1)
+    return close > from + 1 ? { raw: text.slice(from + 1, close), end: close + 1 } : undefined
+  }
+  const end = bareEnd(text, from)
+  return end > from ? { raw: unescaped(text.slice(from, end)), end } : undefined
+}
+
+function imageAt(text: string, start: number): Linked | undefined {
+  if (text.charAt(start - 1) === '\\') return undefined
+  const close = text.indexOf(']', start + 2)
+  if (close < 0 || text.charAt(close + 1) !== '(') return undefined
+  const dest = destinationAt(text, skipSpaces(text, close + 2))
+  if (dest === undefined) return undefined
+  let at = skipSpaces(text, dest.end)
+  if (text.charAt(at) === '"') at = skipSpaces(text, text.indexOf('"', at + 1) + 1)
+  return text.charAt(at) === ')' && at > 0 ? { alt: text.slice(start + 2, close), src: destination(dest.raw) } : undefined
+}
+
 export function markdownImages(text: string): Linked[] {
   const prose = outsideCode(text)
-  return [...prose.matchAll(MARKDOWN_IMAGE)].filter(m => prose.charAt((m.index ?? 0) - 1) !== '\\').map(m => ({ alt: m[1] ?? '', src: destination(unwrap(m[2] ?? '')) }))
+  const found: Linked[] = []
+  for (let at = prose.indexOf('!['); at >= 0; at = prose.indexOf('![', at + 2)) {
+    const image = imageAt(prose, at)
+    if (image) found.push(image)
+  }
+  return found
 }
 
 export function localImages(text: string): Linked[] {

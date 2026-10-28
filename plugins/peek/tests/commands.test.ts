@@ -44,7 +44,7 @@ describe('running /peek', () => {
   test('converts a JPEG first and copies the converted PNG', async () => {
     const host = fakeHost({ '/h/p.jpg': { base64: 'x' } }, both(sipsWrites(WIDE_PNG), clipboard('«class PNGf», 9')))
     expect((await runPeek(host, PLACES, parseCommand('~/p.jpg'))).ok).toBe(true)
-    expect(scripts(host.runs)[0]).toMatch(/^set the clipboard to \(read \(POSIX file "\/c\/[0-9a-f]{8}-\w+-full\.png"\)/)
+    expect(scripts(host.runs)[0]).toMatch(/^set the clipboard to \(read \(POSIX file "\/c\/[0-9a-f]{16}-full\.\w+"\)/)
   })
 
   test('removes the full-size conversion once the clipboard holds it', async () => {
@@ -102,7 +102,18 @@ describe('places', () => {
     const mine = fakeHost({}, owner('501 700 Directory\n'))
     expect((await placesOf(engine, mine, '/w')).cacheDir).toBe('/t/claude-501/peek')
     expect(mine.runs).toContainEqual(['/bin/mkdir', '-p', '-m', '700', '/t/claude-501'])
-    const shared = fakeHost({}, owner('502 755 Directory\n'))
+    const shared = fakeHost({}, argv => (argv[0] === '/usr/bin/id' ? { stdout: '501\n' } : argv[0] === '/usr/bin/stat' ? { stdout: argv.at(-1) === '/t/claude-501' ? '502 755 Directory\n' : '501 700 Directory\n' } : undefined))
     expect((await placesOf(engine, shared, '/w')).cacheDir).toBe('/h/Library/Caches/peek')
+  })
+
+  test('checks the folder it falls back to as well, and makes a fresh private one when that is shared too', async () => {
+    const engine = { env: { get: async (name: string) => (name === 'HOME' ? '/h' : '/t') }, session: { id: async () => 's1' } } as never
+    const host = fakeHost({}, argv => {
+      if (argv[0] === '/usr/bin/id') return { stdout: '501\n' }
+      if (argv[0] === '/usr/bin/stat') return { stdout: '501 755 Directory\n' }
+      if (argv[0] === '/usr/bin/mktemp') return { stdout: '/t/peek.Ab12Cd\n' }
+      return undefined
+    })
+    expect((await placesOf(engine, host, '/w')).cacheDir).toBe('/t/peek.Ab12Cd')
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { DIRECT_BYTES, RETRY_MS, forgetThumbs, fullPng, sipsArgs, thumbnail } from '../hooks/convert'
+import { DIRECT_BYTES, RETRY_MS, forgetThumbs, fullPng, hashOf, sipsArgs, thumbnail } from '../hooks/convert'
 import { MAX_PNG_BYTES, decodedBytes, pngSize } from '../hooks/png'
 import { TALL_PNG, WIDE_PNG, fakeHost, sipsWrites } from './support'
 
@@ -42,10 +42,10 @@ describe('making a thumbnail', () => {
     const [run] = sipsRuns(host.runs)
     expect(run?.slice(0, 7)).toEqual(['/usr/bin/sips', '-s', 'format', 'png', '-Z', '800', '/a/p.jpg'])
     expect(run?.[7]).toBe('--out')
-    expect(run?.[8]).toMatch(/^\/c\/[0-9a-f]{8}-800\.png\.\w+\.part$/)
+    expect(run?.[8]).toMatch(/^\/c\/[0-9a-f]{16}-800\.png\.part\.\w+$/)
     const cached = [...host.files.keys()].filter(k => k.startsWith('/c/'))
     expect(cached).toHaveLength(1)
-    expect(cached[0]).toMatch(/^\/c\/[0-9a-f]{8}-800\.png$/)
+    expect(cached[0]).toMatch(/^\/c\/[0-9a-f]{16}-800\.png$/)
     expect(thumb?.png).toBe(WIDE_PNG)
     expect(thumb?.path).toBe('/a/p.jpg')
   })
@@ -135,9 +135,22 @@ describe('a full-size PNG for the clipboard', () => {
     const host = fakeHost({ '/a/p.jpg': { base64: 'x' } }, sipsWrites(WIDE_PNG))
     expect(await fullPng(host, '/a/s.png', CACHE)).toBe('/a/s.png')
     const out = await fullPng(host, '/a/p.jpg', CACHE)
-    expect(out).toMatch(/-full\.png$/)
+    expect(out).toMatch(/-full\.\w+$/)
     expect(host.files.get(out ?? '')?.base64).toBe(WIDE_PNG)
     expect(sipsRuns(host.runs)[0]?.slice(0, 5)).toEqual(sipsArgs('/a/p.jpg', '').slice(0, 5))
     expect(sipsRuns(host.runs)[0]).not.toContain('-Z')
+  })
+})
+
+describe('cache names', () => {
+  test('keep apart two images a 32-bit hash would give the same name', () => {
+    expect(hashOf('/images/hfx3vs1gzdub.jpg@1')).not.toBe(hashOf('/images/g7li6j02gwjv.jpg@1'))
+  })
+
+  test('come from mktemp, so two sessions converting at once never share a file', async () => {
+    forgetThumbs()
+    const host = fakeHost({ '/w/a.jpg': { base64: 'x', size: 10 } }, sipsWrites(WIDE_PNG))
+    await thumbnail(host, '/w/a.jpg', '/c')
+    expect(host.runs.some(argv => argv[0] === '/usr/bin/mktemp')).toBe(true)
   })
 })

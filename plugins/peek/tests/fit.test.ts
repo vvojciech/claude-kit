@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { atLeast, mayDraw } from '../hooks/capability'
-import { BAND_SIDE, bandColumns, fitCells } from '../hooks/fit'
+import { BAND_SIDE, bandColumns, bandCount, fitCells } from '../hooks/fit'
 
 describe('thumbnail cells', () => {
   test('keeps the aspect ratio at two rows of pixels per column', () => {
@@ -45,5 +45,13 @@ describe('the band above the prompt', () => {
       if (count * (4 + BAND_SIDE) <= pane) expect(count * (each + BAND_SIDE)).toBeLessThanOrEqual(pane)
     }
     expect(bandColumns(200, 1)).toBe(48)
+  })
+})
+
+describe('how many thumbnails the band shows', () => {
+  test('only as many as fit beside their captions and buttons, at least one', async () => {
+    expect(bandCount(60, 4)).toBe(3)
+    expect(bandCount(100, 4)).toBe(4)
+    expect(bandCount(10, 4)).toBe(1)
   })
 })

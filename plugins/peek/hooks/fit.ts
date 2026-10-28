@@ -31,3 +31,8 @@ export function bandColumns(pane: number | undefined, count: number): number {
   const each = Math.floor(((pane ?? 80) - count * BAND_SIDE) / Math.max(1, count))
   return Math.max(4, Math.min(MAX_COLUMNS, each))
 }
+
+// how many thumbnails one row of the band can hold beside their captions and buttons, at least one
+export function bandCount(pane: number | undefined, count: number): number {
+  return Math.max(1, Math.min(count, Math.floor((pane ?? 80) / (4 + BAND_SIDE))))
+}

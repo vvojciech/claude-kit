@@ -21,6 +21,16 @@ function shell(host: FakeHost, argv: string[]): void {
   if (program === '/bin/mv' || program === '/bin/rm') host.files.delete(from)
 }
 
+let temps = 0
+
+function temp(host: FakeHost, argv: string[]): Partial<Ran> | undefined {
+  if (argv[0] !== '/usr/bin/mktemp') return undefined
+  temps += 1
+  const path = (argv.at(-1) ?? '').replace(/X+$/, `t${temps}`)
+  if (!argv.includes('-d')) host.files.set(path, { base64: '' })
+  return { stdout: `${path}\n` }
+}
+
 export function fakeHost(files: Record<string, FakeFile> = {}, answer: Answer = () => undefined): FakeHost {
   const host: FakeHost = {
     files: new Map(Object.entries(files)),
@@ -29,7 +39,7 @@ export function fakeHost(files: Record<string, FakeFile> = {}, answer: Answer = 
     run: async argv => {
       host.runs.push(argv)
       shell(host, argv)
-      return ran(answer(argv, host))
+      return ran(answer(argv, host) ?? temp(host, argv))
     },
     stat: async path => {
       const file = host.files.get(path)

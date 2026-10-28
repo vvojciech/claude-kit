@@ -23,10 +23,15 @@ export function forgetThumbs(): void {
   made.clear()
 }
 
-export function hashOf(text: string): string {
-  let hash = 0x811c9dc5
+function fnv(text: string, offset: number): string {
+  let hash = offset
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193)
   return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+// two 32-bit passes, so a cache name collides only when both do
+export function hashOf(text: string): string {
+  return fnv(text, 0x811c9dc5) + fnv(`${text.length}:${text}`, 0x050c5d1f)
 }
 
 export function sipsArgs(path: string, out: string, edge?: number): string[] {
@@ -40,16 +45,16 @@ async function asThumb(host: Host, path: string, file: string): Promise<Thumb | 
   return png === undefined || size === undefined ? undefined : { path, name: nameOf(path), png, size }
 }
 
-let written = 0
-
-function unique(): string {
-  written += 1
-  return `${Date.now().toString(36)}n${written}`
+async function madeTemp(host: Host, template: string): Promise<string | undefined> {
+  const made = await host.run(['/usr/bin/mktemp', template])
+  const path = made.stdout.trim()
+  return made.exitCode === 0 && path !== '' ? path : undefined
 }
 
 async function converted(host: Host, path: string, out: string, edge?: number): Promise<boolean> {
   if (await host.exists(out)) return true
-  const part = `${out}.${unique()}.part`
+  const part = await madeTemp(host, `${out}.part.XXXXXX`)
+  if (part === undefined) return false
   const done = (await host.run(sipsArgs(path, part, edge))).exitCode === 0 && (await host.run(['/bin/mv', '-f', part, out])).exitCode === 0
   if (!done) await host.run(['/bin/rm', '-f', part])
   return done
@@ -93,6 +98,9 @@ export async function thumbnail(host: Host, path: string, cacheDir: string, now 
 
 export async function fullPng(host: Host, path: string, cacheDir: string): Promise<string | undefined> {
   if (extensionOf(path) === 'png') return path
-  const out = `${cacheDir}/${hashOf(path)}-${unique()}-full.png`
-  return (await converted(host, path, out)) ? out : undefined
+  const out = await madeTemp(host, `${cacheDir}/${hashOf(path)}-full.XXXXXX`)
+  if (out === undefined) return undefined
+  if ((await host.run(sipsArgs(path, out))).exitCode === 0) return out
+  await host.run(['/bin/rm', '-f', out])
+  return undefined
 }
