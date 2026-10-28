@@ -1,6 +1,4 @@
-export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic'] as const
-
-const IMAGE_FILE = new RegExp(`\\.(?:${IMAGE_EXTENSIONS.join('|')})$`, 'i')
+const IMAGE_FILE = /\.(?:png|jpg|jpeg|gif|webp|heic)$/i
 
 const URL = /^[a-z][a-z0-9+.-]*:/i
 
@@ -8,9 +6,9 @@ const MARKDOWN_IMAGE = /!\[([^\]]*)\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+"[^"]*")?\s*\)/
 
 const IMAGE_TAG = /\[Image #(\d+)\]/g
 
-const BARE_PATH = new RegExp(`(?:^|\\s)((?:~|/)(?:\\\\ |[^\\s])+\\.(?:${IMAGE_EXTENSIONS.join('|')}))(?=\\s|$)`, 'gi')
+const BARE_PATH = /(?:^|\s)((?:~|\/)(?:\\ |[^\s])+\.(?:png|jpg|jpeg|gif|webp|heic))(?=\s|$)/gi
 
-const QUOTED_PATH = new RegExp(`(['"])((?:~|/)[^'"]+\\.(?:${IMAGE_EXTENSIONS.join('|')}))\\1`, 'gi')
+const QUOTED_PATH = /(['"])((?:~|\/)[^'"]+\.(?:png|jpg|jpeg|gif|webp|heic))\1/gi
 
 export type Linked = { alt: string; src: string }
 
@@ -34,8 +32,16 @@ function unwrap(src: string): string {
   return src.startsWith('<') && src.endsWith('>') ? src.slice(1, -1) : src
 }
 
+function decoded(path: string): string {
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    return path
+  }
+}
+
 export function fromFileUrl(src: string): string {
-  return src.startsWith('file://') ? decodeURI(src.slice('file://'.length)) : src
+  return src.startsWith('file://') ? decoded(src.slice('file://'.length)) : src
 }
 
 export function markdownImages(text: string): Linked[] {

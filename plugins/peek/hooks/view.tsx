@@ -32,7 +32,7 @@ function button(kit: Kit, tone: Tone, action: Action): RenderNode {
 }
 
 function buttons(kit: Kit, tone: Tone, shown: Shown): RenderNode[] {
-  return shown.actions.flatMap((action, i) => [<kit.Text key={`gap-${i}`}>{'  '}</kit.Text>, button(kit, tone, action)])
+  return shown.actions.flatMap(action => [<kit.Text key={`gap-${action.key}`}>{'  '}</kit.Text>, button(kit, tone, action)])
 }
 
 export function lineOf(kit: Kit, tone: Tone, shown: Shown): RenderElement {

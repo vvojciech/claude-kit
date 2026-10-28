@@ -39,6 +39,14 @@ describe('markdown image links', () => {
     ])
   })
 
+  test('decodes reserved characters in a file URL, and keeps a stray % as written', () => {
+    expect(markdownImages('![a](file:///tmp/chart%231.png) ![b](file:///tmp/q%3F.png) ![c](file:///tmp/100%.png)')).toEqual([
+      { alt: 'a', src: '/tmp/chart#1.png' },
+      { alt: 'b', src: '/tmp/q?.png' },
+      { alt: 'c', src: '/tmp/100%.png' },
+    ])
+  })
+
   test('keeps local images only: no URLs, no plain links, no non-image files', () => {
     const text = '![a](https://e.com/a.png) [b](/tmp/b.png) ![c](/tmp/c.pdf) ![d](./d.gif)'
     expect(localImages(text)).toEqual([{ alt: 'd', src: './d.gif' }])

@@ -90,7 +90,7 @@ export const register: Register = on => {
     if (parsed.kind === 'help') return { text: outcome.text }
     $.ui.toast(outcome.text)
     return outcome.ok ? {} : { text: outcome.text }
-  }).catch(($, e) => ({ text: `peek could not finish "${e.args}"` }))
+  }).catch((_$, e) => ({ text: `peek could not finish "${e.args}"` }))
 
   on('prompt.change', async ($, e, next) => {
     const result = await next(e)
@@ -107,7 +107,7 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     await update($, draft, () => ({ text: '' }))
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     const drawn = await next(e)
@@ -116,7 +116,7 @@ export const register: Register = on => {
     if (paths.length === 0) return drawn
     const frame = await frameOf($, e, $.ui.resolve(e), THUMB_ROWS)
     return withThumbs($, frame, drawn, wantedPaths(paths, frame.places, 'tool')).catch(error => keep($, drawn, error))
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     const drawn = await next(e)
@@ -125,7 +125,7 @@ export const register: Register = on => {
     if (paths.length === 0) return drawn
     const frame = await frameOf($, e, $.ui.resolve(e), THUMB_ROWS)
     return withThumbs($, frame, drawn, wantedPaths([...new Set(paths)], frame.places, 'group')).catch(error => keep($, drawn, error))
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const drawn = await next(e)
@@ -136,14 +136,14 @@ export const register: Register = on => {
     const inPlace = imageKeysIn(drawn)
     const wanted = wantedPaths(links.map(l => l.src), frame.places, 'reply').filter(w => !inPlace.has(replyImageKey(w.path)))
     return withThumbs($, frame, drawn, wanted).catch(error => keep($, drawn, error))
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     const drawn = await next(e)
     if (e.surface !== 'terminal' || imageTags(e.props.text).length === 0) return drawn
     const frame = await frameOf($, e, $.ui.resolve(e), THUMB_ROWS)
     return withThumbs($, frame, drawn, await pastedWanted($, frame.places, e.props.text)).catch(error => keep($, drawn, error))
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const below = await next(e)
@@ -153,5 +153,5 @@ export const register: Register = on => {
     const frame = await frameOf($, e, $.ui.resolve(e), Math.max(1, Math.min(BAND_ROWS, e.props.maxRows - 2)))
     const items = await itemsFor($, frame, await draftWanted($, frame.places, text)).catch(() => [])
     return items.length === 0 ? below : band(frame.kit, below, items, frame.pictures)
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 }
