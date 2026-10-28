@@ -73,7 +73,7 @@ describe('which way the list opens', () => {
 
 describe('rows above the marker', () => {
   test('counts wrapped rows of text in cells', async () => {
-    expect(wrappedRows('abc\n\n' + 'x'.repeat(25), 10)).toBe(1 + 1 + 3)
+    expect(wrappedRows(`abc\n\n${'x'.repeat(25)}`, 10)).toBe(1 + 1 + 3)
   })
 
   test('counts the transcript drawn before the message that holds the row, a margin each', async () => {

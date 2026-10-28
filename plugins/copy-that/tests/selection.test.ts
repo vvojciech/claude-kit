@@ -48,6 +48,17 @@ describe('sourceBehind', () => {
     expect(sourceBehind(SOURCE, '```python\ndef f(x):')).toEqual({ text: '```python\ndef f(x):' })
   })
 
+  test('keeps markup-looking text inside code, where it is drawn as written', async () => {
+    const source = 'Typed:\n\n```ts\nconst xs: Array<string> = [];\n```\n\nOr inline `Map<K, V>` here.'
+    expect(sourceBehind(source, 'const xs: Array<string> = [];')).toEqual({ text: 'const xs: Array<string> = [];' })
+    expect(sourceBehind(source, 'Or inline Map<K, V> here.')).toEqual({ text: 'Or inline `Map<K, V>` here.' })
+  })
+
+  test('maps letters past the basic plane to the right place in the source', async () => {
+    expect(sourceBehind('𐐀 abc def', 'abc')).toEqual({ text: 'abc' })
+    expect(sourceBehind('𐐀 **abc** def', 'abc def')).toEqual({ text: '**abc** def' })
+  })
+
   test('gives a table back as markdown rows from its padded drawing', async () => {
     const drawn = 'file  purpose\n────  ────────\na.ts  parses x | y'
     expect(sourceBehind(SOURCE, drawn)).toEqual({ text: '| file | purpose |\n|---|---|\n| a.ts | parses x \\| y |' })

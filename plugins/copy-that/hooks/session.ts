@@ -20,6 +20,8 @@ export class Session {
   readonly drawn = new Map<string, string>()
   readonly flashes = new Map<string, Flash>()
   readonly groupCalls = new Map<string, Target>()
+  // interrupted replies drawn but never stored, with where each goes among the transcript's replies
+  readonly unstored: Array<{ reply: Reply; place?: { index: number; replaces: boolean } }> = []
 
   rememberGroup(targets: Target[]): void {
     for (const call of targets) {
@@ -67,6 +69,8 @@ export class Session {
     this.turnRows = []
     this.turnOpen = false
     this.shownBeforeTurn = new Set()
+    const texts = [...written, ...drawnOnly].map(block => block.text).filter(text => text.trim() !== '')
+    if (drawnOnly.length > 0 && texts.length > 0) this.unstored.push({ reply: { texts, partial: true } })
     return [...written, ...drawnOnly]
   }
 }

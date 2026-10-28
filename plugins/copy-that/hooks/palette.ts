@@ -10,9 +10,7 @@ export const dark: Tone = { ground: 'dark', background: '#141311', muted: '#a39e
 
 export const light: Tone = { ground: 'light', background: '#f5f4f0', muted: '#625e56', text: '#2e2c27', accent: '#c96442', pointed: '#ab4f2d' }
 
-const LIGHT_NAME = /(?:^|[-_ ])light(?:$|[-_ ])/i
 
-const DARK_NAME = /(?:^|[-_ ])dark(?:$|[-_ ])/i
 
 const LIGHT_BACKGROUND_INDEX = new Set([7, 15])
 
@@ -23,10 +21,12 @@ export function groundOfTerminal(colorFgBg: string | undefined): Ground | undefi
   return LIGHT_BACKGROUND_INDEX.has(background) ? 'light' : 'dark'
 }
 
+const namesWord = (theme: string, word: string) => theme.toLowerCase().replaceAll('-', ' ').replaceAll('_', ' ').split(' ').includes(word)
+
 export function groundOf(theme: unknown, terminal?: Ground): Ground {
   if (typeof theme !== 'string') return terminal ?? 'dark'
-  if (LIGHT_NAME.test(theme)) return 'light'
-  if (DARK_NAME.test(theme)) return 'dark'
+  if (namesWord(theme, 'light')) return 'light'
+  if (namesWord(theme, 'dark')) return 'dark'
   return terminal ?? 'dark'
 }
 

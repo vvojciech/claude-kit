@@ -2,12 +2,12 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { blocksOf } from '../hooks/lexer'
 import { shape } from './fixtures/golden'
-import { REGENERATE, TERMINALS, THEMES, copyThatTones, toneKey } from './fixtures/tones'
+import { TERMINALS, THEMES, copyThatTones, toneKey } from './fixtures/tones'
 import { CORPUS } from './fixtures/blocks'
 import { LUCID_BLOCKS } from './fixtures/lucid-blocks'
 import { LUCID_TONES } from './fixtures/lucid-palette'
 
-describe(`copy-that without lucid sees the blocks and tones lucid draws (goldens from live lucid: ${REGENERATE}; drift check: dev/check.sh)`, () => {
+describe('copy-that without lucid sees the blocks and tones lucid draws', () => {
   test('the golden file covers the whole corpus', async () => {
     expect(Object.keys(LUCID_BLOCKS).sort()).toEqual(Object.keys(CORPUS).sort())
   })

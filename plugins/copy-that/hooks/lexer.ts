@@ -19,9 +19,39 @@ const ALERT = /^\[!(note|tip|important|warning|caution)\][ \t]*(?:\n|$)/i
 
 const COMMENT = /<!--[\s\S]*?(?:-->|$)/g
 
-const PRE = /^[ \t]*<pre(\s[^>]*)?>\n?([\s\S]*?)(?:<\/pre>[ \t]*\n?([\s\S]*))?$/i
+type Pre = { attributes: string; body: string; after: string }
 
-const CODE_WRAPPER = /^<code(\s[^>]*)?>([\s\S]*?)<\/code>\s*$/i
+// a `<pre>` block opening the html, its body up to the first `</pre>`, and whatever follows that
+function preOf(html: string): Pre | undefined {
+  const lower = html.toLowerCase()
+  let at = 0
+  while (html[at] === ' ' || html[at] === '\t') at++
+  if (!lower.startsWith('<pre', at)) return undefined
+  const open = at + '<pre'.length
+  if (html[open] !== '>' && !/\s/.test(html[open] ?? '')) return undefined
+  const close = html.indexOf('>', open)
+  if (close < 0) return undefined
+  const start = html[close + 1] === '\n' ? close + 2 : close + 1
+  const end = lower.indexOf('</pre>', start)
+  if (end < 0) return { attributes: html.slice(open, close), body: html.slice(start), after: '' }
+  let rest = end + '</pre>'.length
+  while (html[rest] === ' ' || html[rest] === '\t') rest++
+  if (html[rest] === '\n') rest++
+  return { attributes: html.slice(open, close), body: html.slice(start, end), after: html.slice(rest) }
+}
+
+// a `<code>` element wrapping the whole of a `<pre>` body
+function codeWrapperOf(body: string): { attributes: string; inner: string } | undefined {
+  const lower = body.toLowerCase()
+  if (!lower.startsWith('<code')) return undefined
+  const open = '<code'.length
+  const next = body[open]
+  if (next === undefined || (next !== '>' && next.trim() !== '')) return undefined
+  const close = body.indexOf('>', open)
+  const end = lower.lastIndexOf('</code>')
+  if (close < 0 || end <= close || body.slice(end + '</code>'.length).trim() !== '') return undefined
+  return { attributes: body.slice(open, close), inner: body.slice(close + 1, end) }
+}
 
 const MARKUP = /<\/?[a-z][a-z\d]*(?:\s[^<>]*)?\/?>/g
 
@@ -81,13 +111,13 @@ function flowBlocks(html: string, source: string, depth: number): Block[] {
 }
 
 function htmlBlocks(token: Tokens.HTML, depth: number): Block[] {
-  const pre = PRE.exec(token.text)
+  const pre = preOf(token.text)
   if (!pre) return flowBlocks(token.text, token.raw, depth)
-  const wrapper = CODE_WRAPPER.exec(pre[2] ?? '')
-  const body = wrapper ? (wrapper[2] ?? '') : (pre[2] ?? '')
+  const wrapper = codeWrapperOf(pre.body)
+  const body = wrapper ? wrapper.inner : pre.body
   const text = decoded(body.replace(COMMENT, '').replace(MARKUP, '')).replace(/\n$/, '')
-  const code: Block = { kind: 'code', source: token.raw, depth, lang: languageOf(`${pre[1] ?? ''} ${wrapper?.[1] ?? ''}`), text }
-  return [code, ...flowBlocks(pre[3] ?? '', token.raw, depth)]
+  const code: Block = { kind: 'code', source: token.raw, depth, lang: languageOf(`${pre.attributes} ${wrapper?.attributes ?? ''}`), text }
+  return [code, ...flowBlocks(pre.after, token.raw, depth)]
 }
 
 function alertMarker(token: Token | undefined): string | undefined {

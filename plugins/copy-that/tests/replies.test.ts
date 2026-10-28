@@ -21,6 +21,13 @@ describe('repliesFrom', () => {
     expect(texts(messages)).toEqual(['first', 'second\n\nthird'])
   })
 
+  test('keeps one reply across a task notification that lands mid-turn, but starts one when it wakes Claude', async () => {
+    const notice = prompt('<task-notification><task-id>a</task-id><result>done</result></task-notification>')
+    const working: SessionMessage = { role: 'assistant', text: '', toolUses: [{ id: 't', name: 'Bash', input: {} }] as never }
+    expect(texts([prompt('go'), said('Before.'), working, answered(), notice, said('After.')])).toEqual(['Before.\n\nAfter.'])
+    expect(texts([prompt('go'), said('Done.'), notice, said('The task finished.')])).toEqual(['Done.', 'The task finished.'])
+  })
+
   test('drops prompts that drew no text and blank assistant rows', async () => {
     expect(repliesFrom([prompt('a'), called(), answered(), prompt('b'), said('  '), prompt('c'), said('kept')])).toEqual([{ texts: ['kept'], partial: false }])
   })

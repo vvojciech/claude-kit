@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { replyTargets } from '../hooks/targets'
-import { cellWidth } from '../hooks/width'
 import { resolved, resolvedReply } from './support'
 
 const labels = (text: string) => replyTargets(resolved(text)).map(t => t.label)

@@ -170,7 +170,6 @@ async function chipTexts(ui: Mounted, chips: string[]) {
 
 const BLOCKS = ['a', 'b', 'c', 'd', 'e'].map(lang => `\`\`\`${lang}\n${lang}\n\`\`\``)
 const MANY = BLOCKS.join('\n\n')
-const LAST_BLOCK = BLOCKS.at(-1) ?? ''
 
 async function labels($: Engine, text: string, view?: View) {
   const ui = await mount($, text, view)
@@ -498,6 +497,28 @@ describe('which reply a marker copies', () => {
     expect(await ui.find({ type: 'Text', text: 'partial' })).toBeDefined()
     await ui.press({ key: 'copy-reply' })
     expect(copied).toEqual(['one\ntwo\nthree'])
+  })
+
+  test('/copy-that copies an interrupted reply the engine never stored, not the reply before it', async ($, on) => {
+    const { copied } = fakeHost(on, { messages: [prompt('a'), said('Earlier answer.'), prompt('count')] })
+    await $.turn.start({ text: 'count', turnId: 't' } as never)
+    await (await mount($, 'one\ntwo\nthree', { requestId: 'cut' })).unmount()
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't', reason: 'aborted' } as never)
+    await run($, '')
+    await run($, '2')
+    expect(copied).toEqual(['one\ntwo\nthree', 'Earlier answer.'])
+  })
+
+  test('/copy-that copies the whole of an interrupted reply the engine stored only the start of', async ($, on) => {
+    const { copied } = fakeHost(on, { messages: [prompt('a'), said('Earlier answer.'), prompt('count'), said('First part.')] })
+    await $.turn.start({ text: 'count', turnId: 't' } as never)
+    await write($, 'stored', 'First part.')
+    await (await mount($, 'First part.', { requestId: 'stored' })).unmount()
+    await (await mount($, 'Cut short.', { requestId: 'cut' })).unmount()
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't', reason: 'aborted' } as never)
+    await run($, '')
+    await run($, '2')
+    expect(copied).toEqual(['First part.\n\nCut short.', 'Earlier answer.'])
   })
 
   test('a reply row drawn before the turn and drawn again during it keeps its marker and stays out of an aborted reply', async ($, on) => {

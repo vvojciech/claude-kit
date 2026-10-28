@@ -22,8 +22,30 @@ async function transcriptReplies($: EngineInterface): Promise<Reply[]> {
   return repliesFrom(await $.session.messages())
 }
 
+const startsWith = (reply: Reply, head: Reply) => head.texts.length <= reply.texts.length && head.texts.every((text, i) => reply.texts[i] === text)
+
+// right after the turn: over the transcript's last reply when it holds the stored start of this one,
+// otherwise after it
+function placeOf(found: Reply[], reply: Reply): { index: number; replaces: boolean } {
+  const last = found.at(-1)
+  return last !== undefined && startsWith(reply, last) ? { index: found.length - 1, replaces: true } : { index: found.length, replaces: false }
+}
+
+// puts back each interrupted reply the engine never stored in full, where it was drawn
+function withUnstored(found: Reply[]): Reply[] {
+  const merged = [...found]
+  let shift = 0
+  for (const entry of session.unstored) {
+    if (found.some(reply => startsWith(reply, entry.reply))) continue
+    entry.place ??= placeOf(found, entry.reply)
+    merged.splice(entry.place.index + shift, entry.place.replaces ? 1 : 0, entry.reply)
+    if (!entry.place.replaces) shift++
+  }
+  return merged
+}
+
 async function readTranscript($: EngineInterface): Promise<Reply[]> {
-  const found = await transcriptReplies($)
+  const found = withUnstored(await transcriptReplies($))
   await update($, replies, () => found)
   session.seeded = undefined
   return found

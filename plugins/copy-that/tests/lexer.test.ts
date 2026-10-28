@@ -215,7 +215,7 @@ describe('limits', () => {
 
   test('caches what blocksOf lexed by its size', async () => {
     const before = cacheChars()
-    const text = `fresh ${Date.now()}-${Math.random()}`
+    const text = `fresh text for the size cache ${Date.now()}`
     blocksOf(text)
     expect(cacheChars()).toBe(before + text.length)
   })

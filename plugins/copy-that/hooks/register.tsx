@@ -49,7 +49,7 @@ export const register: Register = on => {
     forgetTone()
     if (result.deny === undefined) $.ui.invalidate('ui.render')
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('session.append', { door: 'response' }, async ($, e, next) => {
     const stored = await next(e)
@@ -57,9 +57,9 @@ export const register: Register = on => {
     session.turn.push({ uuid: stored.uuid, text: writtenText(stored.message.content) })
     await markLive($)
     return stored
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
-  on('turn.start', async ($, e, next) => {
+  on('turn.start', async (_$, e, next) => {
     if (e.agentId === undefined) session.openTurn()
     return next(e)
   })
@@ -80,7 +80,7 @@ export const register: Register = on => {
       $.ui.log(failure(error), { to: 'debug' })
       return { text: failure(error) }
     }
-  }).catch(($, e) => ({ text: timedOut(e.args) }))
+  }).catch((_$, e) => ({ text: timedOut(e.args) }))
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     session.reached = true
@@ -94,18 +94,18 @@ export const register: Register = on => {
       return drawn
     }
     return drawnOr($, drawn, () => withMarker($, e, drawn))
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     const drawn = await next(e)
     if (e.surface !== 'terminal' || e.viewport?.isFullscreen !== true || !settled(e.props)) return drawn
     return drawnOr($, drawn, () => withToolMarker($, e, drawn))
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     const drawn = await next(e)
     const folded = !e.props.isExpanded && !e.props.isActive
     if (e.surface !== 'terminal' || e.viewport?.isFullscreen !== true || !folded) return drawn
     return drawnOr($, drawn, () => withGroupMarker($, e, drawn))
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 }

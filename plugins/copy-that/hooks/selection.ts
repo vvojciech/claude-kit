@@ -4,7 +4,33 @@ const HIDDEN_MARKUP = [/\]\([^)\s]*(?:\s+"[^"]*")?\)/g, /<[^>\n]*>/g, /&(?:#x?[\
 
 const FENCE_LINE = /^[ \t]*(?:`{3,}|~{3,})[^\n]*$/gm
 
+const INLINE_CODE = /(`+)[^`\n]+?\1/g
+
 type Projection = { letters: string; at: number[] }
+
+// inline spans and fenced block bodies, where the renderer draws `<a>` or `&amp;` as written
+function codeRanges(source: string): Cut[] {
+  const ranges: Cut[] = []
+  let opened: number | undefined
+  let offset = 0
+  for (const line of source.split('\n')) {
+    const end = offset + line.length
+    const isFence = /^[ \t]*(?:`{3,}|~{3,})/.test(line)
+    if (isFence && opened === undefined) opened = end
+    else if (isFence && opened !== undefined) {
+      ranges.push({ from: opened, to: offset })
+      opened = undefined
+    } else if (opened === undefined) {
+      for (const match of line.matchAll(INLINE_CODE)) {
+        const from = offset + (match.index ?? 0)
+        ranges.push({ from, to: from + match[0].length })
+      }
+    }
+    offset = end + 1
+  }
+  if (opened !== undefined) ranges.push({ from: opened, to: source.length })
+  return ranges
+}
 
 function hiddenRanges(source: string, fences: boolean): boolean[] {
   const hidden: boolean[] = new Array(source.length).fill(false)
@@ -14,6 +40,7 @@ function hiddenRanges(source: string, fences: boolean): boolean[] {
       for (let i = from; i < (match.index ?? 0) + match[0].length; i++) hidden[i] = true
     }
   }
+  for (const { from, to } of codeRanges(source)) hidden.fill(false, from, to)
   return hidden
 }
 
@@ -25,7 +52,8 @@ function project(source: string, fences: boolean): Projection {
   for (const char of source) {
     if (!hidden[index] && VISIBLE.test(char)) {
       letters += char
-      at.push(index)
+      // one entry per UTF-16 unit, so an indexOf into letters lines up with at
+      for (let unit = 0; unit < char.length; unit++) at.push(index)
     }
     index += char.length
   }
@@ -53,7 +81,7 @@ const INLINE_MARKUP = [
   /\*\*[^*\n]+\*\*/g,
   /__[^_\n]+__/g,
   /~~[^~\n]+~~/g,
-  /(`+)[^`\n]+?\1/g,
+  INLINE_CODE,
   /!?\[[^\]\n]*\]\([^)\n]*\)/g,
   /(?<![*\w])\*[^*\s][^*\n]*\*(?![*\w])/g,
   /(?<![_\w])_[^_\s][^_\n]*_(?![_\w])/g,

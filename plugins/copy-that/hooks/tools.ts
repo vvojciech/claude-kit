@@ -7,11 +7,11 @@ export type ToolCall = { tool: string; input: unknown; output?: unknown; tool_us
 
 type Fields = Record<string, unknown>
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequences start with ESC
 const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g
 
 export const OUTPUT_TOOLS = new Set(['Bash', 'Grep', 'Glob', 'WebFetch', 'Agent', 'Task'])
 
-const MCP = /^mcp__/
 
 const AGENT_TOOLS = new Set(['Agent', 'Task'])
 
@@ -92,7 +92,7 @@ export function handbackStub(output: string | undefined): { agentId: string } | 
 }
 
 function outputText(call: ToolCall): string | undefined {
-  if (!OUTPUT_TOOLS.has(call.tool) && !MCP.test(call.tool)) return undefined
+  if (!OUTPUT_TOOLS.has(call.tool) && !call.tool.startsWith('mcp__')) return undefined
   const raw = rawOutput(call)
   return raw === undefined || handbackStub(raw) ? undefined : text(stripAnsi(raw))
 }
@@ -132,11 +132,15 @@ export function toolTarget(call: ToolCall): Target | undefined {
 export function callName(call: ToolCall, kind: ToolKind): string {
   if (kind === 'file') return fileName(call) ?? kind
   if (kind === 'plan') return kind
-  if (MCP.test(call.tool)) return 'mcp'
+  if (call.tool.startsWith('mcp__')) return 'mcp'
   return AGENT_TOOLS.has(call.tool) ? 'agent' : call.tool.toLowerCase()
 }
 
 const NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/g
+
+export function isTaskNotification(message: SessionMessage): boolean {
+  return message.role === 'user' && message.text.includes('<task-notification>') && message.text.replace(NOTIFICATION, '').trim() === ''
+}
 
 const TASK_ID = /<task-id>([\s\S]*?)<\/task-id>/
 const RESULT = /<result>([\s\S]*?)<\/result>/

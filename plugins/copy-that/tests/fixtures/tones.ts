@@ -1,10 +1,6 @@
 import { groundOfTerminal, toneFor } from '../../hooks/palette'
 import type { Tone } from '../../hooks/palette'
 
-export const CONTRACT = 'bun dev/contract.ts'
-
-export const REGENERATE = `${CONTRACT} --write`
-
 export const THEMES = [
   'dark',
   'light',

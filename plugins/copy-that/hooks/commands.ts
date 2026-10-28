@@ -100,24 +100,32 @@ function callRequest(given: string[]): Request | undefined {
   return alone ? { kind: 'call', name: `${name} ${ordinal}` } : { error: callNameAlone(given.join(' ')) }
 }
 
-export function parse(args: string): Request {
-  const given = words(args)
-  if (given.length === 1 && HELP.has(given[0] ?? '')) return { kind: 'help' }
-  const tool = toolRequest(given)
-  if (tool !== undefined) return tool
-  const call = callRequest(given)
-  if (call !== undefined) return call
-  if (given.length === 1 && given[0] === SELECTION) return { kind: 'selection' }
+function soleRequest(given: string[]): Request | undefined {
+  const [only] = given
+  if (given.length !== 1 || only === undefined) return undefined
+  if (HELP.has(only)) return { kind: 'help' }
+  return only === SELECTION ? { kind: 'selection' } : undefined
+}
+
+function indexedBlock(reply: number, name: string, index: string, explicitReply: boolean): Request {
+  const misplaced = !explicitReply && (name === REPLY || name === SELECTION) && COUNT.test(index)
+  if (misplaced) return { error: numberFirst(index, name) }
+  return COUNT.test(index) ? { kind: 'block', reply, name: `${name} ${index}` } : { error: USAGE }
+}
+
+function blockRequest(given: string[]): Request {
   if (given[0] === '0') return { error: BAD_REPLY }
   const explicitReply = COUNT.test(given[0] ?? '')
   const reply = explicitReply ? Number(given.shift()) : 1
   const [name = REPLY, index, ...rest] = given
   if (explicitReply && name === SELECTION && index === undefined) return { error: SELECTION_HAS_NO_REPLY }
   if (rest.length > 0 || (!explicitReply && DIGITS.test(name))) return { error: USAGE }
-  if (index === undefined) return { kind: 'block', reply, name }
-  const misplaced = !explicitReply && (name === REPLY || name === SELECTION) && COUNT.test(index)
-  if (misplaced) return { error: numberFirst(index, name) }
-  return COUNT.test(index) ? { kind: 'block', reply, name: `${name} ${index}` } : { error: USAGE }
+  return index === undefined ? { kind: 'block', reply, name } : indexedBlock(reply, name, index, explicitReply)
+}
+
+export function parse(args: string): Request {
+  const given = words(args)
+  return soleRequest(given) ?? toolRequest(given) ?? callRequest(given) ?? blockRequest(given)
 }
 
 export function whichReply(reply: number): string {
