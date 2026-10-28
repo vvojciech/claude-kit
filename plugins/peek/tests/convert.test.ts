@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { DIRECT_BYTES, RETRY_MS, forgetThumbs, fullPng, hashOf, sipsArgs, thumbnail } from '../hooks/convert'
+import { DIRECT_BYTES, RETRY_MS, SIPS, forgetThumbs, fullPng, hashOf, sipsArgs, thumbnail } from '../hooks/convert'
 import { MAX_PNG_BYTES, decodedBytes, pngSize } from '../hooks/png'
 import { TALL_PNG, WIDE_PNG, fakeHost, sipsWrites } from './support'
 
 const CACHE = '/c'
 
 function sipsRuns(runs: string[][]): string[][] {
-  return runs.filter(r => r[0] === '/usr/bin/sips')
+  return runs.filter(r => r[0] === '/usr/bin/sips' && r.includes('--out'))
 }
 
 const HUGE = 'A'.repeat(Math.ceil(((MAX_PNG_BYTES + 10) * 4) / 3))
@@ -31,7 +31,7 @@ describe('making a thumbnail', () => {
     forgetThumbs()
     const host = fakeHost({ '/a/s.png': { base64: WIDE_PNG } })
     const thumb = await thumbnail(host, '/a/s.png', CACHE)
-    expect(thumb).toEqual({ path: '/a/s.png', name: 's.png', png: WIDE_PNG, size: { width: 40, height: 20 } })
+    expect(thumb).toEqual({ path: '/a/s.png', name: 's.png', png: WIDE_PNG, size: { width: 40, height: 20 }, source: { width: 40, height: 20 } })
     expect(host.runs).toEqual([])
   })
 
@@ -61,7 +61,7 @@ describe('making a thumbnail', () => {
     forgetThumbs()
     let made = 0
     const host = fakeHost({ '/a/h.heic': { base64: 'x' } }, (argv, h) => {
-      if (argv[0] !== '/usr/bin/sips') return undefined
+      if (argv[0] !== '/usr/bin/sips' || !argv.includes('--out')) return undefined
       made += 1
       h.files.set(argv[argv.length - 1] ?? '', { base64: made < 3 ? WIDE_PNG + HUGE : TALL_PNG })
       return { exitCode: 0 }
@@ -82,12 +82,32 @@ describe('making a thumbnail', () => {
   test('never leaves a half-written file under the cache name when sips fails', async () => {
     forgetThumbs()
     const host = fakeHost({ '/a/b.webp': { base64: 'x' } }, (argv, h) => {
-      if (argv[0] !== '/usr/bin/sips') return undefined
+      if (argv[0] !== '/usr/bin/sips' || !argv.includes('--out')) return undefined
       h.files.set(argv[argv.length - 1] ?? '', { base64: 'half' })
       return { exitCode: 1 }
     })
     expect(await thumbnail(host, '/a/b.webp', CACHE)).toBeUndefined()
     expect([...host.files.keys()].filter(k => k.startsWith('/c/'))).toEqual([])
+  })
+
+  test('keeps the size of the original beside the converted PNG, for the caption', async () => {
+    forgetThumbs()
+    const host = fakeHost({ '/a/p.jpg': { base64: '/9j/' } }, (argv, h) => {
+      if (argv[0] === SIPS && argv[1] === '-g') return { stdout: '/a/p.jpg\n  pixelWidth: 4000\n  pixelHeight: 2000\n' }
+      return sipsWrites(WIDE_PNG)(argv, h)
+    })
+    const thumb = await thumbnail(host, '/a/p.jpg', CACHE)
+    expect(thumb?.size).toEqual({ width: 40, height: 20 })
+    expect(thumb?.source).toEqual({ width: 4000, height: 2000 })
+  })
+
+  test('converts nothing without a private cache folder, and still shows a small PNG', async () => {
+    forgetThumbs()
+    const host = fakeHost({ '/a/p.jpg': { base64: 'x' }, '/a/s.png': { base64: WIDE_PNG } }, sipsWrites(WIDE_PNG))
+    expect(await thumbnail(host, '/a/p.jpg', undefined)).toBeUndefined()
+    expect((await thumbnail(host, '/a/s.png', undefined))?.png).toBe(WIDE_PNG)
+    expect(await fullPng(host, '/a/p.jpg', undefined)).toBeUndefined()
+    expect(host.runs).toEqual([])
   })
 
   test('answers a missing file with nothing', async () => {

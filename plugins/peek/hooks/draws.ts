@@ -42,7 +42,7 @@ function actionsOf($: EngineInterface, frame: Frame, wanted: Wanted): Action[] {
 async function pictured(frame: Frame, wanted: Wanted, base: Shown): Promise<Shown | undefined> {
   const thumb = await thumbnail(frame.host, wanted.path, frame.places.cacheDir)
   if (thumb === undefined) return undefined
-  return { ...base, png: thumb.png, caption: `${thumb.size.width}×${thumb.size.height}`, cells: fitCells(thumb.size, frame.maxRows, frame.maxColumns) }
+  return { ...base, png: thumb.png, caption: `${thumb.source.width}×${thumb.source.height}`, cells: fitCells(thumb.size, frame.maxRows, frame.maxColumns) }
 }
 
 export async function shownFor($: EngineInterface, frame: Frame, wanted: Wanted): Promise<Shown | undefined> {

@@ -27,7 +27,7 @@ export async function pictureFor(host: Host, args: PeekPictureArgs, where: Place
   const thumb = isImagePath(path) ? await thumbnail(host, path, where.cacheDir) : undefined
   if (thumb === undefined) return UNRESOLVED
   const cells = fitCells(thumb.size, THUMB_ROWS, maxColumnsFor(args.columns))
-  return { source: { png: thumb.png }, ...cells, alt: `${MARK} ${thumb.name}`, path, name: thumb.name, caption: `${thumb.size.width}×${thumb.size.height}`, open: OPEN, key: replyImageKey(path) }
+  return { source: { png: thumb.png }, ...cells, alt: `${MARK} ${thumb.name}`, path, name: thumb.name, caption: `${thumb.source.width}×${thumb.source.height}`, open: OPEN, key: replyImageKey(path) }
 }
 
 export async function openFor(host: Host, args: PeekOpenArgs, where: Places): Promise<PeekOpened> {

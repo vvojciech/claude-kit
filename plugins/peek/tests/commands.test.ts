@@ -116,4 +116,15 @@ describe('places', () => {
     })
     expect((await placesOf(engine, host, '/w')).cacheDir).toBe('/t/peek.Ab12Cd')
   })
+
+  test('keeps no cache when every folder is shared and mktemp fails, rather than use a shared one', async () => {
+    const engine = { env: { get: async (name: string) => (name === 'HOME' ? '/h' : '/t') }, session: { id: async () => 's1' } } as never
+    const host = fakeHost({}, argv => {
+      if (argv[0] === '/usr/bin/id') return { stdout: '501\n' }
+      if (argv[0] === '/usr/bin/stat') return { stdout: '501 755 Directory\n' }
+      if (argv[0] === '/usr/bin/mktemp') return { exitCode: 1, stderr: 'mktemp: failed' }
+      return undefined
+    })
+    expect((await placesOf(engine, host, '/w')).cacheDir).toBeUndefined()
+  })
 })

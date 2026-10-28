@@ -46,13 +46,52 @@ function destination(src: string): string {
   return isUrl(src) ? src : decoded(src)
 }
 
+function runAt(line: string, at: number, char = '`'): number {
+  let end = at
+  while (line.charAt(end) === char) end++
+  return end - at
+}
+
+function fenceOf(line: string): string | undefined {
+  const text = line.trimStart()
+  const char = text.charAt(0)
+  const run = char === '`' || char === '~' ? runAt(text, 0, char) : 0
+  return run >= 3 ? text.slice(0, run) : undefined
+}
+
+function closes(line: string, open: string): boolean {
+  const fence = fenceOf(line)
+  return fence !== undefined && fence.charAt(0) === open.charAt(0) && fence.length >= open.length && line.trim() === fence
+}
+
+function closingTicks(line: string, from: number, run: number): number {
+  for (let at = line.indexOf('`', from); at >= 0; at = line.indexOf('`', at + runAt(line, at))) {
+    if (runAt(line, at) === run) return at
+  }
+  return -1
+}
+
+// a code span closes on the next run of exactly as many backticks; an unclosed run is literal
+function withoutSpans(line: string): string {
+  let out = ''
+  let at = 0
+  for (let tick = line.indexOf('`'); tick >= 0; tick = line.indexOf('`', at)) {
+    const run = runAt(line, tick)
+    const close = closingTicks(line, tick + run, run)
+    out += close < 0 ? line.slice(at, tick + run) : `${line.slice(at, tick)} `
+    at = close < 0 ? tick + run : close + run
+  }
+  return out + line.slice(at)
+}
+
 function outsideCode(text: string): string {
-  let fenced = false
+  let fence: string | undefined
   const kept: string[] = []
   for (const line of text.split('\n')) {
-    const fence = line.trimStart().startsWith('```') || line.trimStart().startsWith('~~~')
-    if (fence) fenced = !fenced
-    else if (!fenced) kept.push(line.split('`').filter((_, i) => i % 2 === 0).join(' '))
+    if (fence === undefined) {
+      fence = fenceOf(line)
+      if (fence === undefined) kept.push(withoutSpans(line))
+    } else if (closes(line, fence)) fence = undefined
   }
   return kept.join('\n')
 }
@@ -158,9 +197,12 @@ function inputPath(input: unknown, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
+const CHANGES_DIRECTORY = new Set(['cd', 'pushd', 'popd'])
+
 function commandPaths(command: string): string[] {
-  const tokens = command.match(/"[^"]*"|'[^']*'|(?:\\ |[^\s;|&><])+/g) ?? []
-  return tokens.map(unquoted).filter(t => isImagePath(t) && !isUrl(t))
+  const tokens = command.match(/"[^"]*"|'[^']*'|(?:\\[\s\S]|[^\s;|&><\\])+/g) ?? []
+  const moves = tokens.some(t => CHANGES_DIRECTORY.has(t))
+  return tokens.map(unquoted).filter(t => isImagePath(t) && !isUrl(t) && (!moves || t.startsWith('/') || t.startsWith('~/')))
 }
 
 const FILE_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit'])

@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { Entry, Host } from './host'
 import { isImagePath } from './paths'
 
-export type Places = { home: string; cwd: string; imagesDir: string; cacheDir: string }
+export type Places = { home: string; cwd: string; imagesDir: string; cacheDir: string | undefined }
 
 export function projectSlug(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-')
@@ -22,14 +22,14 @@ export async function placesOf($: EngineInterface, host: Host, cwd: string): Pro
   ])
   const tmp = claudeTmp(base, uid)
   const preferred = (await isPrivate(host, tmp, uid)) ? `${tmp}/peek` : `${home ?? ''}/Library/Caches/peek`
-  const cacheDir = (await isPrivate(host, preferred, uid)) ? preferred : await freshDir(host, preferred)
+  const cacheDir = (await isPrivate(host, preferred, uid)) ? preferred : await freshDir(host)
   return { home: home ?? '', cwd, imagesDir: `${tmp}/${projectSlug(cwd)}/${session}/images`, cacheDir }
 }
 
-async function freshDir(host: Host, otherwise: string): Promise<string> {
+async function freshDir(host: Host): Promise<string | undefined> {
   const made = await host.run(['/usr/bin/mktemp', '-d', '-t', 'peek'])
   const dir = made.stdout.trim()
-  return made.exitCode === 0 && dir !== '' ? dir : otherwise
+  return made.exitCode === 0 && dir !== '' ? dir : undefined
 }
 
 async function isPrivate(host: Host, dir: string, uid: string): Promise<boolean> {

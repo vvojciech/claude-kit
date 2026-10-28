@@ -6,6 +6,7 @@ import { forgetThumbs } from '../hooks/convert'
 import { ON_CLIPBOARD } from '../hooks/actions'
 import { USAGE } from '../hooks/commands'
 import { CLIP } from '../hooks/draws'
+import { bandColumns } from '../hooks/fit'
 import { BAND_KEY, GALLERY_KEY } from '../hooks/view'
 import { WIDE_PNG } from './support'
 
@@ -262,8 +263,8 @@ describe('the /peek command', () => {
 })
 
 describe('the band above the prompt', () => {
-  async function band($: Engine, maxRows = 12) {
-    return $.ui.mount({ plugin: 'peek', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows, bodyColumns: 100 } as never, viewport: VIEW, requestId: `band-${maxRows}` })
+  async function band($: Engine, maxRows = 12, bodyColumns = 100) {
+    return $.ui.mount({ plugin: 'peek', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows, bodyColumns } as never, viewport: VIEW, requestId: `band-${maxRows}-${bodyColumns}` })
   }
 
   async function sideRows(ui: Mounted) {
@@ -292,6 +293,16 @@ describe('the band above the prompt', () => {
     expect(await images(ui)).toHaveLength(2)
     expect((await ui.find({ type: 'Button', key: 'peek-clip-bare-0' }))?.props.label).toBe(CLIP)
     expect(await ui.find({ type: 'Text', text: 'beneath' })).toBeDefined()
+  })
+
+  test('sizes its thumbnails to the columns the band has, not the whole terminal', async ($, on) => {
+    host(on, { files: { '/h/a.png': WIDE_PNG, '/h/b.png': WIDE_PNG, '/h/c.png': WIDE_PNG, '/h/d.png': WIDE_PNG } })
+    await start($)
+    await changed($, '/h/a.png /h/b.png /h/c.png /h/d.png')
+    expect(await images(await band($, 12, 100))).toHaveLength(4)
+    const narrow = await images(await band($, 12, 60))
+    expect(narrow).toHaveLength(3)
+    expect(narrow.every(i => Number(i.props.columns) <= bandColumns(60, 3))).toBe(true)
   })
 
   test('stays out of the way with no images in the draft', async ($, on) => {

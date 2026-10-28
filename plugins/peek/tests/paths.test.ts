@@ -24,6 +24,16 @@ describe('image paths in tool inputs', () => {
     expect(toolImagePaths('Bash', { command: "open /tmp/shot\\(1\\).png '/tmp/a\\b.png'" })).toEqual(['/tmp/shot(1).png', '/tmp/a\\b.png'])
   })
 
+  test('keeps an escaped shell operator inside its path', () => {
+    expect(toolImagePaths('Bash', { command: 'cat /tmp/R\\&D.png /tmp/a\\;b.png|wc' })).toEqual(['/tmp/R&D.png', '/tmp/a;b.png'])
+  })
+
+  test('drops relative paths from a command that changes directory, keeping absolute ones', () => {
+    expect(toolImagePaths('Bash', { command: 'cd /tmp && sips -s format png in.jpg --out chart.png' })).toEqual([])
+    expect(toolImagePaths('Bash', { command: 'pushd /tmp; sips a.jpg --out /tmp/b.png ~/c.png' })).toEqual(['/tmp/b.png', '~/c.png'])
+    expect(toolImagePaths('Bash', { command: 'sips in.jpg --out out/cd.png' })).toEqual(['in.jpg', 'out/cd.png'])
+  })
+
   test('knows the image extensions in any case', () => {
     expect(['a.png', 'a.JPG', 'a.jpeg', 'a.gif', 'a.webp', 'a.heic'].every(isImagePath)).toBe(true)
     expect(isImagePath('a.svg')).toBe(false)
@@ -63,6 +73,16 @@ describe('markdown image links', () => {
   test('skips image syntax inside code and after a backslash', () => {
     const text = 'Write `![x](a.png)` like so:\n\n```md\n![y](b.png)\n```\n\n\\![z](c.png) but ![w](d.png)'
     expect(markdownImages(text)).toEqual([{ alt: 'w', src: 'd.png' }])
+  })
+
+  test('skips image syntax inside a code span of two or more backticks', () => {
+    expect(markdownImages('Write ``![x](a.png) with ` inside`` then ![w](d.png)')).toEqual([{ alt: 'w', src: 'd.png' }])
+    expect(markdownImages('A lone ` tick, then ![w](d.png)')).toEqual([{ alt: 'w', src: 'd.png' }])
+  })
+
+  test('closes a fence only on the same marker, at least as long', () => {
+    expect(markdownImages('````md\n```\n![x](a.png)\n```\n````\n![w](d.png)')).toEqual([{ alt: 'w', src: 'd.png' }])
+    expect(markdownImages('```\n~~~\n![x](a.png)\n```\n![w](d.png)')).toEqual([{ alt: 'w', src: 'd.png' }])
   })
 
   test('reads balanced and escaped parentheses in a destination', () => {

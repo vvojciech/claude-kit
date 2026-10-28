@@ -58,7 +58,7 @@ export function fakeHost(files: Record<string, FakeFile> = {}, answer: Answer = 
 
 export function sipsWrites(base64: string): Answer {
   return (argv, host) => {
-    if (argv[0] !== '/usr/bin/sips') return undefined
+    if (argv[0] !== '/usr/bin/sips' || !argv.includes('--out')) return undefined
     host.files.set(argv[argv.length - 1] ?? '', { base64 })
     return { exitCode: 0 }
   }

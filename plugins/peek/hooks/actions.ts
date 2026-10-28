@@ -33,7 +33,7 @@ export async function clipboardHoldsPng(host: Host): Promise<boolean> {
   return info.exitCode === 0 && info.stdout.includes('PNGf')
 }
 
-export async function copyImage(host: Host, path: string, cacheDir: string): Promise<string> {
+export async function copyImage(host: Host, path: string, cacheDir: string | undefined): Promise<string> {
   if (!isImagePath(path)) return `Not an image: ${path}`
   if ((await host.stat(path)) === undefined) return `No such file: ${path}`
   const png = await fullPng(host, path, cacheDir)

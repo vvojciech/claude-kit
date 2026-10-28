@@ -23,7 +23,7 @@ Drawn with lucid loaded. The small picture just above the prompt line is the ban
 
 Where pictures can't draw, peek shows one line per image instead, `▣ shot.png  ⤢ open`, and the button still works.
 
-With lucid loaded, peek has to load before it. See [load order](../../README.md#load-order).
+With lucid loaded, peek has to load before it. See [load order](#load-order).
 
 ## Features
 
@@ -90,4 +90,8 @@ peek adds `$.peek` to the engine. Types live in `types/index.d.ts`.
   - `{ fallback: 'unresolved' }` when the file is missing or not an image.
 - `open({ path, cwd })` opens the original in Preview and returns `{}`, or `{ error }` after a toast with the reason.
 - If a mod draws an image under a key from `$.peek.picture`, peek doesn't draw it again under the reply.
-- Non-PNG files, and PNGs over 512 KiB, are converted with `/usr/bin/sips` to an 800 px PNG in `/tmp/claude-<uid>/peek` (`~/Library/Caches/peek` if that folder isn't private to you), stepping down to 512 and 256 px if the result is still over 2 MiB. Conversions are cached by path and modification time; a failed one is tried again after 30 seconds. `/peek` converts a non-PNG at full size and deletes the copy once it's on the clipboard.
+- Non-PNG files, and PNGs over 512 KiB, are converted with `/usr/bin/sips` to an 800 px PNG in `/tmp/claude-<uid>/peek` (`~/Library/Caches/peek` if that folder isn't private to you, then a fresh `mktemp -d` folder; with none of them, nothing is converted), stepping down to 512 and 256 px if the result is still over 2 MiB. Conversions are cached by path and modification time; a failed one is tried again after 30 seconds. `/peek` converts a non-PNG at full size and deletes the copy once it's on the clipboard.
+
+## Load order
+
+Running several mods? Load them in this order: copy-that, peek, mermaid, then any mod that draws replies itself (lucid, for example). `/plugin install` can't set the order, so clone this repo and list the mod folders in that order in `CLAUDE_CODE_PLUGIN_DIRS`, in the `env` block of `~/.claude/settings.json`. Restart Claude Code afterwards.

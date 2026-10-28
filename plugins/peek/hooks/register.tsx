@@ -152,8 +152,8 @@ export const register: Register = on => {
     if (imageTags(text).length === 0 && barePaths(text).length === 0) return below
     const shared = await frameOf($, e, $.ui.resolve(e), Math.max(1, Math.min(BAND_ROWS, e.props.maxRows - 2)))
     const wanted = await draftWanted($, shared.places, text)
-    const count = bandCount(e.viewport?.columns, wanted.length)
-    const frame = { ...shared, maxColumns: Math.min(shared.maxColumns, bandColumns(e.viewport?.columns, count)) }
+    const count = bandCount(e.props.bodyColumns, wanted.length)
+    const frame = { ...shared, maxColumns: Math.min(shared.maxColumns, bandColumns(e.props.bodyColumns, count)) }
     const items = await itemsFor($, frame, wanted).catch(() => [])
     return items.length === 0 ? below : band(frame.kit, below, items.slice(0, frame.pictures ? count : frame.maxRows), frame.pictures)
   }).catch((_$, e, next) => next(e))

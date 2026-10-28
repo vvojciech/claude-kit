@@ -13,7 +13,7 @@ const REMEMBERED = 64
 
 export const RETRY_MS = 30_000
 
-export type Thumb = { path: string; name: string; png: string; size: Size }
+export type Thumb = { path: string; name: string; png: string; size: Size; source: Size }
 
 type Made = { thumb: Promise<Thumb | undefined>; failedAt?: number }
 
@@ -42,7 +42,18 @@ export function sipsArgs(path: string, out: string, edge?: number): string[] {
 async function asThumb(host: Host, path: string, file: string): Promise<Thumb | undefined> {
   const png = await host.read(file).catch(() => undefined)
   const size = png === undefined ? undefined : pngSize(png)
-  return png === undefined || size === undefined ? undefined : { path, name: nameOf(path), png, size }
+  return png === undefined || size === undefined ? undefined : { path, name: nameOf(path), png, size, source: size }
+}
+
+function pixels(report: string, field: string): number {
+  const line = report.split('\n').find(l => l.trim().startsWith(`${field}:`))
+  return Number(line?.split(':')[1]?.trim() ?? NaN)
+}
+
+async function sourceSize(host: Host, path: string): Promise<Size | undefined> {
+  const report = (await host.run([SIPS, '-g', 'pixelWidth', '-g', 'pixelHeight', path])).stdout
+  const size = { width: pixels(report, 'pixelWidth'), height: pixels(report, 'pixelHeight') }
+  return size.width > 0 && size.height > 0 ? size : undefined
 }
 
 async function madeTemp(host: Host, template: string): Promise<string | undefined> {
@@ -65,14 +76,14 @@ async function scaled(host: Host, path: string, stem: string): Promise<Thumb | u
     const out = `${stem}-${edge}.png`
     if (!(await converted(host, path, out, edge))) return undefined
     const thumb = await asThumb(host, path, out)
-    if (thumb !== undefined && decodedBytes(thumb.png) <= MAX_PNG_BYTES) return thumb
+    if (thumb !== undefined && decodedBytes(thumb.png) <= MAX_PNG_BYTES) return { ...thumb, source: (await sourceSize(host, path)) ?? thumb.size }
   }
   return undefined
 }
 
-async function make(host: Host, path: string, cacheDir: string, key: string, size: number): Promise<Thumb | undefined> {
+async function make(host: Host, path: string, cacheDir: string | undefined, key: string, size: number): Promise<Thumb | undefined> {
   if (extensionOf(path) === 'png' && size <= DIRECT_BYTES) return asThumb(host, path, path)
-  return scaled(host, path, `${cacheDir}/${hashOf(key)}`)
+  return cacheDir === undefined ? undefined : scaled(host, path, `${cacheDir}/${hashOf(key)}`)
 }
 
 function remember(key: string, thumb: Promise<Thumb | undefined>, now: number): Promise<Thumb | undefined> {
@@ -89,15 +100,16 @@ function current(entry: Made | undefined, now: number): Promise<Thumb | undefine
   return entry === undefined || (entry.failedAt !== undefined && now - entry.failedAt > RETRY_MS) ? undefined : entry.thumb
 }
 
-export async function thumbnail(host: Host, path: string, cacheDir: string, now = Date.now()): Promise<Thumb | undefined> {
+export async function thumbnail(host: Host, path: string, cacheDir: string | undefined, now = Date.now()): Promise<Thumb | undefined> {
   const stat = await host.stat(path)
   if (stat === undefined) return undefined
   const key = `${path}@${stat.mtimeMs}`
   return current(made.get(key), now) ?? remember(key, make(host, path, cacheDir, key, stat.size).catch(() => undefined), now)
 }
 
-export async function fullPng(host: Host, path: string, cacheDir: string): Promise<string | undefined> {
+export async function fullPng(host: Host, path: string, cacheDir: string | undefined): Promise<string | undefined> {
   if (extensionOf(path) === 'png') return path
+  if (cacheDir === undefined) return undefined
   const out = await madeTemp(host, `${cacheDir}/${hashOf(path)}-full.XXXXXX`)
   if (out === undefined) return undefined
   if ((await host.run(sipsArgs(path, out))).exitCode === 0) return out
