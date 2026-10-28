@@ -1,4 +1,5 @@
 import { must } from './must'
+import { NAMED } from './entities'
 import { fencesOf } from './segments'
 
 export type Arrow = 'filled' | 'open' | 'cross' | 'async' | 'both' | 'half'
@@ -119,23 +120,6 @@ const ARROWS: Record<string, { isDashed: boolean; arrow: Arrow; isReversed?: boo
   '<<-->>': { isDashed: true, arrow: 'both' },
 }
 
-const NAMED: Record<string, string> = {
-  quot: '"', amp: '&', lt: '<', gt: '>', nbsp: ' ', apos: "'", infin: '∞', rarr: '→', larr: '←', uarr: '↑',
-  darr: '↓', harr: '↔', rArr: '⇒', lArr: '⇐', hArr: '⇔', hellip: '…', mdash: '—', ndash: '–', copy: '©',
-  reg: '®', trade: '™', deg: '°', plusmn: '±', times: '×', divide: '÷', le: '≤', ge: '≥', ne: '≠',
-  middot: '·', bull: '•', laquo: '«', raquo: '»', euro: '€', pound: '£', check: '✓', cross: '✗',
-  colon: ':', semi: ';', num: '#', excl: '!', quest: '?', lpar: '(', rpar: ')', lsqb: '[', rsqb: ']', lbrack: '[',
-  rbrack: ']', lcub: '{', rcub: '}', lbrace: '{', rbrace: '}', ast: '*', plus: '+', comma: ',', period: '.', sol: '/',
-  bsol: '\\', verbar: '|', vert: '|', equals: '=', percnt: '%', dollar: '$', commat: '@', Hat: '^', lowbar: '_',
-  grave: '`', tilde: '~', sect: '§', para: '¶', micro: 'µ', cent: '¢', yen: '¥', frac12: '½', frac14: '¼', frac34: '¾',
-  sup1: '¹', sup2: '²', sup3: '³', iexcl: '¡', iquest: '¿', ensp: ' ', emsp: ' ', thinsp: ' ', lsquo: '‘', rsquo: '’',
-  ldquo: '“', rdquo: '”', dagger: '†', Dagger: '‡', permil: '‰', prime: '′', Prime: '″', larrhk: '↩', crarr: '↵',
-  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', lambda: 'λ', mu: 'μ', pi: 'π', sigma: 'σ', tau: 'τ',
-  phi: 'φ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Lambda: 'Λ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Omega: 'Ω',
-  sum: '∑', prod: '∏', radic: '√', int: '∫', part: '∂', nabla: '∇', isin: '∈', notin: '∉', cap: '∩', cup: '∪',
-  sub: '⊂', sup: '⊃', and: '∧', or: '∨', not: '¬', forall: '∀', exist: '∃', empty: '∅', equiv: '≡', asymp: '≈',
-  prop: '∝', minus: '−', lowast: '∗', sdot: '⋅', loz: '◊', spades: '♠', clubs: '♣', hearts: '♥', diams: '♦',
-}
 
 const BREAK = /<br\s*\/?>/gi
 

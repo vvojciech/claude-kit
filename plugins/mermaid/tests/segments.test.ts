@@ -148,3 +148,23 @@ test('finds a fence that opens on a later line of a list item inside a blockquot
   expect(fencesOf('> - item\n>\n>   ```mermaid\n>   sequenceDiagram\n>   A->>B: x\n>   ```\n> after').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
   expect(fencesOf('> - item\n>\n>     ```mermaid\n>     sequenceDiagram\n>     A->>B: x\n>     ```\n> after').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
 })
+
+test('leaving a blockquote ends an HTML comment, raw block or HTML block opened in it', () => {
+  const fence = '```mermaid\nsequenceDiagram\nA->>B: x\n```'
+  for (const opener of ['> <!--', '> <pre>', '> <div>']) {
+    for (const gap of ['\n', '\n\n']) expect(fencesOf(`${opener}${gap}${fence}`).map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+  }
+})
+
+test('a line that leaves a list item ends an HTML comment or raw block opened in it', () => {
+  const fence = '```mermaid\nsequenceDiagram\nA->>B: x\n```'
+  for (const opener of ['- <!--', '- <pre>', '- item\n\n  <!--']) expect(fencesOf(`${opener}\n\n${fence}`).map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+  expect(fencesOf(`- <!--\n\n  ${fence.replaceAll('\n', '\n  ')}\n  -->`)).toEqual([])
+})
+
+test('a fence opened on its list marker drops the marker from the source it falls back to', () => {
+  for (const [marker, pad] of [['-', '  '], ['1.', '   ']] as const) {
+    const markdown = `${marker} \`\`\`mermaid\n${pad}sequenceDiagram\n${pad}A->>B: x\n${pad}\`\`\``
+    expect(segmentsOf(markdown, typeOf)).toEqual([{ kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: '```mermaid\nsequenceDiagram\nA->>B: x\n```' }])
+  }
+})

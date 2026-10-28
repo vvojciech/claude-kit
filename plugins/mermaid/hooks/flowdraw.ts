@@ -11,6 +11,8 @@ import { wrap } from './render'
 import { must } from './must'
 import { cellWidth } from './width'
 
+const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
 const UP = 1
 const DOWN = 2
 const LEFT = 4
@@ -46,11 +48,15 @@ class Grid {
     Object.assign(this.at(x, y), { char, ink, lane })
   }
 
+  // a wide character's second cell is left empty, so the row keeps its width
   write(x: number, y: number, text: string, ink: Ink, lane?: number) {
     let at = x
-    for (const char of text) {
-      this.put(at, y, char, ink, lane)
-      at += Math.max(1, cellWidth(char))
+    for (const { segment } of segmenter.segment(text)) {
+      const w = cellWidth(segment)
+      if (w === 0) continue
+      this.put(at, y, segment, ink, lane)
+      if (w === 2) this.put(at + 1, y, '', ink, lane)
+      at += w
     }
   }
 
@@ -124,8 +130,14 @@ export type FlowDrawn = { rows: Run[][]; notes: string[] }
 
 const isAcross = (d: Direction) => d === 'LR' || d === 'RL'
 
+// a word longer than the cap widens the label rather than losing its end
+function uncut(text: string, cap: number): string[] {
+  const wrapped = wrap(text, cap)
+  return wrapped.isCut ? wrap(text, Math.max(cap, ...text.split(' ').map(cellWidth))).lines : wrapped.lines
+}
+
 function boxOf(node: FlowNode, cap: number, across: boolean): Pick<Vertex, 'lines' | 'main' | 'cross'> {
-  const lines = node.label.split('\n').flatMap(part => wrap(part, cap).lines).map(line => line.replace(/ /g, ' '))
+  const lines = node.label.split('\n').flatMap(part => uncut(part, cap)).map(line => line.replace(/ /g, ' '))
   const text = Math.max(1, ...lines.map(cellWidth))
   const pad = node.shape === 'diamond' || node.shape === 'hexagon' || node.shape === 'circle' ? 3 : 2
   // top-down, a box is an odd number of cells wide, so it has one middle column for its stems
@@ -665,7 +677,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   for (const p of placed) drawRoute(s, p)
   const slots = loopSlots(loops)
   for (const loop of loops) drawLoop(s, loop, laneAt(loop), slots)
-  for (const group of flow.groups) drawFrame(s, group, width)
+  for (const group of flow.groups) if (!drawFrame(s, group, width)) return undefined
   const notes = [...placeLabels(s, width), ...flow.edges.filter(edge => edge.from === edge.to).map(selfLoopNote)]
   return { rows: trimmed(s.grid.runs(width)), notes }
 }
@@ -692,7 +704,7 @@ function selfLoopNote(loop: FlowEdge): string {
 // a one-word label (an event or field name) stays whole rather than splitting mid-identifier
 function labelLines(edge: FlowEdge, cap: number): string[] {
   const labelCap = Math.max(8, Math.min(cap, 20))
-  return edge.label === '' ? [] : edge.label.split('\n').flatMap(part => (!/\s/.test(part) && cellWidth(part) <= 32 ? [part] : wrap(part, labelCap).lines)).map(l => l.replace(/\u00a0/g, ' '))
+  return edge.label === '' ? [] : edge.label.split('\n').flatMap(part => (!/\s/.test(part) && cellWidth(part) <= 32 ? [part] : uncut(part, labelCap))).map(l => l.replace(/\u00a0/g, ' '))
 }
 
 const mainStroke = (list: Route[]): Stroke | undefined => {
@@ -1149,11 +1161,12 @@ function loopArrow(s: Sheet, loop: Loop, m: number, side: number) {
   s.grid.put(x, y, s.plan.across ? (loop.near ? HEADS.down : HEADS.up) : loop.near ? HEADS.right : HEADS.left, 'line')
 }
 
-// each subgraph is framed round its members, unless a box outside it would land inside the frame
-function drawFrame(s: Sheet, group: Group, width: number) {
+// each subgraph is framed round its members, unless a box outside it would land inside the frame;
+// a frame too wide for the terminal is reported, so the chart isn't drawn without it
+function drawFrame(s: Sheet, group: Group, width: number): boolean {
   const { vertices, across } = s.plan
   const members = vertices.filter(v => v.node?.group === group.id)
-  if (members.length === 0) return
+  if (members.length === 0) return true
   // a cell of edge runs between a frame and the boxes it holds, so a head lands inside the frame
   const lo = Math.min(...members.map(v => bandOf(s, v))) - 3
   const hi = Math.max(...members.map(v => bandOf(s, v) + must(s.bandSize[v.rank], 'band'))) + 2
@@ -1162,14 +1175,15 @@ function drawFrame(s: Sheet, group: Group, width: number) {
   // top-down, the frame is at least wide enough for its title
   const far = Math.max(...members.map(v => v.at + v.cross)) + 1 + (across ? 0 : Math.max(0, near + cellWidth(title) + 5 - Math.max(...members.map(v => v.at + v.cross)) - 1))
   const inside = (v: Vertex) => v.node && v.node.group !== group.id && bandOf(s, v) + v.main > lo && bandOf(s, v) < hi && v.at + v.cross > near && v.at < far
-  if (vertices.some(inside) || near < 0 || lo < 0) return
+  if (vertices.some(inside) || near < 0 || lo < 0) return true
   const [x0, y0] = s.xy(lo, near)
   const [x1, y1] = s.xy(hi, far)
   const [left, top, bottom] = [Math.min(x0, x1), Math.min(y0, y1), Math.max(y0, y1)]
   const right = frameRight(s.grid, left, Math.max(x0, x1), top, title)
-  if (right >= width) return
+  if (right >= width) return false
   frameBorder(s.grid, left, top, right, bottom)
   frameTitle(s.grid, left, top, right, title)
+  return true
 }
 
 // the frame reaches far enough past the last line crossing its top for the title to fit there
@@ -1207,11 +1221,12 @@ function frameBorder(grid: Grid, left: number, top: number, right: number, botto
 
 // the title takes the first stretch of the top border no edge crosses
 function frameTitle(grid: Grid, left: number, top: number, right: number, title: string) {
-  const clear = (at: number) => [...title, '─'].every((_, i) => grid.cells[top]?.[at - 1 + i]?.char === '─' || (at - 1 + i === left && i === 0))
+  const cells = Array.from({ length: cellWidth(title) })
+  const clear = (at: number) => [...cells, '─'].every((_, i) => grid.cells[top]?.[at - 1 + i]?.char === '─' || (at - 1 + i === left && i === 0))
   const spot = Array.from({ length: Math.max(0, right - left - cellWidth(title) - 1) }, (_, i) => left + 2 + i).find(clear)
   // with no clear stretch on the border it sits just inside the frame's top corner
   if (spot !== undefined) grid.write(spot, top, title, 'name')
-  else if ([...title].every((_, i) => grid.isFree(left + 1 + i, top + 1))) grid.write(left + 1, top + 1, title, 'name')
+  else if (cells.every((_, i) => grid.isFree(left + 1 + i, top + 1))) grid.write(left + 1, top + 1, title, 'name')
 }
 
 function placeLabels(s: Sheet, width: number): string[] {

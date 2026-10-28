@@ -4,6 +4,7 @@ import { parseFlow } from '../hooks/flow'
 import { drawFlow } from '../hooks/flowdraw'
 import { must } from '../hooks/must'
 import { plainRows } from '../hooks/render'
+import { cellWidth } from '../hooks/width'
 
 const draw = (source: string, width = 80) => {
   const drawn = drawFlow(parseFlow(source), width)
@@ -432,3 +433,45 @@ describe('drawFlow left-right', () => {
     expect(lines.filter(line => /──▶│ (Go|Stop)/.test(line))).toHaveLength(2)
   })
 })
+
+describe('drawFlow labels it cannot shorten', () => {
+  test('widens a box for a word longer than the wrap width instead of cutting it', async () => {
+    const { lines } = draw('flowchart TD\nA[supercalifragilisticexpialidocious] --> B')
+
+    expect(lines.join('\n')).toContain('supercalifragilisticexpialidocious')
+  })
+
+  test('keeps a long word in an edge label whole', async () => {
+    const { lines, notes } = draw('flowchart TD\nA -- a supercalifragilisticexpialidocious label --> B')
+
+    expect([...lines, ...notes].join('\n')).toContain('supercalifragilisticexpialidocious')
+    expect([...lines, ...notes].join('\n')).not.toContain('…')
+  })
+
+  test('draws nothing when a box word is wider than the terminal', async () => {
+    expect(draw('flowchart TD\nA[supercalifragilisticexpialidocious] --> B', 20).drawn).toBeUndefined()
+  })
+})
+
+describe('drawFlow wide and combining characters', () => {
+  test('lets a wide character fill two cells, with no gap after it', async () => {
+    const { lines } = draw('flowchart TD\nA[東京] --> B')
+
+    expect(lines.join('\n')).toContain('│ 東京  │')
+  })
+
+  test('keeps every row of a box the same width round wide and combining characters', async () => {
+    for (const label of ['東京', 'Cafe\u0301']) {
+      const { lines } = draw(`flowchart TD\nA[${label}]`)
+
+      expect(new Set(lines.map(cellWidth)).size).toBe(1)
+    }
+  })
+})
+
+describe('drawFlow subgraph frames that cannot fit', () => {
+  test('draws nothing rather than a subgraph without its frame', async () => {
+    expect(draw('flowchart TD\nsubgraph S [A subgraph title far too long for this terminal]\nA\nend', 30).drawn).toBeUndefined()
+  })
+})
+

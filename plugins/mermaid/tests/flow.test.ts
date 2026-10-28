@@ -11,6 +11,10 @@ describe('isFlow', () => {
     expect(isFlow('%% c\ngraph TD\nA-->B')).toBe(true)
     expect(isFlow('sequenceDiagram\nA->>B: hi')).toBe(false)
   })
+
+  test('looks past YAML front matter for the header', async () => {
+    expect(isFlow('---\ntitle: Orders\n---\nflowchart LR\nA-->B')).toBe(true)
+  })
 })
 
 describe('parseFlow', () => {
@@ -58,10 +62,10 @@ describe('parseFlow', () => {
   })
 
   test('reads compact edges with no spaces, keeping hyphens and dots inside ids', async () => {
-    const flow = parseFlow('flowchart TD\nA-->B\nB---C\nC-.->D\nD==>E\nE--oF\nmy-node.v2-->G\nmy-order-->G')
+    const flow = parseFlow('flowchart TD\nA-->B\nB---C\nC-.->D\nD==>E\nmy-node.v2-->G\nmy-order-->G')
 
-    expect(flow.edges.map(e => `${e.from}>${e.to}`)).toEqual(['A>B', 'B>C', 'C>D', 'D>E', 'E>F', 'my-node.v2>G', 'my-order>G'])
-    expect(flow.nodes.map(n => n.id)).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'my-node.v2', 'G', 'my-order'])
+    expect(flow.edges.map(e => `${e.from}>${e.to}`)).toEqual(['A>B', 'B>C', 'C>D', 'D>E', 'my-node.v2>G', 'my-order>G'])
+    expect(flow.nodes.map(n => n.id)).toEqual(['A', 'B', 'C', 'D', 'E', 'my-node.v2', 'G', 'my-order'])
     expect(flow.problems).toEqual([])
   })
 
@@ -91,5 +95,50 @@ describe('parseFlow', () => {
 
   test('keeps a line it cannot read as a problem', async () => {
     expect(parseFlow('flowchart TD\nA --> B\nA -> ->').problems).toEqual(['line not read: A -> ->'])
+  })
+
+  test('keeps controls out of labels, numeric entities and literal ones alike', async () => {
+    const { nodes } = parseFlow('flowchart TD\nA["wipe &#27;[2J"] --> B["bell \u0007 #55296;"]')
+
+    expect(nodes.map(n => n.label)).toEqual(['wipe \ufffd[2J', 'bell  \ufffd'])
+    expect(() => parseFlow('flowchart TD\nA["&#99999999;"]')).toThrow()
+  })
+
+  test('decodes Mermaid #...; entities, numeric and named, without splitting the statement', async () => {
+    const flow = parseFlow('flowchart TD\nA[Ticket #35;42] --> B["say #quot;hi#quot;"]')
+
+    expect(flow.nodes.map(n => n.label)).toEqual(['Ticket #42', 'say "hi"'])
+    expect(flow.problems).toEqual([])
+  })
+
+  test('reads %% as a comment only outside a quoted label', async () => {
+    const flow = parseFlow('flowchart TD\nA["completion %% done"] --> B %% trailing note')
+
+    expect(flow.nodes.map(n => n.label)).toEqual(['completion %% done', 'B'])
+    expect(flow.problems).toEqual([])
+  })
+
+  test('reports circle and cross ends, which it cannot draw', async () => {
+    for (const link of ['--o', '--x', 'o--o', 'x--x', '-- text --o', '---o']) expect(parseFlow(`flowchart TD\nA ${link} B`).problems).toHaveLength(1)
+    expect(parseFlow('flowchart TD\nA --- oak').problems).toEqual([])
+  })
+
+  test('reports a subgraph direction other than the chart\'s', async () => {
+    expect(parseFlow('flowchart TD\nsubgraph S\ndirection LR\nA --> B\nend').problems).toEqual(['subgraph direction not drawn yet: direction LR'])
+    expect(parseFlow('flowchart TD\nsubgraph S\ndirection TB\nA --> B\nend').problems).toEqual([])
+  })
+
+  test('reports a subgraph inside a subgraph', async () => {
+    expect(parseFlow('flowchart TD\nsubgraph O\nsubgraph I\nA --> B\nend\nend').problems).toEqual(['subgraph inside a subgraph not drawn yet: I'])
+  })
+
+  test('reports an extra end and a subgraph left open', async () => {
+    expect(parseFlow('flowchart TD\nA --> B\nend').problems).toEqual(['end with no subgraph open'])
+    expect(parseFlow('flowchart TD\nsubgraph S\nA --> B').problems).toEqual(['subgraph not closed: S'])
+  })
+
+  test('reports an edge to a subgraph, declared before or after it', async () => {
+    expect(parseFlow('flowchart TD\nX --> S\nsubgraph S\nA\nend').problems).toEqual(['links to a subgraph not drawn yet: S'])
+    expect(parseFlow('flowchart TD\nsubgraph S [Group]\nA\nend\nS --> X').problems).toEqual(['links to a subgraph not drawn yet: S'])
   })
 })

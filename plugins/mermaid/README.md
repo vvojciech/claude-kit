@@ -101,10 +101,10 @@ None. A diagram draws as soon as its `mermaid` fence closes.
 
 ## Known limits
 
-- A flowchart node that links to itself is listed under the chart instead of drawn. Nested subgraphs share one frame margin.
-
+- A flowchart node that links to itself is listed under the chart instead of drawn.
+- These flowcharts show the source with a note instead of being drawn: a subgraph inside a subgraph, a subgraph `direction` other than the chart's, a link to a subgraph, and `o` or `x` link ends.
 - `link`, `links`, `properties` and `details` lines are not drawn.
 - Box and `rect` colours are dropped. `rect` uses one fixed shade.
-- With `MERMAID_STYLE=plain`, the note tint picks light only when the theme name contains "light", and it is read once per session, so a `/theme` change shows after a restart.
+- With `MERMAID_STYLE=plain`, the note tint picks light only when the theme name contains "light".
 - A diagram inside a list splits it: the list restarts after the diagram.
 - Only the terminal draws diagrams. Summary rows and other surfaces, such as the desktop app, show the source.

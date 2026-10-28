@@ -6,7 +6,7 @@ import { isSequence, kindOf, parseSequence } from './parse'
 import type { Sequence } from './parse'
 import { drawSequence } from './render'
 import type { Ink, Run } from './render'
-import { segmentsOf } from './segments'
+import { definitionsOf, segmentsOf } from './segments'
 import type { Segment } from './segments'
 
 type AssistantRender = RenderInputOf<'AssistantMessage', 'terminal'>
@@ -193,12 +193,15 @@ async function drawParts($: EngineInterface, e: AssistantRender, next: (e: Assis
   const style = styles(await tint)
   const chosen = await readLook($)
   const width = (e.viewport?.columns ?? 80) - INDENT - 1
+  const definitions = definitionsOf(parts)
   const drawn: RenderNode[] = []
   let isFirst = e.props.isFirstOfReply
   for (const [i, part] of parts.entries()) {
     const key = `mermaid-part-${i}`
     if (part.kind === 'text') {
-      const element = await next({ ...e, props: { ...e.props, text: part.text, isFirstOfReply: isFirst } })
+      const missing = definitions.filter(definition => !part.text.includes(definition))
+      const text = missing.length > 0 ? `${part.text}\n\n${missing.join('\n')}` : part.text
+      const element = await next({ ...e, props: { ...e.props, text, isFirstOfReply: isFirst } })
       isFirst = false
       drawn.push(<kit.Box key={key}>{element}</kit.Box>)
     } else if (part.kind === 'sequence' || part.kind === 'flow') {
@@ -235,5 +238,12 @@ export const register: Register = on => {
       $.ui.log(`mermaid could not draw a diagram: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
       return next(e)
     }
+  }).catch((_$, e, next) => next(e))
+
+  on('config.set', { key: 'theme' }, async ($, e, next) => {
+    const result = await next(e)
+    tint = undefined
+    if (result.deny === undefined) $.ui.invalidate('ui.render')
+    return result
   }).catch((_$, e, next) => next(e))
 }

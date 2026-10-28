@@ -230,3 +230,29 @@ test('colours senders from a palette that reads at 4.5:1 on the theme it is for'
   for (const colour of PALETTES.light) expect(contrast(colour, '#ffffff')).toBeGreaterThanOrEqual(4.5)
   for (const colour of PALETTES.dark) expect(contrast(colour, '#000000')).toBeGreaterThanOrEqual(4.5)
 })
+
+test('picks the light palette once the theme changes to light, without a restart', async ($, on) => {
+  let theme = 'dark'
+  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: ['engine'] }))
+  on('ui.log', () => ({ value: undefined }))
+  on('config.list', () => ({ value: [{ key: 'theme', value: theme }] }) as never)
+  on('config.set', (_, e) => {
+    theme = String(e.value)
+    return { value: true } as never
+  })
+  const ui = await mount($, '```mermaid\nsequenceDiagram\nA->>B: ask\n```')
+  const sender = async () => (await ui.find({ type: 'Text', text: /^ ?A ?$/ }))?.props.color
+  expect(await sender()).toBe(PALETTES.dark[0])
+  await $.config.set({ key: 'theme', value: 'light' } as never)
+  expect(await sender()).toBe(PALETTES.light[0])
+  await $.config.set({ key: 'theme', value: 'dark' } as never)
+  await ui.unmount()
+})
+
+test('hands every piece of prose the reply link definitions, so a reference link across a diagram resolves', async ($, on) => {
+  const seen: { text: string; isFirst: boolean }[] = []
+  beneath(on, seen)
+  const ui = await mount($, `See [docs][ref].\n\n${FLOWCHART.slice('Before.\n\n'.length)}\n\nMore [docs][ref].\n\n[ref]: https://example.com`)
+  expect(seen.map(one => one.text)).toEqual(['See [docs][ref].\n\n[ref]: https://example.com', 'More [docs][ref].\n\n[ref]: https://example.com'])
+  await ui.unmount()
+})
