@@ -154,6 +154,6 @@ export const register: Register = on => {
     const wanted = await draftWanted($, shared.places, text)
     const frame = { ...shared, maxColumns: Math.min(shared.maxColumns, bandColumns(e.viewport?.columns, wanted.length)) }
     const items = await itemsFor($, frame, wanted).catch(() => [])
-    return items.length === 0 ? below : band(frame.kit, below, items, frame.pictures)
+    return items.length === 0 ? below : band(frame.kit, below, frame.pictures ? items : items.slice(0, frame.maxRows), frame.pictures)
   }).catch((_$, e, next) => next(e))
 }

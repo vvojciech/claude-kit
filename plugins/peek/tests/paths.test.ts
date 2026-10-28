@@ -21,6 +21,7 @@ describe('image paths in tool inputs', () => {
     expect(toolImagePaths('Bash', { command })).toEqual(['/tmp/my shot.jpg', '/tmp/out.png'])
     expect(toolImagePaths('Bash', { command: 'screencapture -x ~/Desktop/a\\ b.png' })).toEqual(['~/Desktop/a b.png'])
     expect(toolImagePaths('Bash', { command: 'curl -o x https://e.com/a.png' })).toEqual([])
+    expect(toolImagePaths('Bash', { command: "open /tmp/shot\\(1\\).png '/tmp/a\\b.png'" })).toEqual(['/tmp/shot(1).png', '/tmp/a\\b.png'])
   })
 
   test('knows the image extensions in any case', () => {
@@ -47,6 +48,23 @@ describe('markdown image links', () => {
     ])
   })
 
+  test('reads a file URL with a localhost authority as the local path', () => {
+    expect(markdownImages('![a](file://localhost/tmp/a%20b.png)')).toEqual([{ alt: 'a', src: '/tmp/a b.png' }])
+  })
+
+  test('decodes a local destination once and leaves a web URL as written', () => {
+    expect(markdownImages('![a](out/my%20chart.png) ![b](/tmp/100%.png) ![c](https://e.com/a%20b.png)')).toEqual([
+      { alt: 'a', src: 'out/my chart.png' },
+      { alt: 'b', src: '/tmp/100%.png' },
+      { alt: 'c', src: 'https://e.com/a%20b.png' },
+    ])
+  })
+
+  test('skips image syntax inside code and after a backslash', () => {
+    const text = 'Write `![x](a.png)` like so:\n\n```md\n![y](b.png)\n```\n\n\\![z](c.png) but ![w](d.png)'
+    expect(markdownImages(text)).toEqual([{ alt: 'w', src: 'd.png' }])
+  })
+
   test('keeps local images only: no URLs, no plain links, no non-image files', () => {
     const text = '![a](https://e.com/a.png) [b](/tmp/b.png) ![c](/tmp/c.pdf) ![d](./d.gif)'
     expect(localImages(text)).toEqual([{ alt: 'd', src: './d.gif' }])
@@ -71,6 +89,7 @@ describe('the prompt draft', () => {
   test('finds bare image paths a drag drops in, escaped or quoted', () => {
     expect(barePaths('compare /home/a/Desktop/Screen\\ Shot.png with ~/b.jpg please')).toEqual(['/home/a/Desktop/Screen Shot.png', '~/b.jpg'])
     expect(barePaths("'/tmp/a b.png' ok")).toEqual(['/tmp/a b.png'])
+    expect(barePaths('/tmp/shot\\(1\\).png')).toEqual(['/tmp/shot(1).png'])
     expect(barePaths('see /tmp/notes.txt and a.png')).toEqual([])
   })
 })

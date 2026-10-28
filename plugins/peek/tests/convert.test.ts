@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { DIRECT_BYTES, forgetThumbs, fullPng, sipsArgs, thumbnail } from '../hooks/convert'
+import { DIRECT_BYTES, RETRY_MS, forgetThumbs, fullPng, sipsArgs, thumbnail } from '../hooks/convert'
 import { MAX_PNG_BYTES, decodedBytes, pngSize } from '../hooks/png'
 import { TALL_PNG, WIDE_PNG, fakeHost, sipsWrites } from './support'
 
@@ -42,7 +42,10 @@ describe('making a thumbnail', () => {
     const [run] = sipsRuns(host.runs)
     expect(run?.slice(0, 7)).toEqual(['/usr/bin/sips', '-s', 'format', 'png', '-Z', '800', '/a/p.jpg'])
     expect(run?.[7]).toBe('--out')
-    expect(run?.[8]).toMatch(/^\/c\/[0-9a-f]{8}-800\.png$/)
+    expect(run?.[8]).toMatch(/^\/c\/[0-9a-f]{8}-800\.png\.\w+\.part$/)
+    const cached = [...host.files.keys()].filter(k => k.startsWith('/c/'))
+    expect(cached).toHaveLength(1)
+    expect(cached[0]).toMatch(/^\/c\/[0-9a-f]{8}-800\.png$/)
     expect(thumb?.png).toBe(WIDE_PNG)
     expect(thumb?.path).toBe('/a/p.jpg')
   })
@@ -76,6 +79,17 @@ describe('making a thumbnail', () => {
     expect(await thumbnail(broken, '/a/b.webp', CACHE)).toBeUndefined()
   })
 
+  test('never leaves a half-written file under the cache name when sips fails', async () => {
+    forgetThumbs()
+    const host = fakeHost({ '/a/b.webp': { base64: 'x' } }, (argv, h) => {
+      if (argv[0] !== '/usr/bin/sips') return undefined
+      h.files.set(argv[argv.length - 1] ?? '', { base64: 'half' })
+      return { exitCode: 1 }
+    })
+    expect(await thumbnail(host, '/a/b.webp', CACHE)).toBeUndefined()
+    expect([...host.files.keys()].filter(k => k.startsWith('/c/'))).toEqual([])
+  })
+
   test('answers a missing file with nothing', async () => {
     forgetThumbs()
     expect(await thumbnail(fakeHost(), '/nope.png', CACHE)).toBeUndefined()
@@ -96,6 +110,16 @@ describe('the cache', () => {
     expect(outs[0]).not.toBe(outs[1])
   })
 
+  test('tries a failed conversion again once the retry wait has passed', async () => {
+    forgetThumbs()
+    let fails = true
+    const host = fakeHost({ '/a/p.jpg': { base64: 'x', mtimeMs: 1 } }, (argv, h) => (fails ? { exitCode: 1 } : sipsWrites(WIDE_PNG)(argv, h)))
+    expect(await thumbnail(host, '/a/p.jpg', CACHE, 0)).toBeUndefined()
+    fails = false
+    expect(await thumbnail(host, '/a/p.jpg', CACHE, RETRY_MS)).toBeUndefined()
+    expect((await thumbnail(host, '/a/p.jpg', CACHE, RETRY_MS + 1))?.png).toBe(WIDE_PNG)
+  })
+
   test('reuses a converted file already on disk after a reload', async () => {
     forgetThumbs()
     const host = fakeHost({ '/a/p.jpg': { base64: 'x', mtimeMs: 1 } }, sipsWrites(WIDE_PNG))
@@ -112,7 +136,8 @@ describe('a full-size PNG for the clipboard', () => {
     expect(await fullPng(host, '/a/s.png', CACHE)).toBe('/a/s.png')
     const out = await fullPng(host, '/a/p.jpg', CACHE)
     expect(out).toMatch(/-full\.png$/)
-    expect(sipsRuns(host.runs)[0]).toEqual(sipsArgs('/a/p.jpg', out ?? ''))
+    expect(host.files.get(out ?? '')?.base64).toBe(WIDE_PNG)
+    expect(sipsRuns(host.runs)[0]?.slice(0, 5)).toEqual(sipsArgs('/a/p.jpg', '').slice(0, 5))
     expect(sipsRuns(host.runs)[0]).not.toContain('-Z')
   })
 })

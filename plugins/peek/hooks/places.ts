@@ -21,9 +21,15 @@ export async function placesOf($: EngineInterface, host: Host, cwd: string): Pro
     $.session.id(),
   ])
   const tmp = claudeTmp(base, uid)
-  const places = { home: home ?? '', cwd, imagesDir: `${tmp}/${projectSlug(cwd)}/${session}/images`, cacheDir: `${tmp}/peek` }
-  await host.run(['/bin/mkdir', '-p', places.cacheDir])
-  return places
+  const cacheDir = (await isPrivate(host, tmp, uid)) ? `${tmp}/peek` : `${home ?? ''}/Library/Caches/peek`
+  await host.run(['/bin/mkdir', '-p', '-m', '700', cacheDir])
+  return { home: home ?? '', cwd, imagesDir: `${tmp}/${projectSlug(cwd)}/${session}/images`, cacheDir }
+}
+
+async function isPrivate(host: Host, dir: string, uid: string): Promise<boolean> {
+  await host.run(['/bin/mkdir', '-p', '-m', '700', dir])
+  const made = await host.run(['/usr/bin/stat', '-f', '%u %Lp %HT', dir])
+  return made.exitCode === 0 && made.stdout.trim() === `${uid} 700 Directory`
 }
 
 export function pastedFile(entries: Entry[], n: number): string | undefined {

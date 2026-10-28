@@ -1,6 +1,6 @@
 import { ON_CLIPBOARD, clipboardHoldsImage, copyImage } from './actions'
 import type { Host } from './host'
-import { resolvePath } from './paths'
+import { resolvePath, unescaped } from './paths'
 import type { Places } from './places'
 import { newestScreenshot } from './places'
 
@@ -20,7 +20,7 @@ export type Parsed = { kind: 'help' } | { kind: 'last' } | { kind: 'check' } | {
 
 function unquote(text: string): string {
   const quoted = text.match(/^(['"])(.*)\1$/)
-  return quoted ? (quoted[2] ?? '') : text.replace(/\\ /g, ' ')
+  return quoted ? (quoted[2] ?? '') : unescaped(text)
 }
 
 export function parseCommand(args: string): Parsed {

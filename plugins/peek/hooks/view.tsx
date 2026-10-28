@@ -63,21 +63,34 @@ function actionRows(kit: Kit, tone: Tone, shown: Shown): RenderNode[] {
   ))
 }
 
-export function pictureOf(kit: Kit, tone: Tone, shown: Shown): RenderElement {
+function actionsRow(kit: Kit, tone: Tone, shown: Shown): RenderNode {
+  return (
+    <kit.Box key="actions" flexDirection="row" height={1}>
+      {buttons(kit, tone, shown).slice(1)}
+    </kit.Box>
+  )
+}
+
+function side(kit: Kit, tone: Tone, shown: Shown, rows: number): RenderNode[] {
+  const named = caption(kit, tone, shown)
+  const full = [...named, ...actionRows(kit, tone, shown)]
+  return full.length <= rows ? full : [...named.slice(0, Math.max(0, rows - 1)), actionsRow(kit, tone, shown)]
+}
+
+export function pictureOf(kit: Kit, tone: Tone, shown: Shown, rows: number): RenderElement {
   if (shown.png === undefined || shown.cells === undefined) return lineOf(kit, tone, shown)
   return (
     <kit.Box key={`peek-${shown.id}`} flexDirection="row" marginRight={2}>
       <kit.Image key={imageKey(shown.id)} source={{ png: shown.png }} columns={shown.cells.columns} rows={shown.cells.rows} alt={`${MARK} ${shown.name}`} />
       <kit.Box key="side" flexDirection="column" paddingLeft={1} flexShrink={1}>
-        {caption(kit, tone, shown)}
-        {actionRows(kit, tone, shown)}
+        {side(kit, tone, shown, rows)}
       </kit.Box>
     </kit.Box>
   )
 }
 
-export function shownOf(kit: Kit, tone: Tone, shown: Shown, pictures: boolean): RenderElement {
-  return pictures ? pictureOf(kit, tone, shown) : lineOf(kit, tone, shown)
+export function shownOf(kit: Kit, tone: Tone, shown: Shown, pictures: boolean, rows: number): RenderElement {
+  return pictures ? pictureOf(kit, tone, shown, rows) : lineOf(kit, tone, shown)
 }
 
 export function gallery(kit: Kit, drawn: RenderElement, items: RenderElement[]): RenderElement {

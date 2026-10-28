@@ -51,7 +51,7 @@ peek adds to the rows other mods draw rather than replacing them, so copy-that's
 
 A mod can't attach image bytes to a prompt, so peek puts the image on the macOS clipboard and you press ctrl+v:
 
-- `/peek <path>` takes a file, absolute, `~/` or relative. Quotes and `\ ` escapes are fine.
+- `/peek <path>` takes a file, absolute, `~/` or relative. Quotes and backslash escapes such as `\ ` are fine.
 - `/peek last` takes the newest screenshot or PNG in your screenshot folder (the one macOS saves screenshots to), ~/Desktop or ~/Downloads.
 - `/peek clipboard-check` says whether the clipboard already holds an image.
 - `/peek` on its own, or `/peek help`, prints the usage.
@@ -90,4 +90,4 @@ peek adds `$.peek` to the engine. Types live in `types/index.d.ts`.
   - `{ fallback: 'unresolved' }` when the file is missing or not an image.
 - `open({ path, cwd })` opens the original in Preview and returns `{}`, or `{ error }` after a toast with the reason.
 - If a mod draws an image under a key from `$.peek.picture`, peek doesn't draw it again under the reply.
-- Non-PNG files, and PNGs over 512 KiB, are converted with `/usr/bin/sips` to an 800 px PNG in `/tmp/claude-<uid>/peek`, stepping down to 512 and 256 px if the result is still over 2 MiB. Conversions are cached by path and modification time.
+- Non-PNG files, and PNGs over 512 KiB, are converted with `/usr/bin/sips` to an 800 px PNG in `/tmp/claude-<uid>/peek` (`~/Library/Caches/peek` if that folder isn't private to you), stepping down to 512 and 256 px if the result is still over 2 MiB. Conversions are cached by path and modification time; a failed one is tried again after 30 seconds. `/peek` converts a non-PNG at full size and deletes the copy once it's on the clipboard.

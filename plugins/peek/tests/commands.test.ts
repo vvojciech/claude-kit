@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { ON_CLIPBOARD, clipboardScript } from '../hooks/actions'
 import { CLIPBOARD_EMPTY, NO_SCREENSHOT, USAGE, parseCommand, runPeek } from '../hooks/commands'
-import { isScreenshotLike, pastedFile, projectSlug, screenshotDirs } from '../hooks/places'
+import { isScreenshotLike, pastedFile, placesOf, projectSlug, screenshotDirs } from '../hooks/places'
 import { WIDE_PNG, fakeHost, sipsWrites } from './support'
 import type { Answer } from './support'
 
@@ -29,6 +29,7 @@ describe('parsing /peek', () => {
     expect(parseCommand('~/a.png')).toEqual({ kind: 'path', path: '~/a.png' })
     expect(parseCommand('"/tmp/a b.png"')).toEqual({ kind: 'path', path: '/tmp/a b.png' })
     expect(parseCommand('/tmp/a\\ b.png')).toEqual({ kind: 'path', path: '/tmp/a b.png' })
+    expect(parseCommand('/tmp/shot\\(1\\).png')).toEqual({ kind: 'path', path: '/tmp/shot(1).png' })
   })
 })
 
@@ -43,7 +44,13 @@ describe('running /peek', () => {
   test('converts a JPEG first and copies the converted PNG', async () => {
     const host = fakeHost({ '/h/p.jpg': { base64: 'x' } }, both(sipsWrites(WIDE_PNG), clipboard('«class PNGf», 9')))
     expect((await runPeek(host, PLACES, parseCommand('~/p.jpg'))).ok).toBe(true)
-    expect(scripts(host.runs)[0]).toMatch(/^set the clipboard to \(read \(POSIX file "\/c\/[0-9a-f]{8}-full\.png"\)/)
+    expect(scripts(host.runs)[0]).toMatch(/^set the clipboard to \(read \(POSIX file "\/c\/[0-9a-f]{8}-\w+-full\.png"\)/)
+  })
+
+  test('removes the full-size conversion once the clipboard holds it', async () => {
+    const host = fakeHost({ '/h/p.jpg': { base64: 'x' } }, both(sipsWrites(WIDE_PNG), clipboard('«class PNGf», 9')))
+    expect((await runPeek(host, PLACES, parseCommand('~/p.jpg'))).ok).toBe(true)
+    expect([...host.files.keys()]).toEqual(['/h/p.jpg'])
   })
 
   test('says so when the file is missing, not an image, or the clipboard refuses', async () => {
@@ -87,5 +94,15 @@ describe('places', () => {
     expect(screenshotDirs('/h', undefined)).toEqual(['/h/Desktop', '/h/Downloads'])
     expect(isScreenshotLike('Screenshot 2026.jpg')).toBe(true)
     expect(isScreenshotLike('photo.jpg')).toBe(false)
+  })
+
+  test('keeps the cache in a private folder of its own, and moves it home when the temp folder is not', async () => {
+    const engine = { env: { get: async (name: string) => (name === 'HOME' ? '/h' : '/t') }, session: { id: async () => 's1' } } as never
+    const owner = (stat: string): Answer => argv => (argv[0] === '/usr/bin/id' ? { stdout: '501\n' } : argv[0] === '/usr/bin/stat' ? { stdout: stat } : undefined)
+    const mine = fakeHost({}, owner('501 700 Directory\n'))
+    expect((await placesOf(engine, mine, '/w')).cacheDir).toBe('/t/claude-501/peek')
+    expect(mine.runs).toContainEqual(['/bin/mkdir', '-p', '-m', '700', '/t/claude-501'])
+    const shared = fakeHost({}, owner('502 755 Directory\n'))
+    expect((await placesOf(engine, shared, '/w')).cacheDir).toBe('/h/Library/Caches/peek')
   })
 })

@@ -41,11 +41,30 @@ function decoded(path: string): string {
 }
 
 export function fromFileUrl(src: string): string {
-  return src.startsWith('file://') ? decoded(src.slice('file://'.length)) : src
+  if (!src.startsWith('file://')) return src
+  const rest = src.slice('file://'.length)
+  return decoded(rest.startsWith('localhost/') ? rest.slice('localhost'.length) : rest)
+}
+
+function destination(src: string): string {
+  if (src.startsWith('file://')) return fromFileUrl(src)
+  return isUrl(src) ? src : decoded(src)
+}
+
+function outsideCode(text: string): string {
+  let fenced = false
+  const kept: string[] = []
+  for (const line of text.split('\n')) {
+    const fence = line.trimStart().startsWith('```') || line.trimStart().startsWith('~~~')
+    if (fence) fenced = !fenced
+    else if (!fenced) kept.push(line.split('`').filter((_, i) => i % 2 === 0).join(' '))
+  }
+  return kept.join('\n')
 }
 
 export function markdownImages(text: string): Linked[] {
-  return [...text.matchAll(MARKDOWN_IMAGE)].map(m => ({ alt: m[1] ?? '', src: fromFileUrl(unwrap(m[2] ?? '')) }))
+  const prose = outsideCode(text)
+  return [...prose.matchAll(MARKDOWN_IMAGE)].filter(m => prose.charAt((m.index ?? 0) - 1) !== '\\').map(m => ({ alt: m[1] ?? '', src: destination(unwrap(m[2] ?? '')) }))
 }
 
 export function localImages(text: string): Linked[] {
@@ -72,12 +91,22 @@ export function imageTags(text: string): number[] {
   return [...new Set([...text.matchAll(IMAGE_TAG)].map(m => Number(m[1])))]
 }
 
-function unescapeSpaces(path: string): string {
-  return path.replace(/\\ /g, ' ')
+export function unescaped(path: string): string {
+  let out = ''
+  for (let i = 0; i < path.length; i++) {
+    if (path.charAt(i) === '\\' && i + 1 < path.length) i++
+    out += path.charAt(i)
+  }
+  return out
+}
+
+function unquoted(token: string): string {
+  const quoted = token.length > 1 && (token.startsWith('"') || token.startsWith("'")) && token.endsWith(token.charAt(0))
+  return quoted ? token.slice(1, -1) : unescaped(token)
 }
 
 export function barePaths(text: string): string[] {
-  const bare = [...text.matchAll(BARE_PATH)].map(m => unescapeSpaces(m[1] ?? ''))
+  const bare = [...text.matchAll(BARE_PATH)].map(m => unescaped(m[1] ?? ''))
   const quoted = [...text.matchAll(QUOTED_PATH)].map(m => m[2] ?? '')
   return [...new Set([...quoted, ...bare])]
 }
@@ -90,7 +119,7 @@ function inputPath(input: unknown, key: string): string | undefined {
 
 function commandPaths(command: string): string[] {
   const tokens = command.match(/"[^"]*"|'[^']*'|(?:\\ |[^\s;|&><])+/g) ?? []
-  return tokens.map(t => unescapeSpaces(t.replace(/^['"]|['"]$/g, ''))).filter(t => isImagePath(t) && !isUrl(t))
+  return tokens.map(unquoted).filter(t => isImagePath(t) && !isUrl(t))
 }
 
 const FILE_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit'])

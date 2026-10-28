@@ -14,6 +14,13 @@ function ran(partial: Partial<Ran> | undefined): Ran {
   return { exitCode: 0, stdout: '', stderr: '', ...partial }
 }
 
+function shell(host: FakeHost, argv: string[]): void {
+  const [program, , from = '', to = ''] = argv
+  const file = host.files.get(from)
+  if (program === '/bin/mv' && file !== undefined) host.files.set(to, file)
+  if (program === '/bin/mv' || program === '/bin/rm') host.files.delete(from)
+}
+
 export function fakeHost(files: Record<string, FakeFile> = {}, answer: Answer = () => undefined): FakeHost {
   const host: FakeHost = {
     files: new Map(Object.entries(files)),
@@ -21,6 +28,7 @@ export function fakeHost(files: Record<string, FakeFile> = {}, answer: Answer = 
     dirs: new Map(),
     run: async argv => {
       host.runs.push(argv)
+      shell(host, argv)
       return ran(answer(argv, host))
     },
     stat: async path => {

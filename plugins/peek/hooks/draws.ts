@@ -59,13 +59,22 @@ export function picturesFor(isFullscreen: boolean | undefined): boolean {
   return drawsPictures(isFullscreen)
 }
 
+async function firstShown($: EngineInterface, frame: Frame, wanted: Wanted[]): Promise<Shown[]> {
+  const shown: Shown[] = []
+  for (let at = 0; at < wanted.length && shown.length < MOST; at += MOST) {
+    const batch = await Promise.all(wanted.slice(at, at + MOST).map(w => shownFor($, frame, w)))
+    shown.push(...batch.filter((s): s is Shown => s !== undefined))
+  }
+  return shown.slice(0, MOST)
+}
+
 export async function itemsFor($: EngineInterface, frame: Frame, wanted: Wanted[]): Promise<RenderElement[]> {
-  const shown = (await Promise.all(wanted.slice(0, MOST).map(w => shownFor($, frame, w)))).filter((s): s is Shown => s !== undefined)
+  const shown = await firstShown($, frame, wanted)
   if (shown.length === 0) return []
   const tone = await toneOf($)
   const first = shown.find(s => s.png !== undefined)
   if (frame.pictures && first?.png !== undefined) probe($, frame.requestId, imageKey(first.id), { png: first.png })
-  return shown.map(s => shownOf(frame.kit, tone, s, frame.pictures))
+  return shown.map(s => shownOf(frame.kit, tone, s, frame.pictures, frame.maxRows))
 }
 
 export async function withThumbs($: EngineInterface, frame: Frame, drawn: RenderElement, wanted: Wanted[]): Promise<RenderElement> {

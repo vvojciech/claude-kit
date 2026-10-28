@@ -39,6 +39,7 @@ export async function copyImage(host: Host, path: string, cacheDir: string): Pro
   const png = await fullPng(host, path, cacheDir)
   if (png === undefined) return `Could not convert ${nameOf(path)} to PNG`
   const set = await host.run([OSASCRIPT, '-e', clipboardScript(png)])
+  if (png !== path) await host.run(['/bin/rm', '-f', png])
   if (set.exitCode !== 0) return `Could not put ${nameOf(path)} on the clipboard: ${set.stderr.trim()}`
   return (await clipboardHoldsPng(host)) ? ON_CLIPBOARD : `The clipboard did not take ${nameOf(path)}`
 }

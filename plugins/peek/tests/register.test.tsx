@@ -147,6 +147,13 @@ describe('thumbnails under transcript rows', () => {
     expect(await images(live)).toHaveLength(0)
   })
 
+  test('looks past missing files for images to show, up to four', async ($, on) => {
+    host(on, { files: { '/w/out.png': WIDE_PNG } })
+    await start($)
+    const ui = await toolRow($, 'Bash', { command: 'cat a.png b.png c.png d.png > /dev/null; sips -s format png in.jpg --out out.png' })
+    expect((await images(ui)).map(i => i.props.alt)).toEqual(['▣ out.png'])
+  })
+
   test('shows a local markdown image in a reply and skips a URL', async ($, on) => {
     host(on, { files: { '/w/out/c.png': WIDE_PNG } })
     await start($)
@@ -255,9 +262,26 @@ describe('the /peek command', () => {
 })
 
 describe('the band above the prompt', () => {
-  async function band($: Engine) {
-    return $.ui.mount({ plugin: 'peek', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 100 } as never, viewport: VIEW, requestId: 'band' })
+  async function band($: Engine, maxRows = 12) {
+    return $.ui.mount({ plugin: 'peek', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows, bodyColumns: 100 } as never, viewport: VIEW, requestId: `band-${maxRows}` })
   }
+
+  async function sideRows(ui: Mounted) {
+    const side = (await ui.find({ key: 'side' })) as unknown as { children: unknown[] } | undefined
+    return side?.children.length
+  }
+
+  test('fits the name, size and buttons of a dragged path in the rows the band may take', async ($, on) => {
+    host(on, { files: { '/h/s.png': WIDE_PNG } })
+    await start($)
+    await changed($, 'look /h/s.png')
+    const roomy = await band($)
+    expect(await sideRows(roomy)).toBe(3)
+    expect(await roomy.find({ type: 'Button', key: 'peek-clip-bare-0' })).toBeDefined()
+    const tight = await band($, 3)
+    expect(await sideRows(tight)).toBe(1)
+    expect(await tight.find({ type: 'Button', key: 'peek-clip-bare-0' })).toBeDefined()
+  })
 
   test('shows pasted images and a dragged path in the draft, the path with a clip button', async ($, on) => {
     host(on, { files: { [`${IMAGES}/2.png`]: WIDE_PNG, '/h/s s.png': WIDE_PNG } })
