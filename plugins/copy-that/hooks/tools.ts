@@ -102,7 +102,7 @@ const READERS: [ToolKind, (call: ToolCall) => string | undefined][] = [
   ['output', outputText],
 ]
 
-export function fileName(call: ToolCall): string | undefined {
+function fileName(call: ToolCall): string | undefined {
   const path = text(fields(call.input).file_path) ?? text(fields(call.output).filePath) ?? text(fields(fields(call.output).file).filePath)
   return path?.split('/').filter(Boolean).at(-1)
 }
@@ -172,7 +172,7 @@ function withReport(call: ToolCall, reports: Map<string, string>): ToolCall {
   return { ...call, output: { report: reports.get(agentId), agentId } }
 }
 
-export type ReportLookup = (agentId: string) => Promise<string | undefined>
+type ReportLookup = (agentId: string) => Promise<string | undefined>
 
 export function handbackReport(messages: SessionMessage[]): string | undefined {
   const handbacks = messages.flatMap(message => message.toolUses.filter(use => use.tool === HANDBACK))
@@ -181,7 +181,7 @@ export function handbackReport(messages: SessionMessage[]): string | undefined {
 
 function calls(messages: SessionMessage[]): ToolCall[] {
   const reports = backgroundReports(messages)
-  const uses = messages.flatMap(message => message.toolUses.filter(use => use.isError !== true))
+  const uses = messages.flatMap(message => message.toolUses.filter(use => use.isError !== true && (use.result !== undefined || use.text !== undefined)))
   return uses.map(use => withReport({ tool: use.tool, input: use.input, output: use.result ?? use.text }, reports))
 }
 

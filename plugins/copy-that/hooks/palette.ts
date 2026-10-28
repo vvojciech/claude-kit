@@ -1,10 +1,10 @@
 import type { EngineInterface } from 'claude-code'
 
-export type Ground = 'dark' | 'light'
+type Ground = 'dark' | 'light'
 
 export type Tone = { ground: Ground; background: string; muted: string; text: string; accent: string; pointed: string }
 
-export type LucidTone = { ground: Ground; palette: { text: string; strong: string; muted: string; accent: string } }
+type LucidTone = { ground: Ground; palette: { text: string; strong: string; muted: string; accent: string } }
 
 export const dark: Tone = { ground: 'dark', background: '#141311', muted: '#a39e94', text: '#d8d5cc', accent: '#d4734f', pointed: '#d4734f' }
 
@@ -23,7 +23,7 @@ export function groundOfTerminal(colorFgBg: string | undefined): Ground | undefi
 
 const namesWord = (theme: string, word: string) => theme.toLowerCase().replaceAll('-', ' ').replaceAll('_', ' ').split(' ').includes(word)
 
-export function groundOf(theme: unknown, terminal?: Ground): Ground {
+function groundOf(theme: unknown, terminal?: Ground): Ground {
   if (typeof theme !== 'string') return terminal ?? 'dark'
   if (namesWord(theme, 'light')) return 'light'
   if (namesWord(theme, 'dark')) return 'dark'
@@ -45,7 +45,7 @@ async function terminalGround($: EngineInterface): Promise<Ground | undefined> {
 
 let current: Promise<Tone> | undefined
 
-export function themeTone($: EngineInterface): Promise<Tone> {
+function themeTone($: EngineInterface): Promise<Tone> {
   current ??= Promise.all([themeName($), terminalGround($)]).then(([theme, terminal]) => toneFor(theme, terminal))
   return current
 }

@@ -28,13 +28,13 @@ export type Marker = {
   more: (hidden: Target[]) => Press
 }
 
-export const PARTIAL = 'partial'
+const PARTIAL = 'partial'
 
 const EDGE = ' '
 
-export type Pointed = { color: string; backgroundColor: string; bold: true; underline: true }
+type Pointed = { color: string; backgroundColor: string; bold: true; underline: true }
 
-export function pointedAt(tone: Tone): Pointed {
+function pointedAt(tone: Tone): Pointed {
   return { color: tone.background, backgroundColor: tone.pointed, bold: true, underline: true }
 }
 

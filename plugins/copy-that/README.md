@@ -128,6 +128,7 @@ When copy-that is working, the first reply that gets a ⧉ in a session also sho
 - Some background agent reports reach the session in a form copy-that can't read. Those get no chip, and `/copy-that output` says so.
 - A block whose language clashes with a command word (`table`, `code`, `reply`, `quote`, an alert type, `file`, `plan`, `output`, `selection`, `help`) is renamed, for example `⧉ table-code`.
 - A quote inside another quote has no chip of its own. A nested quote copies one level shallower.
+- `/copy-that selection` matches on letters and digits, so in code a line that differs from another only in symbols, such as `a + b` and `a - b`, counts as two places and copies nothing. Copy the block with its chip instead.
 
 ## Load order
 

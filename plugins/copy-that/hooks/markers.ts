@@ -15,9 +15,9 @@ import type { Target } from './targets'
 import { AGENT_TOOLS, groupTargets, launchedInBackground, reportedCalls, reportedTarget, toolTarget } from './tools'
 import type { ToolCall } from './tools'
 
-export type ToolRender = RenderInputOf<'ToolUse', 'terminal'>
+type ToolRender = RenderInputOf<'ToolUse', 'terminal'>
 
-export type GroupRender = RenderInputOf<'ToolGroup', 'terminal'>
+type GroupRender = RenderInputOf<'ToolGroup', 'terminal'>
 
 type Settled = Pick<ToolCall, 'tool' | 'input' | 'output'> & { isRunning: boolean; isErrored: boolean; isInterrupted: boolean }
 
@@ -74,7 +74,7 @@ async function markerFor($: EngineInterface, spec: MarkerSpec): Promise<Marker> 
   }
 }
 
-export function withFlash(targets: Target[], shown: Flash | undefined): Target[] {
+function withFlash(targets: Target[], shown: Flash | undefined): Target[] {
   return shown === undefined ? targets : targets.map(t => (keyOf(t) === shown.key ? { ...t, label: shown.text } : t))
 }
 

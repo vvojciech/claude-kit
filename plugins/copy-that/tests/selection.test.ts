@@ -54,9 +54,14 @@ describe('sourceBehind', () => {
     expect(sourceBehind(source, 'Or inline Map<K, V> here.')).toEqual({ text: 'Or inline `Map<K, V>` here.' })
   })
 
-  test('keeps a fenced block open past a shorter fence line inside it, so markup-looking code after it is drawn as written', async () => {
-    const source = '````md\n```\nconst value: Array<T> = [];\n````'
-    expect(sourceBehind(source, 'const value: Array<T> = [];')).toEqual({ text: 'const value: Array<T> = [];' })
+  test('copies an autolink and a link whose target holds parentheses whole, as the parser reads them', async () => {
+    expect(sourceBehind('See <https://example.com/docs> here.', 'https://example.com/docs')).toEqual({ text: '<https://example.com/docs>' })
+    expect(sourceBehind('See [docs](https://example.com/a_(b)) now.', 'docs')).toEqual({ text: '[docs](https://example.com/a_(b))' })
+  })
+
+  test('maps text inside quotes and list items, whose lines the parser reads without their markers', async () => {
+    expect(sourceBehind('> one **two**\n> three four', 'two three')).toEqual({ text: '> one **two**\n> three four' })
+    expect(sourceBehind('- first\n  then **x y** here', 'x y')).toEqual({ text: '**x y**' })
   })
 
   test('maps letters past the basic plane to the right place in the source', async () => {

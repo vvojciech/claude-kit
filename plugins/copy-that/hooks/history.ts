@@ -13,7 +13,7 @@ import type { Owners, Replies, Reply } from '../types'
 
 export type AssistantRender = RenderInputOf<'AssistantMessage', 'terminal'>
 
-export type Owned = { reply: Reply; shared?: number[] }
+type Owned = { reply: Reply; shared?: number[] }
 
 const replies = atom({ plugin: 'copy-that', key: 'replies' } as const, null as Replies)
 const owners = atom({ plugin: 'copy-that', key: 'owners' } as const, {} as Owners)

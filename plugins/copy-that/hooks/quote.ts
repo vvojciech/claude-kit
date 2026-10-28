@@ -6,7 +6,7 @@ export const ALERTS = ['note', 'tip', 'important', 'warning', 'caution'] as cons
 
 const MARKER = /^ {0,3}>[ \t]?/
 
-const ALERT_LINE = /^\[!(note|tip|important|warning|caution)\][ \t]*$/i
+export const ALERT_LINE = /^\[!(note|tip|important|warning|caution)\][ \t]*$/i
 
 function unquotedLines(source: string): string[] {
   return source.replace(/\r\n?/g, '\n').split('\n').map(line => line.replace(MARKER, ''))

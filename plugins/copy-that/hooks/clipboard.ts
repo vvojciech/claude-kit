@@ -1,7 +1,7 @@
 import type { EngineInterface, PromptOrigin, RenderSurface } from 'claude-code'
 
 export type Host = { os: string; wayland: boolean; x11: boolean; remote: boolean }
-export type ClipCommand = { argv: string[]; env?: Record<string, string> }
+type ClipCommand = { argv: string[]; env?: Record<string, string> }
 export type CopyOutcome = { ok: true; via: string } | { ok: false; error: string }
 
 export const TERMINAL_ROUTE = 'OSC 52'

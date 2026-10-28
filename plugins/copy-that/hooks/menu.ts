@@ -5,7 +5,7 @@ import { cellWidth } from './width'
 
 export type Opening = 'up' | 'down'
 
-export const MENU_PAD = 1
+const MENU_PAD = 1
 
 const MARGIN = 1
 

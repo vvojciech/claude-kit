@@ -34,13 +34,16 @@ function isInterruption(message: SessionMessage): boolean {
 
 export function repliesFrom(messages: SessionMessage[]): Reply[] {
   const replies: Reply[] = [{ texts: [], partial: false }]
-  for (const [index, message] of messages.entries()) {
+  let before: SessionMessage | undefined
+  for (const message of messages) {
     const current = replies[replies.length - 1]
+    const notified = isTaskNotification(message)
     if (current === undefined) continue
     if (isInterruption(message)) current.partial = true
-    else if (isTaskNotification(message) && isMidTurn(messages[index - 1])) continue
+    else if (notified && isMidTurn(before)) continue
     else if (isPrompt(message)) replies.push({ texts: [], partial: false })
     else if (message.role === 'assistant' && message.text.trim() !== '') current.texts.push(message.text)
+    if (!notified) before = message
   }
   return replies.filter(reply => reply.texts.length > 0)
 }

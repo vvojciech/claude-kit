@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import { blocksOf } from './lexer'
 
-export type BlockKind = 'heading' | 'paragraph' | 'list' | 'code' | 'table' | 'quote' | 'rule'
+type BlockKind = 'heading' | 'paragraph' | 'list' | 'code' | 'table' | 'quote' | 'rule'
 
 export type Block = { kind: BlockKind; source: string; depth: number; lang?: string; text?: string }
 

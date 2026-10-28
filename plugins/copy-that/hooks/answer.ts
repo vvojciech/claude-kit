@@ -33,7 +33,6 @@ async function copySelection($: EngineInterface, surface: Surface): Promise<stri
   const found = sources && behindAny(sources, selected.text)
   if (found === undefined) return SELECTION_ELSEWHERE
   if ('places' in found) return selectionRepeats(found.places)
-  if (found.text === '') return SELECTION_ELSEWHERE
   return confirmation(await copyText($, found.text, surface), 'selection as markdown', found.text)
 }
 

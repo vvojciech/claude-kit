@@ -977,6 +977,14 @@ describe('tool rows', () => {
     expect(copied).toEqual(['x = new\ny = 1', WRITE.input.content, '## Plan\n\n1. Do it', 'ok\nfile.md'])
   })
 
+  test('/copy-that file skips a Write that never ran, as one still waiting for permission, rather than copying its proposed content', async ($, on) => {
+    const pending: SessionMessage = { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'p', tool: 'Write', input: { file_path: '/w/draft.md', content: 'never written' } }] }
+    const { copied } = fakeHost(on, { messages: [prompt('go'), used(WRITE), pending] })
+    expect((await run($, 'file')).text).toBe('Copied last file notes.md (5 lines, pbcopy)')
+    expect((await run($, 'draft.md')).text).toMatch(/^No "draft.md" in the last reply|^No reply to copy yet/)
+    expect(copied).toEqual([WRITE.input.content])
+  })
+
   test('/copy-that file says how many there are when N reaches past them', async ($, on) => {
     fakeHost(on, { messages: [prompt('go'), used(WRITE)] })
     expect((await run($, 'file 3')).text).toBe('Only 1 file so far, not 3')

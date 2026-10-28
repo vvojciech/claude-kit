@@ -2,6 +2,7 @@ import { lexBlocks } from './bounded-lexer'
 import type { Token, Tokens } from './vendor/marked.js'
 
 import type { Block } from './model'
+import { ALERT_LINE } from './quote'
 
 const CACHE_CHARS = 4_000_000
 
@@ -14,8 +15,6 @@ const FRONT_MATTER_LINE = /^(?:[ \t]|- |#|$)/
 const FRONT_MATTER_FENCE = /^---[ \t]*$/
 
 const SENTENCE = /\s.*[.!?]$/
-
-const ALERT = /^\[!(note|tip|important|warning|caution)\][ \t]*(?:\n|$)/i
 
 const COMMENT = /<!--[\s\S]*?(?:-->|$)/g
 
@@ -124,7 +123,8 @@ function alertMarker(token: Token | undefined): string | undefined {
   if (token?.type !== 'paragraph') return undefined
   const lead = (token as Tokens.Paragraph).tokens[0]
   if (lead?.type !== 'text') return undefined
-  return ALERT.exec((lead as Tokens.Text).text)?.[0]
+  const line = (lead as Tokens.Text).text.split('\n', 1)[0] ?? ''
+  return ALERT_LINE.test(line) ? `${line}\n` : undefined
 }
 
 function withoutAlert(tokens: Token[], depth: number): Block[] {

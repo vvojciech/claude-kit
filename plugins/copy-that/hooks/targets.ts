@@ -1,7 +1,7 @@
 import type { Block } from './model'
 import { ALERTS, QUOTE, outerQuotes, quoteName, quoteText } from './quote'
 
-export type TargetKind = 'reply' | 'code' | 'table' | 'quote' | ToolKind
+type TargetKind = 'reply' | 'code' | 'table' | 'quote' | ToolKind
 
 export type ToolKind = 'file' | 'plan' | 'output'
 
@@ -65,7 +65,7 @@ export function target(kind: TargetKind, name: string, text: string, what: strin
   return { kind, name, label: `${GLYPH} ${name}`, text, what }
 }
 
-export function replyTarget(reply: Pick<Resolved, 'text' | 'partial'>): Target {
+function replyTarget(reply: Pick<Resolved, 'text' | 'partial'>): Target {
   return target('reply', REPLY, reply.text, reply.partial ? 'partial reply as markdown' : 'reply as markdown')
 }
 

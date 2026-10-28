@@ -1,109 +1,157 @@
-import { ENTITY, decoded } from './lexer'
+import { lexBlocks, lexInline } from './bounded-lexer'
+import { ENTITY, SizedCache, decoded } from './lexer'
+import type { Token, Tokens } from './vendor/marked.js'
 
-const VISIBLE = /[\p{L}\p{N}]/u
+const LETTER = /[\p{L}\p{N}]/gu
 
-const HIDDEN_MARKUP = [/\]\([^)\s]*(?:\s+"[^"]*")?\)/g, /\]\[[^\]\n]*\]/g, /<[^>\n]*>/g, /^[ \t]*\[[^\]]+\]:[^\n]*$/gm]
+const CACHE_CHARS = 1_000_000
 
-const FENCE_LINE = /^[ \t]*(?:`{3,}|~{3,})[^\n]*$/gm
+const NEAR = 1_000
 
-const INLINE_CODE = /(`+)[^`\n]+?\1/g
+const SPANS = new Set(['strong', 'em', 'del', 'link', 'image', 'codespan'])
 
-type Projection = { letters: string; at: number[]; ends: number[] }
+const HIDDEN = new Set(['escape', 'checkbox', 'br', 'hr', 'space', 'def'])
 
-type Fence = { mark: string; size: number; bare: boolean }
+type Cut = { from: number; to: number }
 
-function fenceOf(line: string): Fence | undefined {
-  const body = line.trimStart()
-  const mark = body[0] ?? ''
-  if (mark !== '`' && mark !== '~') return undefined
-  let size = 0
-  while (body[size] === mark) size++
-  return size < 3 ? undefined : { mark, size, bare: body.slice(size).trim() === '' }
-}
+type Piece = Cut & { text: string }
 
-function closes(fence: Fence | undefined, opener: Fence): boolean {
-  return fence !== undefined && fence.bare && fence.mark === opener.mark && fence.size >= opener.size
-}
+type Projection = { letters: string; at: number[]; ends: number[]; spans: Cut[] }
 
-// inline spans and fenced block bodies, where the renderer draws `<a>` or `&amp;` as written
-function codeRanges(source: string, withInline = true): Cut[] {
-  const ranges: Cut[] = []
-  let opened: { at: number; fence: Fence } | undefined
-  let offset = 0
-  for (const line of source.split('\n')) {
-    const end = offset + line.length
-    const fence = fenceOf(line)
-    if (opened === undefined && fence !== undefined) opened = { at: end, fence }
-    else if (opened !== undefined && closes(fence, opened.fence)) {
-      ranges.push({ from: opened.at, to: offset })
-      opened = undefined
-    } else if (withInline && opened === undefined) {
-      for (const match of line.matchAll(INLINE_CODE)) {
-        const from = offset + (match.index ?? 0)
-        ranges.push({ from, to: from + match[0].length })
-      }
-    }
-    offset = end + 1
-  }
-  if (opened !== undefined) ranges.push({ from: opened.at, to: source.length })
-  return ranges
-}
+type Walk = Projection & { source: string; labels: boolean; cursor: number; limit: number }
 
-function hiddenRanges(source: string, fences: boolean): boolean[] {
-  const hidden: boolean[] = new Array(source.length).fill(false)
-  for (const pattern of fences ? HIDDEN_MARKUP : [...HIDDEN_MARKUP, FENCE_LINE]) {
-    for (const match of source.matchAll(pattern)) {
-      const from = (match.index ?? 0) + (match[0].startsWith(']') ? 1 : 0)
-      for (let i = from; i < (match.index ?? 0) + match[0].length; i++) hidden[i] = true
-    }
-  }
-  for (const { from, to } of codeRanges(source)) hidden.fill(false, from, to)
-  return hidden
-}
+type Span = Cut
 
-// entities the renderer decodes, outside code, by where they start: their letters are what shows
-function drawnEntities(source: string, hidden: boolean[]): Map<number, { length: number; text: string }> {
-  const code = codeRanges(source)
-  const found = new Map<number, { length: number; text: string }>()
-  for (const match of source.matchAll(ENTITY)) {
-    const start = match.index ?? 0
-    const text = decoded(match[0])
-    const isCode = code.some(range => start >= range.from && start < range.to)
-    if (text !== match[0] && !isCode && !hidden[start]) found.set(start, { length: match[0].length, text })
-  }
-  return found
-}
+type Behind = { text: string } | { places: number }
 
-function project(source: string, fences: boolean): Projection {
-  const hidden = hiddenRanges(source, fences)
-  const entities = drawnEntities(source, hidden)
-  let letters = ''
-  const at: number[] = []
-  const ends: number[] = []
-  const take = (char: string, index: number, end: number) => {
-    letters += char
-    // one entry per UTF-16 unit, so an indexOf into letters lines up with at
-    for (let unit = 0; unit < char.length; unit++) {
-      at.push(index)
-      ends.push(end)
-    }
-  }
-  for (let index = 0; index < source.length; ) {
-    const entity = entities.get(index)
-    if (entity) {
-      for (const char of entity.text) if (VISIBLE.test(char)) take(char, index, index + entity.length)
-      index += entity.length
-      continue
-    }
-    const char = String.fromCodePoint(source.codePointAt(index) ?? 0)
-    if (!hidden[index] && VISIBLE.test(char)) take(char, index, index + char.length)
-    index += char.length
-  }
-  return { letters, at, ends }
+function lettersAt(text: string, offset: number): Piece[] {
+  return [...text.matchAll(LETTER)].map(match => {
+    const from = offset + (match.index ?? 0)
+    return { text: match[0], from, to: from + match[0].length }
+  })
 }
 
 function lettersOf(text: string): string {
-  return [...text].filter(char => VISIBLE.test(char)).join('')
+  return lettersAt(text, 0)
+    .map(piece => piece.text)
+    .join('')
+}
+
+// an entity counts as the letters it decodes to, each spanning the whole entity
+function textPieces(raw: string): Piece[] {
+  const pieces: Piece[] = []
+  let from = 0
+  for (const entity of raw.matchAll(ENTITY)) {
+    const at = entity.index ?? 0
+    const to = at + entity[0].length
+    pieces.push(...lettersAt(raw.slice(from, at), from), ...lettersAt(decoded(entity[0]), 0).map(piece => ({ ...piece, from: at, to })))
+    from = to
+  }
+  return [...pieces, ...lettersAt(raw.slice(from), from)]
+}
+
+function codePieces(walk: Walk, token: Tokens.Code): Piece[] {
+  if (walk.labels || token.codeBlockStyle === 'indented') return lettersAt(token.raw, 0)
+  const body = token.raw.indexOf('\n') + 1
+  return body === 0 ? [] : lettersAt(token.raw.slice(body), body)
+}
+
+function imagePieces(token: Tokens.Image): Piece[] {
+  const at = token.text === '' ? -1 : token.raw.indexOf(token.text)
+  return at === -1 ? [] : lettersAt(token.text, at)
+}
+
+// the letters a leaf draws, by where they sit in its raw; undefined for a token drawn through its children
+function piecesOf(walk: Walk, token: Token): Piece[] | undefined {
+  if (HIDDEN.has(token.type) || (token.type === 'html' && !(token as Tokens.HTML).block)) return []
+  if (token.type === 'text' && (token as Tokens.Text).tokens === undefined) return textPieces(token.raw)
+  if (token.type === 'codespan') return lettersAt(token.raw, 0)
+  if (token.type === 'code') return codePieces(walk, token as Tokens.Code)
+  if (token.type === 'image') return imagePieces(token as Tokens.Image)
+  return undefined
+}
+
+function childrenOf(token: Token): Token[] {
+  if (token.type === 'list') return (token as Tokens.List).items
+  if (token.type === 'html') return lexInline(token.raw)
+  if (token.type === 'table') {
+    const { header, rows } = token as Tokens.Table
+    return [...header, ...rows.flat()].flatMap(cell => cell.tokens)
+  }
+  return 'tokens' in token && Array.isArray(token.tokens) ? token.tokens : []
+}
+
+// a raw starts at the cursor or after a few hidden markers, so the search stays near it and linear
+function locate(walk: Walk, raw: string): number | undefined {
+  if (walk.source.startsWith(raw, walk.cursor)) return walk.cursor
+  const near = walk.source.slice(walk.cursor, Math.min(walk.limit, walk.cursor + raw.length + NEAR))
+  const at = near.indexOf(raw)
+  return at === -1 ? undefined : walk.cursor + at
+}
+
+function take(walk: Walk, piece: Piece, shift: number): void {
+  walk.letters += piece.text
+  // one entry per UTF-16 unit, so an indexOf into letters lines up with at
+  for (let unit = 0; unit < piece.text.length; unit++) {
+    walk.at.push(piece.from + shift)
+    walk.ends.push(piece.to + shift)
+  }
+}
+
+// a raw the lexer rewrote, as quote markers stripped from its lines or a table cell's escaped pipe
+// unescaped, is found piece by piece instead
+function byPiece(walk: Walk, raw: string, pieces: Piece[]): void {
+  for (const piece of pieces) {
+    const at = locate(walk, raw.slice(piece.from, piece.to))
+    if (at === undefined) continue
+    take(walk, piece, at - piece.from)
+    walk.cursor = at + piece.to - piece.from
+  }
+}
+
+function emit(walk: Walk, raw: string, pieces: Piece[]): void {
+  const start = locate(walk, raw)
+  if (start === undefined) {
+    byPiece(walk, raw, pieces)
+    return
+  }
+  for (const piece of pieces) take(walk, piece, start)
+  walk.cursor = start + raw.length
+}
+
+function walkToken(walk: Walk, token: Token): void {
+  const start = SPANS.has(token.type) ? locate(walk, token.raw) : undefined
+  if (start !== undefined) {
+    walk.spans.push({ from: start, to: start + token.raw.length })
+    walk.cursor = start
+  }
+  const pieces = piecesOf(walk, token)
+  if (pieces !== undefined) emit(walk, token.raw, pieces)
+  else for (const child of childrenOf(token)) walkToken(walk, child)
+  if (start !== undefined) walk.cursor = Math.max(walk.cursor, start + token.raw.length)
+}
+
+// what the renderer draws, as letters, each mapped to the source it came from
+function projected(source: string, tokens: Token[], labels: boolean): Projection {
+  const walk: Walk = { source, labels, cursor: 0, limit: source.length, letters: '', at: [], ends: [], spans: [] }
+  let offset = 0
+  for (const token of tokens) {
+    const found = source.startsWith(token.raw, offset) ? offset : source.indexOf(token.raw, offset)
+    walk.cursor = found === -1 ? offset : found
+    walk.limit = found === -1 ? source.length : found + token.raw.length
+    walkToken(walk, token)
+    offset = found === -1 ? walk.cursor : walk.limit
+  }
+  return { letters: walk.letters, at: walk.at, ends: walk.ends, spans: walk.spans }
+}
+
+type Projections = { labelled: Projection; plain: Projection }
+
+const projections = new SizedCache<Projections>(CACHE_CHARS)
+
+function projectionsOf(source: string): Projections {
+  const tokens = lexBlocks(source)
+  return { labelled: projected(source, tokens, true), plain: projected(source, tokens, false) }
 }
 
 function lineStart(source: string, from: number): number {
@@ -119,50 +167,41 @@ function wholeLines(source: string, from: number, to: number): string {
   return source.slice(lineStart(source, from), lineEnd(source, to))
 }
 
-const INLINE_MARKUP = [
-  /\*\*[^*\n]+\*\*/g,
-  /__[^_\n]+__/g,
-  /~~[^~\n]+~~/g,
-  INLINE_CODE,
-  /!?\[[^\]\n]*\]\([^)\n]*\)/g,
-  /(?<![*\w])\*[^*\s][^*\n]*\*(?![*\w])/g,
-  /(?<![_\w])_[^_\s][^_\n]*_(?![_\w])/g,
-]
-
-type Cut = { from: number; to: number }
-
-function widened(line: string, cut: Cut): Cut | undefined {
-  for (const pattern of INLINE_MARKUP) {
-    for (const match of line.matchAll(pattern)) {
-      const start = match.index ?? 0
-      const end = start + match[0].length
-      const straddles = start < cut.to && end > cut.from && (start < cut.from || end > cut.to)
-      if (straddles) return { from: Math.min(start, cut.from), to: Math.max(end, cut.to) }
-    }
-  }
-  return undefined
+function straddled(spans: Cut[], cut: Cut): Cut | undefined {
+  const span = spans.find(({ from, to }) => from < cut.to && to > cut.from && (from < cut.from || to > cut.to))
+  return span && { from: Math.min(span.from, cut.from), to: Math.max(span.to, cut.to) }
 }
 
-function balanced(line: string, cut: Cut): Cut {
+function balanced(spans: Cut[], cut: Cut): Cut {
   let current = cut
-  for (let next = widened(line, current); next; next = widened(line, current)) current = next
+  for (let next = straddled(spans, current); next; next = straddled(spans, current)) current = next
   return current
 }
 
-function edges(selected: string): { lead: string; tail: string } {
+// punctuation the selection starts or ends with, taken when the source has it right there
+function withEdges(source: string, cut: Cut, selected: string): Cut {
   const trimmed = selected.trim()
-  return { lead: /^[^\p{L}\p{N}]*/u.exec(trimmed)?.[0] ?? '', tail: /[^\p{L}\p{N}]*$/u.exec(trimmed)?.[0] ?? '' }
-}
-
-function withEdges(line: string, cut: Cut, selected: string): Cut {
-  const { lead, tail } = edges(selected)
-  const from = lead !== '' && line.slice(cut.from - lead.length, cut.from) === lead ? cut.from - lead.length : cut.from
-  const to = tail !== '' && line.slice(cut.to, cut.to + tail.length) === tail ? cut.to + tail.length : cut.to
+  const found = lettersAt(trimmed, 0)
+  const lead = trimmed.slice(0, found[0]?.from ?? 0)
+  const tail = trimmed.slice(found.at(-1)?.to ?? trimmed.length)
+  const from = lead !== '' && source.slice(cut.from - lead.length, cut.from) === lead ? cut.from - lead.length : cut.from
+  const to = tail !== '' && source.slice(cut.to, cut.to + tail.length) === tail ? cut.to + tail.length : cut.to
   return { from, to }
 }
 
+function firstFrom(at: number[], offset: number): number {
+  let low = 0
+  let high = at.length
+  while (low < high) {
+    const middle = (low + high) >> 1
+    if ((at[middle] ?? 0) < offset) low = middle + 1
+    else high = middle
+  }
+  return low
+}
+
 function lettersWithin(projection: Projection, start: number, end: number): number {
-  return projection.at.filter(index => index >= start && index < end).length
+  return firstFrom(projection.at, end) - firstFrom(projection.at, start)
 }
 
 function excerpt(source: string, projection: Projection, span: Span, selected: string): string {
@@ -170,19 +209,11 @@ function excerpt(source: string, projection: Projection, span: Span, selected: s
   const last = projection.at[span.to] ?? source.length - 1
   const start = lineStart(source, from)
   const end = lineEnd(source, last)
-  const line = source.slice(start, end)
-  if (line.includes('\n') || lettersWithin(projection, start, end) === span.to - span.from + 1) return line
-  const to = projection.ends[span.to] ?? last + 1
-  // code draws `**` and `_` as written, so a fenced line is cut where the letters are, not widened to markup
-  const isFenced = codeRanges(source, false).some(range => start >= range.from && start < range.to)
-  const exact = { from: from - start, to: to - start }
-  const cut = isFenced ? withEdges(line, exact, selected) : balanced(line, withEdges(line, balanced(line, exact), selected))
-  return line.slice(cut.from, cut.to)
+  if (lineStart(source, last) !== start || lettersWithin(projection, start, end) === span.to - span.from + 1) return source.slice(start, end)
+  const exact = { from, to: projection.ends[span.to] ?? last + 1 }
+  const cut = balanced(projection.spans, withEdges(source, balanced(projection.spans, exact), selected))
+  return source.slice(cut.from, cut.to)
 }
-
-type Span = { from: number; to: number }
-
-export type Behind = { text: string } | { places: number }
 
 function occurrences(haystack: string, wanted: string): number[] {
   const found: number[] = []
@@ -209,7 +240,10 @@ function lineSpans(projection: Projection, lines: string[]): Span[] {
 }
 
 function spansIn(projection: Projection, selected: string): Span[] {
-  const lines = selected.split('\n').map(lettersOf).filter(line => line !== '')
+  const lines = selected
+    .split('\n')
+    .map(lettersOf)
+    .filter(line => line !== '')
   const exact = exactSpans(projection, lines.join(''))
   if (exact.length > 0) return exact
   return lineSpans(projection, lines)
@@ -229,10 +263,9 @@ function literalSpans(source: string, selected: string): Behind | undefined {
 
 export function sourceBehind(source: string, selected: string): Behind | undefined {
   if (lettersOf(selected) === '') return literalSpans(source, selected)
-  for (const fences of [true, false]) {
-    const projection = project(source, fences)
-    const lines = spansIn(projection, selected).map(span => excerpt(source, projection, span, selected))
-    const found = settled(lines)
+  const both = projections.get(source) ?? projections.set(source, projectionsOf(source))
+  for (const projection of [both.labelled, both.plain]) {
+    const found = settled(spansIn(projection, selected).map(span => excerpt(source, projection, span, selected)))
     if (found) return found
   }
   return undefined

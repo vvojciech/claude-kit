@@ -13,7 +13,7 @@ export type Request = BlockRequest | ToolRequest | CallRequest | { kind: 'select
 
 const HELP = new Set(['help', '-h', '--help', '?'])
 
-export const SELECTION = 'selection'
+const SELECTION = 'selection'
 
 export const ARGUMENT_HINT = `[R] [reply | <language> | code | table | quote] [N] | file [N] | plan | output [N] | ${SELECTION} | help`
 
@@ -143,7 +143,7 @@ export function parse(args: string): Request {
   return soleRequest(given) ?? toolRequest(given) ?? callRequest(given) ?? blockRequest(given)
 }
 
-export function whichReply(reply: number): string {
+function whichReply(reply: number): string {
   return reply === 1 ? 'the last reply' : `reply ${reply} back`
 }
 
@@ -185,7 +185,7 @@ export function chooseBlock(reply: Resolved, request: BlockRequest): Choice {
   return { error: `No "${request.name}" in ${whichReply(request.reply)}; it has ${names}` }
 }
 
-export function missingTool(tool: ToolKind, back: number, count: number): string {
+function missingTool(tool: ToolKind, back: number, count: number): string {
   if (count === 0) return `No ${TOOL_WHAT[tool]} to copy in this session yet`
   return `Only ${count} ${TOOL_WHAT[tool]}${count === 1 ? '' : 's'} so far, not ${back}`
 }

@@ -26,6 +26,8 @@ describe('repliesFrom', () => {
     const working: SessionMessage = { role: 'assistant', text: '', toolUses: [{ id: 't', name: 'Bash', input: {} }] as never }
     expect(texts([prompt('go'), said('Before.'), working, answered(), notice, said('After.')])).toEqual(['Before.\n\nAfter.'])
     expect(texts([prompt('go'), said('Done.'), notice, said('The task finished.')])).toEqual(['Done.', 'The task finished.'])
+    expect(texts([prompt('go'), said('Before.'), working, answered(), notice, notice, said('After.')])).toEqual(['Before.\n\nAfter.'])
+    expect(texts([prompt('go'), said('Done.'), notice, notice, said('Both finished.')])).toEqual(['Done.', 'Both finished.'])
   })
 
   test('drops prompts that drew no text and blank assistant rows', async () => {

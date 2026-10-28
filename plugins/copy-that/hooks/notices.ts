@@ -10,7 +10,7 @@ export const FIRST_RUN = 'Hover ⧉ to copy; /copy-that help'
 
 export const NO_FULLSCREEN = '⧉ needs fullscreen; use /copy-that'
 
-export const LARGE_FOR_TERMINAL = 100_000
+const LARGE_FOR_TERMINAL = 100_000
 
 export const NO_SELECTION = 'Nothing selected: drag over part of a reply in fullscreen, then run /copy-that selection'
 
