@@ -1,12 +1,12 @@
 import type { EngineInterface, Elements, Register, RenderElement, RenderInputOf, RenderNode } from 'claude-code'
 
 import { isFlow, parseFlow } from './flow'
-import { drawFlow } from './flowdraw'
+import { MOST_WAYPOINTS, drawFlow, isTangled } from './flowdraw'
 import { isSequence, kindOf, parseSequence } from './parse'
 import type { Sequence } from './parse'
 import { drawSequence } from './render'
 import type { Ink, Run } from './render'
-import { definitionsOf, segmentsOf } from './segments'
+import { segmentsOf } from './segments'
 import type { Segment } from './segments'
 
 type AssistantRender = RenderInputOf<'AssistantMessage', 'terminal'>
@@ -14,8 +14,6 @@ type AssistantRender = RenderInputOf<'AssistantMessage', 'terminal'>
 type Kit = Pick<Elements['terminal'], 'Box' | 'Text'>
 
 type Style = { dimColor?: boolean; bold?: boolean; italic?: boolean; backgroundColor?: string; color?: string }
-
-type Shown = { node: RenderNode; source?: undefined } | { source: string[] }
 
 // six hues spread round the wheel, a darker set for light themes so each reads at 4.5:1; the n-th
 // participant to send a message takes palette[n % length], and participants that never send stay uncoloured
@@ -25,6 +23,10 @@ export const PALETTES = {
 } as const
 
 type Look = { colour: boolean; quiet: boolean; boxnote: boolean }
+
+type Picture = { title?: string; rows: Run[][]; notes: string[]; problems: string[] }
+
+type Drawing = { picture: Picture; source?: undefined } | { source: string[] }
 
 // colour, quiet returns and boxed notes are on by default; MERMAID_STYLE=plain turns them all off
 async function readLook($: EngineInterface): Promise<Look> {
@@ -44,7 +46,7 @@ function runStyle(style: Styles, run: Run, chosen: Look): Style {
 
 export const TINT = { dark: '#303030', light: '#e4e4e4' } as const
 // `rect` blocks sit on a fainter background than notes, so a note inside one still stands out
-export const SHADE = { dark: '#262626', light: '#efefef' } as const
+const SHADE = { dark: '#262626', light: '#efefef' } as const
 
 const INDENT = 2
 
@@ -99,37 +101,35 @@ function row({ Box, Text }: Kit, style: Styles, chosen: Look, runs: Run[], key: 
   )
 }
 
-const isUnreadable = (sequence: Sequence) => sequence.participants.length === 0 || (sequence.unread ?? 0) > 0
+function dimmed({ Text }: Kit, lines: string[], key: string): RenderNode[] {
+  return keyed(lines, line => line).map(([id, line]) => (
+    <Text key={`${key}-${id}`} dimColor>
+      {line}
+    </Text>
+  ))
+}
 
-function problems({ Box, Text }: Kit, lines: string[], key: string): RenderNode {
+function problemList(kit: Kit, lines: string[], key: string): RenderNode {
   return (
-    <Box key={key} flexDirection="column" paddingLeft={INDENT}>
-      {keyed(lines, line => line).map(([id, line]) => (
-        <Text key={`${key}-line-${id}`} dimColor>
-          {line}
-        </Text>
-      ))}
-    </Box>
+    <kit.Box key={key} flexDirection="column" paddingLeft={INDENT}>
+      {dimmed(kit, lines, key)}
+    </kit.Box>
   )
 }
 
-function diagram(kit: Kit, style: Styles, chosen: Look, sequence: Sequence, width: number, key: string): RenderNode {
+function picture(kit: Kit, style: Styles, chosen: Look, { title, rows, notes, problems }: Picture, key: string): RenderNode {
   const { Box, Text } = kit
-  const { rows, notes } = drawSequence(sequence, width, { boxedNotes: chosen.boxnote, labelsAbove: true })
   return (
     <Box key={key} flexDirection="column" paddingLeft={INDENT}>
+      {title && (
+        <Text key={`${key}-title`} bold>
+          {title}
+        </Text>
+      )}
       {keyed(rows, textOf).map(([id, runs]) => row(kit, style, chosen, runs, `${key}-row-${id}`))}
       {notes.length > 0 && <Text key={`${key}-gap`}> </Text>}
-      {keyed(notes, note => note).map(([id, note]) => (
-        <Text key={`${key}-note-${id}`} dimColor>
-          {note}
-        </Text>
-      ))}
-      {keyed(sequence.problems, problem => problem).map(([id, problem]) => (
-        <Text key={`${key}-problem-${id}`} dimColor>
-          {problem}
-        </Text>
-      ))}
+      {dimmed(kit, notes, `${key}-note`)}
+      {dimmed(kit, problems, `${key}-problem`)}
     </Box>
   )
 }
@@ -142,53 +142,30 @@ function notice({ Box, Text }: Kit, kind: string, key: string): RenderNode {
   )
 }
 
-function couldNotDraw($: EngineInterface, error: unknown): Shown {
-  const reason = error instanceof Error ? error.message : String(error)
-  $.ui.log(`mermaid could not draw a diagram: ${reason}`, { to: 'debug' })
-  return { source: [`mermaid: could not draw this diagram (${reason})`] }
+const isUnreadable = (sequence: Sequence) => sequence.participants.length === 0 || (sequence.unread ?? 0) > 0
+
+function sequenceDrawing(source: string, width: number, chosen: Look): Drawing {
+  const sequence = parseSequence(source)
+  if (isUnreadable(sequence)) return { source: sequence.problems }
+  return { picture: { ...drawSequence(sequence, width, { boxedNotes: chosen.boxnote, labelsAbove: true }), problems: sequence.problems } }
 }
 
-function flowchart(kit: Kit, style: Styles, chosen: Look, part: { source: string }, width: number, key: string): Shown {
-  const flow = parseFlow(part.source)
+function flowDrawing(source: string, width: number): Drawing {
+  const flow = parseFlow(source)
   if (flow.nodes.length === 0 || flow.problems.length > 0) return { source: flow.problems.length > 0 ? flow.problems : ['mermaid: no nodes in this flowchart'] }
+  if (isTangled(flow)) return { source: [`mermaid: this flowchart is too tangled to lay out, its links cross over ${MOST_WAYPOINTS} ranks`] }
   const drawn = drawFlow(flow, width)
   if (!drawn) return { source: [`mermaid: this flowchart needs more than ${width} columns`] }
-  const { Box, Text } = kit
-  return {
-    node: (
-      <Box key={key} flexDirection="column" paddingLeft={INDENT}>
-        {flow.title && (
-          <Text key={`${key}-title`} bold>
-            {flow.title}
-          </Text>
-        )}
-        {keyed(drawn.rows, textOf).map(([id, runs]) => row(kit, style, chosen, runs, `${key}-row-${id}`))}
-        {drawn.notes.length > 0 && <Text key={`${key}-gap`}> </Text>}
-        {keyed(drawn.notes, note => note).map(([id, note]) => (
-          <Text key={`${key}-note-${id}`} dimColor>
-            {note}
-          </Text>
-        ))}
-      </Box>
-    ),
-  }
+  return { picture: { ...drawn, title: flow.title, problems: [] } }
 }
 
-function flowPart($: EngineInterface, kit: Kit, style: Styles, chosen: Look, part: { source: string }, width: number, key: string): Shown {
+function drawing($: EngineInterface, part: { kind: 'sequence' | 'flow'; source: string }, width: number, chosen: Look): Drawing {
   try {
-    return flowchart(kit, style, chosen, part, width, key)
+    return part.kind === 'sequence' ? sequenceDrawing(part.source, width, chosen) : flowDrawing(part.source, width)
   } catch (error) {
-    return couldNotDraw($, error)
-  }
-}
-
-function sequencePart($: EngineInterface, kit: Kit, style: Styles, chosen: Look, part: { source: string }, width: number, key: string): Shown {
-  try {
-    const sequence = parseSequence(part.source)
-    if (isUnreadable(sequence)) return { source: sequence.problems }
-    return { node: diagram(kit, style, chosen, sequence, width, key) }
-  } catch (error) {
-    return couldNotDraw($, error)
+    const reason = error instanceof Error ? error.message : String(error)
+    $.ui.log(`mermaid could not draw a diagram: ${reason}`, { to: 'debug' })
+    return { source: [`mermaid: could not draw this diagram (${reason})`] }
   }
 }
 
@@ -198,31 +175,28 @@ async function drawParts($: EngineInterface, e: AssistantRender, next: (e: Assis
   const style = styles(await tint)
   const chosen = await readLook($)
   const width = (e.viewport?.columns ?? 80) - INDENT - 1
-  const definitions = definitionsOf(parts)
   const drawn: RenderNode[] = []
   let isFirst = e.props.isFirstOfReply
   for (const [i, part] of parts.entries()) {
     const key = `mermaid-part-${i}`
     if (part.kind === 'text') {
-      const isMissing = definitions.some(definition => !part.text.includes(definition))
-      const text = isMissing ? `${definitions.join('\n')}\n\n${part.text}` : part.text
-      const element = await next({ ...e, props: { ...e.props, text, isFirstOfReply: isFirst } })
+      const element = await next({ ...e, props: { ...e.props, text: part.text, isFirstOfReply: isFirst } })
       isFirst = false
       drawn.push(<kit.Box key={key}>{element}</kit.Box>)
-    } else if (part.kind === 'sequence' || part.kind === 'flow') {
-      const shown = part.kind === 'sequence' ? sequencePart($, kit, style, chosen, part, width, key) : flowPart($, kit, style, chosen, part, width, key)
-      if (shown.source) {
+    } else if (part.kind === 'other') {
+      drawn.push(notice(kit, part.type, key))
+    } else {
+      const shown = drawing($, part, width, chosen)
+      if (shown.source !== undefined) {
         const source = await next({ ...e, props: { ...e.props, text: part.fence, isFirstOfReply: isFirst } })
         isFirst = false
         drawn.push(
           <kit.Box key={key} flexDirection="column">
             {source}
-            {problems(kit, shown.source, `${key}-problems`)}
+            {problemList(kit, shown.source, `${key}-problems`)}
           </kit.Box>,
         )
-      } else drawn.push(shown.node)
-    } else {
-      drawn.push(notice(kit, part.kind === 'other' ? part.type : '', key))
+      } else drawn.push(picture(kit, style, chosen, shown.picture, key))
     }
   }
   return (

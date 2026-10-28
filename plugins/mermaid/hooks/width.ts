@@ -11,6 +11,8 @@ function graphemeWidth(grapheme: string): number {
 
 const NARROW = /^[\x20-\x7e\u00a0\u2026\u2190-\u21ff\u2500-\u25fc]*$/
 
+export const graphemes = (text: string) => (NARROW.test(text) ? [...text] : [...segmenter.segment(text)].map(s => s.segment))
+
 const widths = new Map<string, number>()
 
 export function cellWidth(text: string): number {

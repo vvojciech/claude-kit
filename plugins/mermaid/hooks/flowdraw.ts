@@ -9,9 +9,7 @@ import type { Direction, Flow, FlowEdge, FlowNode, Group, Shape, Stroke } from '
 import type { Ink, Run } from './render'
 import { wrap } from './render'
 import { must } from './must'
-import { cellWidth } from './width'
-
-const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+import { cellWidth, graphemes } from './width'
 
 const UP = 1
 const DOWN = 2
@@ -51,7 +49,7 @@ class Grid {
   // a wide character's second cell is left empty, so the row keeps its width
   write(x: number, y: number, text: string, ink: Ink, lane?: number) {
     let at = x
-    for (const { segment } of segmenter.segment(text)) {
+    for (const segment of graphemes(text)) {
       const w = cellWidth(segment)
       if (w === 0) continue
       this.put(at, y, segment, ink, lane)
@@ -126,7 +124,7 @@ type Route = { edge: FlowEdge; path: Vertex[] }
 // an edge that turns back up a cycle, drawn round the outside of the chart
 type Loop = { edge: FlowEdge; from: Vertex; to: Vertex; near: boolean }
 
-export type FlowDrawn = { rows: Run[][]; notes: string[] }
+type FlowDrawn = { rows: Run[][]; notes: string[] }
 
 const isAcross = (d: Direction) => d === 'LR' || d === 'RL'
 
@@ -156,6 +154,16 @@ function ranksOf(flow: Flow): { rank: Map<string, number>; back: Set<FlowEdge> }
   const back = againstFlow(flow, out, reachOrder(flow, out))
   closeCycles(flow, out, back)
   return { rank: longestPath(flow, back), back }
+}
+
+// a link spanning ranks takes a waypoint in each rank between its ends; past this many, layout stalls
+export const MOST_WAYPOINTS = 1000
+
+export function isTangled(flow: Flow): boolean {
+  const { rank, back } = ranksOf(flow)
+  let waypoints = 0
+  for (const edge of flow.edges) if (!back.has(edge)) waypoints += Math.max(0, (rank.get(edge.to) ?? 0) - (rank.get(edge.from) ?? 0) - 1)
+  return waypoints > MOST_WAYPOINTS
 }
 
 function reachOrder(flow: Flow, out: Map<string, FlowEdge[]>): Map<string, number> {
@@ -711,9 +719,12 @@ function labelLines(edge: FlowEdge, cap: number): string[] {
   return edge.label === '' ? [] : edge.label.split('\n').flatMap(part => (!/\s/.test(part) && cellWidth(part) <= 32 ? [part] : uncut(part, labelCap))).map(l => l.replace(/\u00a0/g, ' '))
 }
 
-const mainStroke = (list: Route[]): Stroke | undefined => {
-  const count = (stroke: Stroke) => list.filter(r => r.edge.stroke === stroke).length
-  return [...new Set(list.map(r => r.edge.stroke))].sort((a, b) => count(b) - count(a) || Number(b === 'solid') - Number(a === 'solid'))[0]
+// edges of one stroke and one tail share a port, so a two-way edge's tail never lands on a one-way one
+const portOf = (route: Route) => `${route.edge.stroke}${route.edge.tail ? '<' : ''}`
+
+const mainPort = (list: Route[]): string | undefined => {
+  const count = (port: string) => list.filter(r => portOf(r) === port).length
+  return [...new Set(list.map(portOf))].sort((a, b) => count(b) - count(a) || Number(b === 'solid') - Number(a === 'solid'))[0]
 }
 
 // edges of one stroke fan out of a shared port at the middle; a dotted or thick edge from the same
@@ -732,35 +743,35 @@ function portsOut(routes: Route[], across: boolean): { leaving: Map<Route, numbe
 function portsFrom(v: Vertex, list: Route[], across: boolean, leaving: Map<Route, number>) {
   const next = (r: Route) => centre(must(r.path[1], 'step'))
   // ports sit in the order of where their edges head, so two strokes never cross under the box
-  const toward = (stroke: Stroke) => {
-    const mine = list.filter(r => r.edge.stroke === stroke)
+  const toward = (port: string) => {
+    const mine = list.filter(r => portOf(r) === port)
     return mine.reduce((sum, r) => sum + next(r), 0) / mine.length
   }
   // the stroke most edges share keeps the middle; each other stroke steps out toward where it heads
-  const strokes = [...new Set(list.map(r => r.edge.stroke))]
-  const main = must(mainStroke(list), 'main stroke')
+  const ports = [...new Set(list.map(portOf))]
+  const main = must(mainPort(list), 'main port')
   const step = across ? 2 : 4
-  const others = strokes.filter(stroke => stroke !== main).sort((a, b) => toward(a) - toward(b))
-  const lefts = others.filter(stroke => toward(stroke) < centre(v)).reverse()
-  const rights = others.filter(stroke => toward(stroke) >= centre(v))
-  const place = (stroke: Stroke, at: number) => {
-    for (const r of list) if (r.edge.stroke === stroke) leaving.set(r, Math.max(v.at + 1, Math.min(v.at + v.cross - 2, at)))
+  const others = ports.filter(port => port !== main).sort((a, b) => toward(a) - toward(b))
+  const lefts = others.filter(port => toward(port) < centre(v)).reverse()
+  const rights = others.filter(port => toward(port) >= centre(v))
+  const place = (port: string, at: number) => {
+    for (const r of list) if (portOf(r) === port) leaving.set(r, Math.max(v.at + 1, Math.min(v.at + v.cross - 2, at)))
   }
   place(main, centre(v))
   // a short edge fanning out beside a long one leaves through its own port, toward where it heads,
   // so the long edge's line never doubles as the short one's way out
-  const long = list.filter(r => r.edge.stroke === main && r.path.length > 2)
-  const short = list.filter(r => r.edge.stroke === main && r.path.length === 2)
+  const long = list.filter(r => portOf(r) === main && r.path.length > 2)
+  const short = list.filter(r => portOf(r) === main && r.path.length === 2)
   if (long.length > 0 && short.length > 0) {
     const side = short.reduce((sum, r) => sum + next(r), 0) / short.length < centre(v) ? -1 : 1
     const at = Math.max(v.at + 1, Math.min(v.at + v.cross - 2, centre(v) + side * Math.max(2, Math.floor(v.cross / 4))))
     for (const r of short) leaving.set(r, at)
   }
-  lefts.forEach((stroke, k) => {
-    place(stroke, centre(v) - step * (k + 1))
+  lefts.forEach((port, k) => {
+    place(port, centre(v) - step * (k + 1))
   })
-  rights.forEach((stroke, k) => {
-    place(stroke, centre(v) + step * (k + 1))
+  rights.forEach((port, k) => {
+    place(port, centre(v) + step * (k + 1))
   })
 }
 
@@ -772,9 +783,9 @@ function sideExits(plan: Layout, outOf: Map<Vertex, Route[]>, leaving: Map<Route
   const off = new Map<Route, number>()
   if (!plan.across) return off
   for (const [v, list] of outOf) {
-    const main = mainStroke(list)
+    const main = mainPort(list)
     for (const route of list) {
-      if (route.edge.stroke === main) {
+      if (portOf(route) === main) {
         leaving.set(route, centre(v))
         continue
       }
@@ -997,11 +1008,9 @@ function lanesFor(loops: Loop[], across: boolean, labelOf: Sheet['labelOf'], shi
 }
 
 const bandOf = (s: Sheet, v: Vertex) => must(s.bandStart[v.rank], 'band')
-// where a box starts along the main axis: a band's boxes line up on the side their edges leave
-const boxStart = (s: Sheet, v: Vertex) => bandOf(s, v) + (s.plan.reversed ? must(s.bandSize[v.rank], 'band') - v.main : 0)
 
 function drawBox(s: Sheet, v: Vertex) {
-  const m0 = boxStart(s, v)
+  const m0 = bandOf(s, v)
   const [x0, y0] = s.xy(m0, v.at)
   const [x1, y1] = s.xy(m0 + v.main - 1, v.at + v.cross - 1)
   drawNode(s.grid, v, Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0) + 1, Math.abs(y1 - y0) + 1)
@@ -1034,7 +1043,14 @@ function drawRoute(s: Sheet, p: Placed) {
   if (border && joined !== undefined) border.char = joined
   const landingAt = s.crossAt(route, path.length - 1)
   if (route.edge.head && !s.onto.has(route)) head(s, bandOf(s, last) - 1, landingAt, true)
-  if (route.edge.tail) head(s, bandOf(s, first) + first.main, s.crossAt(route, 0), false)
+  if (route.edge.tail) tail(s, route, first, exit)
+}
+
+// a tail sits outside the border its line leaves through, pointing back into the box
+function tail(s: Sheet, route: Route, first: Vertex, exit: number | undefined) {
+  if (exit === undefined) return head(s, bandOf(s, first) + first.main, s.crossAt(route, 0), false)
+  const [x, y] = s.xy(bandOf(s, first) + Math.max(1, first.main - 3), exit)
+  s.grid.put(x, y, exit < first.at ? HEADS.down : HEADS.up, 'line')
 }
 
 function joinBorder(char: string | undefined, { across, reversed }: Layout): string | undefined {
@@ -1132,7 +1148,7 @@ function drawLoop(s: Sheet, loop: Loop, lane: number, slots: Map<string, Loop[]>
   const row = (v: Vertex) => {
     const list = must(slots.get(slotOf(v, loop)), 'loop slot')
     const i = list.indexOf(loop)
-    const start = boxStart(s, v)
+    const start = bandOf(s, v)
     return list.length === 1 ? start + Math.floor(v.main / 2) : start + Math.round(((i + 1) * (v.main - 1)) / (list.length + 1))
   }
   const side = (v: Vertex) => (loop.near ? v.at - 1 : v.at + v.cross)

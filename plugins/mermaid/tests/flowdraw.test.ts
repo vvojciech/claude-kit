@@ -496,3 +496,34 @@ describe('drawFlow heads into one box', () => {
     expect(() => draw('flowchart LR\nA --> C{ok?}\nB --- C')).toThrow('a line and an arrow into C would share one head')
   })
 })
+
+describe('drawFlow reversed', () => {
+  test('right to left, an edge runs from the border of a box shorter than its rank to the next box', async () => {
+    const { lines } = draw('flowchart RL\nA-->B[short]\nA-->C[a much longer box]\nB-->D')
+
+    expect(lineAt(lines, rowOf(lines, 'short'))).toMatch(/│ D │◀─+┤ short │◀─/)
+  })
+
+  test('bottom to top, an edge leaves the top of a box shorter than its rank', async () => {
+    const { lines } = draw('flowchart BT\nA-->B[short]\nA-->C[a<br/>tall<br/>box]\nB-->D')
+
+    expect(lineAt(lines, rowOf(lines, 'short') - 1)).toMatch(/^┌─+┴─+┐/)
+  })
+})
+
+describe('drawFlow two-way links', () => {
+  test('a two-way link leaves through a port of its own, so a one-way link beside it never shows its tail', async () => {
+    const { lines } = draw('flowchart TD\nA <--> B\nA --> C')
+    const border = lineAt(lines, rowOf(lines, 'A') + 1)
+
+    expect([...border].filter(char => char === '┬')).toHaveLength(2)
+    expect(lineAt(lines, rowOf(lines, 'A') + 2).trim()).toBe('▲│')
+  })
+
+  test('left to right, a two-way link leaving through the top of a box shows its tail on the way out', async () => {
+    const { lines } = draw('flowchart LR\nA <--> B\nA --> C\nA --> D')
+    const top = rowOf(lines, '┴')
+
+    expect(lineAt(lines, top - 1)[colOf(lines, '┴')]).toBe('▼')
+  })
+})

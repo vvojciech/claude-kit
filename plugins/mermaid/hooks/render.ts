@@ -1,6 +1,6 @@
 import { must } from './must'
 import type { Arrow, Participant, Sequence, Step } from './parse'
-import { cellWidth } from './width'
+import { cellWidth, graphemes } from './width'
 
 export type Ink = 'frame' | 'name' | 'line' | 'text' | 'note' | 'block' | 'number'
 // `shade` marks cells inside a `rect` block, drawn on a faint background
@@ -79,7 +79,6 @@ const COLS_PER_ROW = 12
 const ACTOR = '☺ '
 const plain = (text: string) => text.replace(/\u00a0/g, ' ')
 const GLUE = '\u00a0'
-const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 const HEADS: Record<Arrow, { right: string; left: string }> = {
   filled: { right: '▶', left: '◀' },
@@ -94,8 +93,6 @@ const SHAPES: Record<string, string> = { queue: '≋ ', database: '◫ ', entity
 
 const markerOf = (p: Participant) => (p.kind === 'actor' ? ACTOR : (p.shape && SHAPES[p.shape]) ?? '')
 
-const SIMPLE = /^[\x20-\x7e\u00a0\u2026\u2190-\u21ff\u2500-\u25fc]*$/
-const graphemes = (text: string) => (SIMPLE.test(text) ? [...text] : [...segmenter.segment(text)].map(s => s.segment))
 const odd = (n: number) => (n % 2 === 0 ? n + 1 : n)
 const half = (w: number) => (w - 1) / 2
 const leftOf = (w: number) => Math.floor(w / 2)
@@ -236,7 +233,7 @@ function narrower(lines: Wrapped, text: string, wide: number, fits: (line: strin
 const noteWidth = (step: Note, text: number) => (step.side === 'over' ? odd(text + 2) : text + 2)
 const widest = (lines: string[]) => Math.max(0, ...lines.map(cellWidth))
 
-export const canStack = (p: Participant) => !p.label.includes('\n') && p.label.trim().includes(' ')
+const canStack = (p: Participant) => !p.label.includes('\n') && p.label.trim().includes(' ')
 
 function stackedLabel(label: string): string[] {
   const words = label.trim().split(SPACES)
@@ -1364,7 +1361,6 @@ function choose(sequence: Sequence, width: number): { plan: Plan; items: Item[];
 }
 
 
-
 const laneCentre = (plan: Plan, i: number) => must(plan.centre[i], 'lifeline')
 const laneName = (plan: Plan, i: number) => must(plan.names[i], 'name cap')
 const laneBoxWidth = (plan: Plan, i: number) => boxWidth(must(plan.lanes[i], 'lane'), laneName(plan, i), plan.isBare, plan.stacked[i])
@@ -1907,7 +1903,7 @@ let labelsAbove = false
 
 const cache = new Map<string, { rows: Run[][]; notes: string[] }>()
 
-export type DrawOptions = { boxedNotes?: boolean; labelsAbove?: boolean }
+type DrawOptions = { boxedNotes?: boolean; labelsAbove?: boolean }
 
 export function drawSequence(sequence: Sequence, width: number, options: DrawOptions = {}): { rows: Run[][]; notes: string[] } {
   const key = `${width}\u0000${options.boxedNotes ? 1 : 0}${options.labelsAbove ? 1 : 0}\u0000${JSON.stringify(sequence)}`

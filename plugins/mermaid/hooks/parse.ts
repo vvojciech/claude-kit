@@ -1,6 +1,5 @@
 import { must } from './must'
 import { NAMED, withoutControls } from './entities'
-import { fencesOf } from './segments'
 
 export type Arrow = 'filled' | 'open' | 'cross' | 'async' | 'both' | 'half'
 
@@ -160,10 +159,6 @@ function boxLabel(text: string): string {
   if (rest !== text) return clean(rest)
   const [first = '', ...others] = text.trim().split(/\s+/)
   return COLOURS.has(first.toLowerCase()) ? clean(others.join(' ')) : clean(text)
-}
-
-export function mermaidBlocks(markdown: string): string[] {
-  return fencesOf(markdown).map(fence => fence.source)
 }
 
 export function isSequence(source: string): boolean {

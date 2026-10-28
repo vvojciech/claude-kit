@@ -254,7 +254,7 @@ test('hands every piece of prose the reply link definitions, so a reference link
   const seen: { text: string; isFirst: boolean }[] = []
   beneath(on, seen)
   const ui = await mount($, `See [docs][ref].\n\n${FLOWCHART.slice('Before.\n\n'.length)}\n\nMore [docs][ref].\n\n[ref]: https://example.com`)
-  expect(seen.map(one => one.text)).toEqual(['[ref]: https://example.com\n\nSee [docs][ref].', 'More [docs][ref].\n\n[ref]: https://example.com'])
+  expect(seen.map(one => one.text)).toEqual(['[ref]: <https://example.com>\n\nSee [docs][ref].', '[ref]: <https://example.com>\n\nMore [docs][ref].\n\n[ref]: https://example.com'])
   await ui.unmount()
 })
 
@@ -264,7 +264,7 @@ test('puts the reply definitions first, so the first of two duplicates still win
   const diagram = FLOWCHART.slice('Before.\n\n'.length)
   const ui = await mount($, `See [a][ref].\n\n[ref]: https://first.example\n\n${diagram}\n\nMore [b][ref].\n\n[ref]: https://second.example\n\n\`\`\`ts\nconst x`)
   const second = must(seen[1], 'second piece').text
-  expect(second.startsWith('[ref]: https://first.example\n[ref]: https://second.example\n\nMore')).toBe(true)
+  expect(second.startsWith('[ref]: <https://first.example>\n\nMore')).toBe(true)
   expect(second.endsWith('```ts\nconst x')).toBe(true)
   await ui.unmount()
 })
@@ -285,5 +285,14 @@ test('draws the front matter title above a flowchart', async ($, on) => {
   const all = await texts(ui)
   expect(all).toContain('Checkout')
   expect(all.indexOf('Checkout')).toBeLessThan(all.findIndex(t => t.includes('Start')))
+  await ui.unmount()
+})
+
+test('shows a flowchart whose links pass through too many ranks as source, before laying it out', async ($, on) => {
+  beneath(on)
+  const chain = Array.from({ length: 249 }, (_, i) => `N${i + 1} --> N${i + 2}`)
+  const fan = Array.from({ length: 248 }, (_, i) => `N1 --> N${i + 3}`)
+  const ui = await mount($, `\`\`\`mermaid\nflowchart TD\n${[...chain, ...fan].join('\n')}\n\`\`\``)
+  expect((await texts(ui)).at(-1)).toBe('mermaid: this flowchart is too tangled to lay out, its links cross over 1000 ranks')
   await ui.unmount()
 })

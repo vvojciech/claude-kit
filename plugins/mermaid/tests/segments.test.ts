@@ -1,21 +1,28 @@
 import { expect, test } from 'claude-code/testing'
 
-import { definitionsOf, fencesOf, segmentsOf } from '../hooks/segments'
+import { segmentsOf } from '../hooks/segments'
 
 const typeOf = (source: string) =>
   source.trim().startsWith('sequenceDiagram') ? 'sequence' : /^(flowchart|graph)\b/.test(source.trim()) ? 'flow' : (source.trim().split(/\s+/)[0] ?? '')
 
+const kinds = (markdown: string) => segmentsOf(markdown, typeOf).map(s => s.kind)
+
+const drawn = (markdown: string) => segmentsOf(markdown, typeOf).flatMap(part => (part.kind === 'sequence' || part.kind === 'flow' ? [part.source] : []))
+
+const prose = (markdown: string) => segmentsOf(markdown, typeOf).flatMap(part => (part.kind === 'text' ? [part.text] : []))
+
+const FENCE = '```mermaid\nsequenceDiagram\nA->>B: x\n```'
+
 test('splits text around a sequence fence and trims the blank lines it leaves', () => {
-  expect(segmentsOf('Before.\n\n```mermaid\nsequenceDiagram\nA->>B: x\n```\n\nAfter.', typeOf)).toEqual([
+  expect(segmentsOf(`Before.\n\n${FENCE}\n\nAfter.`, typeOf)).toEqual([
     { kind: 'text', text: 'Before.' },
-    { kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: '```mermaid\nsequenceDiagram\nA->>B: x\n```' },
+    { kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: FENCE },
     { kind: 'text', text: 'After.' },
   ])
 })
 
 test('keeps two diagrams in order with nothing between them', () => {
-  const two = '```mermaid\nsequenceDiagram\nA->>B: 1\n```\n```mermaid\nsequenceDiagram\nB->>A: 2\n```'
-  expect(segmentsOf(two, typeOf).map(s => s.kind)).toEqual(['sequence', 'sequence'])
+  expect(kinds(`${FENCE}\n${FENCE}`)).toEqual(['sequence', 'sequence'])
 })
 
 test('splits a flowchart out as its own part', () => {
@@ -35,36 +42,33 @@ test('keeps another kind of diagram as source, marked after it', () => {
 
 test('leaves an unclosed fence as text', () => {
   expect(segmentsOf('Hi\n```mermaid\nsequenceDiagram\nA->>B: x', typeOf)).toEqual([{ kind: 'text', text: 'Hi\n```mermaid\nsequenceDiagram\nA->>B: x' }])
+  expect(kinds('```mermaid\nsequenceDiagram\nA->>B: x\n\n\n')).toEqual(['text'])
 })
 
 test('takes tilde fences', () => {
   expect(segmentsOf('~~~mermaid\nsequenceDiagram\nA->>B: x\n~~~', typeOf)).toEqual([{ kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: '~~~mermaid\nsequenceDiagram\nA->>B: x\n~~~' }])
 })
 
-const kinds = (markdown: string) => segmentsOf(markdown, typeOf).map(s => s.kind)
-
 test('keeps a mermaid fence inside an outer fence literal', () => {
-  const nested = '````markdown\n```mermaid\nsequenceDiagram\nA->>B: x\n```\n````'
+  const nested = `\`\`\`\`markdown\n${FENCE}\n\`\`\`\``
   expect(segmentsOf(nested, typeOf)).toEqual([{ kind: 'text', text: nested }])
 })
 
-test('finds a fence indented under a list item and strips the indent', () => {
+test('finds a fence indented under a list item', () => {
   const listed = '- item\n\n    ```mermaid\n    sequenceDiagram\n    A->>B: x\n    ```'
-  expect(fencesOf(listed).map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-  const parts = segmentsOf(listed, typeOf)
-  expect(parts[1]).toEqual({ kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: '```mermaid\nsequenceDiagram\nA->>B: x\n```' })
+  expect(segmentsOf(listed, typeOf)).toEqual([
+    { kind: 'text', text: '- item' },
+    { kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: '  ```mermaid\n  sequenceDiagram\n  A->>B: x\n  ```' },
+  ])
 })
 
 test('ignores a four-space indented fence outside a list', () => {
-  expect(fencesOf('text\n\n    ```mermaid\n    sequenceDiagram\n    ```')).toEqual([])
+  expect(drawn('text\n\n    ```mermaid\n    sequenceDiagram\n    ```')).toEqual([])
 })
 
-test('closes on a longer fence of the same character', () => {
+test('closes on a longer fence of the same character, not a shorter one or the other character', () => {
   expect(kinds('```mermaid\nsequenceDiagram\nA->>B: x\n`````')).toEqual(['sequence'])
-})
-
-test('does not close on a shorter fence or the other character', () => {
-  expect(fencesOf('````mermaid\nsequenceDiagram\n```\n~~~~')).toEqual([])
+  expect(drawn('````mermaid\nsequenceDiagram\n```\n~~~~')).toEqual([])
 })
 
 test('takes only the exact mermaid info string', () => {
@@ -73,120 +77,59 @@ test('takes only the exact mermaid info string', () => {
 })
 
 test('normalises CRLF line endings', () => {
-  expect(fencesOf('```mermaid\r\nsequenceDiagram\r\nA->>B: x\r\n```\r\n')[0]?.source).toBe('sequenceDiagram\nA->>B: x')
+  expect(drawn('```mermaid\r\nsequenceDiagram\r\nA->>B: x\r\n```\r\n')).toEqual(['sequenceDiagram\nA->>B: x'])
 })
 
-test('draws a fence inside a blockquote in place, the quote marks stripped from the source', () => {
-  const quoted = '> Flow:\n>\n> ```mermaid\n> sequenceDiagram\n> A->>B: x\n> ```\n> After.'
-  expect(segmentsOf(quoted, typeOf)).toEqual([
+test('draws a fence inside a blockquote in place, the quote marks stripped', () => {
+  expect(segmentsOf(`> Flow:\n>\n> ${FENCE.replaceAll('\n', '\n> ')}\n> After.`, typeOf)).toEqual([
     { kind: 'text', text: '> Flow:\n>' },
-    { kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: '> ```mermaid\n> sequenceDiagram\n> A->>B: x\n> ```' },
+    { kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: FENCE },
     { kind: 'text', text: '> After.' },
   ])
 })
 
-test('leaving the blockquote closes its fence, so the diagram draws', () => {
-  const markdown = '> ```mermaid\n> sequenceDiagram\n> A->>B: x\nafter'
-  expect(fencesOf(markdown).map(fence => fence.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-  expect(segmentsOf(markdown, typeOf).map(part => part.kind)).toEqual(['sequence', 'text'])
-})
-
-test('finds a fence in a blockquote inside a list item', () => {
-  const markdown = '- > ```mermaid\n  > sequenceDiagram\n  > A->>B: x\n  > ```\n- next'
-  expect(fencesOf(markdown).map(fence => fence.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-  expect(kinds(markdown)).toEqual(['sequence', 'text'])
-})
-
-test('ignores a fence inside an HTML comment', () => {
-  expect(kinds('<!--\n```mermaid\nsequenceDiagram\nA->>B: x\n```\n-->\nafter')).toEqual(['text'])
-  expect(kinds('<!-- hidden -->\n```mermaid\nsequenceDiagram\nA->>B: x\n```')).toEqual(['text', 'sequence'])
-})
-
-test('a list item fence ends with its item, so a fence at column 0 opens a new one', () => {
-  const markdown = '- step\n\n  ```mermaid\n  sequenceDiagram\n  A->>B: x\n```\nafter'
-  expect(fencesOf(markdown).map(fence => fence.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-  expect(segmentsOf(markdown, typeOf).filter(part => part.kind === 'text').map(part => (part.kind === 'text' ? part.text : ''))).toEqual([
-    '- step',
-    '```\nafter',
-  ])
-})
-
-test('finds a fence opened on the same line as its list marker', () => {
-  for (const [marker, pad] of [['*', '  '], ['-', '  '], ['1.', '   ']] as const) {
-    const markdown = `${marker} \`\`\`mermaid\n${pad}sequenceDiagram\n${pad}A->>B: x\n${pad}\`\`\`\nafter`
-    expect(fencesOf(markdown).map(fence => fence.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-    expect(kinds(markdown)).toEqual(['sequence', 'text'])
-  }
-})
-
-test('finds a fence in a list inside a blockquote', () => {
-  expect(fencesOf('> 1. ```mermaid\n>    sequenceDiagram\n>    A->>B: x\n>    ```\n> after').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-})
-
-test('leaves a fence inside an HTML block as raw HTML until a blank line ends the block', () => {
-  expect(fencesOf('<div>\n```mermaid\nsequenceDiagram\nA->>B: x\n```\n</div>')).toEqual([])
-  expect(fencesOf('<details>\n\n```mermaid\nsequenceDiagram\nA->>B: x\n```\n\n</details>').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-})
-
-test('ignores a fence inside an HTML comment that sits in a blockquote or a list item', () => {
-  expect(kinds('> <!--\n> ```mermaid\n> sequenceDiagram\n> A->>B: x\n> ```\n> -->\nafter')).toEqual(['text'])
-  expect(kinds('- <!--\n  ```mermaid\n  sequenceDiagram\n  A->>B: x\n  ```\n  -->\nafter')).toEqual(['text'])
-})
-
-test('leaves a mermaid example inside <pre>, <script>, <style> or <textarea> as raw HTML, blank lines and all', () => {
-  for (const tag of ['pre', 'script', 'style', 'textarea', 'PRE']) {
-    expect(fencesOf(`<${tag}>\n\n\`\`\`mermaid\nsequenceDiagram\nA->>B: x\n\`\`\`\n\n</${tag}>`)).toEqual([])
-  }
-  expect(fencesOf('<pre>x</pre>\n```mermaid\nsequenceDiagram\nA->>B: x\n```').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-})
-
-test('a quoted blank line ends a quoted HTML block, so a fence after it draws', () => {
-  expect(fencesOf('> <details>\n>\n> ```mermaid\n> sequenceDiagram\n> A->>B: x\n> ```\n>\n> </details>').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-})
-
-test('finds a fence that opens on a later line of a list item inside a blockquote', () => {
-  expect(fencesOf('> - item\n>\n>   ```mermaid\n>   sequenceDiagram\n>   A->>B: x\n>   ```\n> after').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-  expect(fencesOf('> - item\n>\n>     ```mermaid\n>     sequenceDiagram\n>     A->>B: x\n>     ```\n> after').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-})
-
-test('leaving a blockquote ends an HTML comment, raw block or HTML block opened in it', () => {
-  const fence = '```mermaid\nsequenceDiagram\nA->>B: x\n```'
-  for (const opener of ['> <!--', '> <pre>', '> <div>']) {
-    for (const gap of ['\n', '\n\n']) expect(fencesOf(`${opener}${gap}${fence}`).map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-  }
-})
-
-test('a line that leaves a list item ends an HTML comment or raw block opened in it', () => {
-  const fence = '```mermaid\nsequenceDiagram\nA->>B: x\n```'
-  for (const opener of ['- <!--', '- <pre>', '- item\n\n  <!--']) expect(fencesOf(`${opener}\n\n${fence}`).map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
-  expect(fencesOf(`- <!--\n\n  ${fence.replaceAll('\n', '\n  ')}\n  -->`)).toEqual([])
-})
-
-test('a fence opened on its list marker drops the marker from the source it falls back to', () => {
-  for (const [marker, pad] of [['-', '  '], ['1.', '   ']] as const) {
-    const markdown = `${marker} \`\`\`mermaid\n${pad}sequenceDiagram\n${pad}A->>B: x\n${pad}\`\`\``
-    expect(segmentsOf(markdown, typeOf)).toEqual([{ kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: '```mermaid\nsequenceDiagram\nA->>B: x\n```' }])
-  }
+test('leaving the blockquote or list item closes its fence, so the diagram draws', () => {
+  expect(kinds('> ```mermaid\n> sequenceDiagram\n> A->>B: x\nafter')).toEqual(['sequence', 'text'])
+  expect(prose('- step\n\n  ```mermaid\n  sequenceDiagram\n  A->>B: x\n```\nafter')).toEqual(['- step', '```\nafter'])
 })
 
 test('a blockquoted fence still streaming stays text when the chunk ends in a newline', () => {
-  expect(fencesOf('> ```mermaid\n> sequenceDiagram\n> A->>B: x\n')).toEqual([])
-  expect(fencesOf('> ```mermaid\n> sequenceDiagram\n> A->>B: x\n\nafter').map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+  expect(drawn('> ```mermaid\n> sequenceDiagram\n> A->>B: x\n')).toEqual([])
+  expect(drawn('> ```mermaid\n> sequenceDiagram\n> A->>B: x\n\nafter')).toEqual(['sequenceDiagram\nA->>B: x'])
 })
 
-test('a fence inside a CDATA block is raw content', () => {
-  const fence = '```mermaid\nsequenceDiagram\nA->>B: x\n```'
-  expect(fencesOf(`<![CDATA[\n${fence}\n]]>`)).toEqual([])
-  expect(fencesOf(`<![CDATA[ x ]]>\n${fence}`).map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+test('finds fences in lists and blockquotes nested either way', () => {
+  for (const markdown of [
+    '- > ```mermaid\n  > sequenceDiagram\n  > A->>B: x\n  > ```\n- next',
+    '> 1. ```mermaid\n>    sequenceDiagram\n>    A->>B: x\n>    ```\n> after',
+  ]) {
+    expect(drawn(markdown)).toEqual(['sequenceDiagram\nA->>B: x'])
+    expect(kinds(markdown)).toEqual(['sequence', 'text'])
+  }
+  expect(prose('> - item\n>\n>   ```mermaid\n>   sequenceDiagram\n>   A->>B: x\n>   ```\n> after')).toEqual(['> - item\n>', '> after'])
 })
 
-test('HTML opened in a blockquote straight after a list marker holds the fence', () => {
-  const fence = '  > ```mermaid\n  > sequenceDiagram\n  > A->>B: x\n  > ```'
-  for (const opener of ['- > <!--', '- > <pre>']) expect(fencesOf(`${opener}\n${fence}\n  > -->\n  > </pre>`)).toEqual([])
-  expect(fencesOf(`- > <!-- note -->\n${fence}`).map(f => f.source)).toEqual(['sequenceDiagram\nA->>B: x'])
+test('a fence opened on its list marker drops the marker from the source it falls back to', () => {
+  for (const [marker, pad] of [['*', '  '], ['1.', '   ']] as const) {
+    const markdown = `${marker} \`\`\`mermaid\n${pad}sequenceDiagram\n${pad}A->>B: x\n${pad}\`\`\``
+    expect(segmentsOf(markdown, typeOf)).toEqual([{ kind: 'sequence', source: 'sequenceDiagram\nA->>B: x', fence: FENCE }])
+  }
+})
+
+test('leaves a fence inside HTML as raw HTML, up to where CommonMark ends the HTML block', () => {
+  for (const html of [`<!--\n${FENCE}\n-->`, `<div>\n${FENCE}\n</div>`, `<pre>\n\n${FENCE}\n\n</pre>`, `<![CDATA[\n${FENCE}\n]]>`, `<widget>\n${FENCE}`, `> <!--\n> ${FENCE.replaceAll('\n', '\n> ')}\n> -->`]) {
+    expect(drawn(`${html}\n\nafter`)).toEqual([])
+  }
+  for (const html of ['<!-- hidden -->', '<details>\n', '<pre>x</pre>', '> <!--']) expect(drawn(`${html}\n${FENCE}`)).toEqual(['sequenceDiagram\nA->>B: x'])
+})
+
+test('hands every piece of prose the first definition of each label in the reply, in reply order', () => {
+  const reply = `See [a][ref] and [b].\n\n[ref]: https://first.example\n\n${FENCE}\n\n[ref]: https://second.example\n[B]:\n  /b "the \\"b\\""`
+  const defined = '[ref]: <https://first.example>\n[b]: </b> "the \\"b\\""'
+  expect(prose(reply)).toEqual([`${defined}\n\nSee [a][ref] and [b].\n\n[ref]: https://first.example`, `${defined}\n\n[ref]: https://second.example\n[B]:\n  /b "the \\"b\\""`])
 })
 
 test('takes link definitions from prose only, not from code or HTML', () => {
-  const parts = segmentsOf('See [ref].\n\n```text\n[ref]: https://wrong.example\n```\n\n<!--\n[ref]: https://html.example\n-->\n\n[ref]: https://right.example', typeOf)
-  expect(definitionsOf(parts)).toEqual(['[ref]: https://right.example'])
+  const reply = `See [ref].\n\n- \`\`\`text\n  [ref]: https://wrong.example\n  \`\`\`\n\n<!--\n[ref]: https://html.example\n-->\n\n${FENCE}\n\n[ref]: https://right.example`
+  expect(prose(reply)[0]?.startsWith('[ref]: <https://right.example>\n\n')).toBe(true)
 })

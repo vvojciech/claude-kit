@@ -51,7 +51,7 @@ See [load order](#load-order) for how to set the order.
 
 ### Syntax
 
-- `sequenceDiagram` in a closed ```` ```mermaid ```` or `~~~mermaid` fence. Fences inside lists and blockquotes are found too.
+- `sequenceDiagram` in a closed ```` ```mermaid ```` or `~~~mermaid` fence. Fences inside lists and blockquotes are found too. A fence counts only where Claude Code's Markdown parser sees one, so an example inside another code block or HTML stays as written.
 - `participant` and `actor`, with `as` aliases, quoted names and `@{ type, alias }` metadata in JSON or YAML form.
 - Participant types `queue`, `database`, `entity`, `boundary`, `control` and `collections`, each marked by a glyph before the name.
 - `create` and `destroy`.
@@ -102,8 +102,9 @@ None. A diagram draws as soon as its `mermaid` fence closes.
 ## Known limits
 
 - A flowchart node that links to itself is listed under the chart instead of drawn.
-- These flowcharts show the source with a note instead of being drawn: a subgraph inside a subgraph, a subgraph `direction` other than the chart's, a link to a subgraph, `o` or `x` link ends, parallelogram and trapezoid nodes (`[/…/]`, `[\…\]`, `[/…\]`, `[\…/]`), more than 500 links, and, left to right, a line and an arrow into the tip of one decision.
+- These flowcharts show the source with a note instead of being drawn: a subgraph inside a subgraph, a subgraph `direction` other than the chart's, a link to a subgraph, `o` or `x` link ends, parallelogram and trapezoid nodes (`[/…/]`, `[\…\]`, `[/…\]`, `[\…/]`), more than 500 links, links that between them cross more than 1000 ranks, and, left to right, a line and an arrow into the tip of one decision.
 - `link`, `links`, `properties` and `details` lines are not drawn.
+- `autonumber` with a fractional step rounds each number to two decimals, so `autonumber 1 0.125` counts 1, 1.13, 1.25.
 - The list form of a sequence diagram drops activation bars.
 - Box and `rect` colours are dropped. `rect` uses one fixed shade.
 - With `MERMAID_STYLE=plain`, the note tint picks light only when the theme name contains "light".

@@ -1,28 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { isSequence, kindOf, mermaidBlocks, parseSequence } from '../hooks/parse'
+import { isSequence, kindOf, parseSequence } from '../hooks/parse'
 
 const numbers = (body: string) =>
   parseSequence(`sequenceDiagram\n${body}`).steps.flatMap(step => (step.kind === 'message' ? [step.number] : []))
-
-describe('mermaidBlocks', () => {
-  test('finds a closed fence', async () => {
-    expect(mermaidBlocks('Here:\n\n```mermaid\nsequenceDiagram\nA->>B: hi\n```\n\ndone')).toEqual(['sequenceDiagram\nA->>B: hi'])
-  })
-
-  test('skips a fence still streaming', async () => {
-    expect(mermaidBlocks('```mermaid\nsequenceDiagram\nA->>B: hi')).toEqual([])
-  })
-
-  test('takes a tilde fence', async () => {
-    expect(mermaidBlocks('~~~mermaid\nsequenceDiagram\nA->>B: hi\n~~~')).toEqual(['sequenceDiagram\nA->>B: hi'])
-  })
-
-  test('finds two blocks and ignores other languages', async () => {
-    const text = '```mermaid\nsequenceDiagram\nA->>B: one\n```\n\n```ts\nx\n```\n\n```mermaid\nflowchart LR\nA-->B\n```'
-    expect(mermaidBlocks(text)).toEqual(['sequenceDiagram\nA->>B: one', 'flowchart LR\nA-->B'])
-  })
-})
 
 describe('kindOf', () => {
   test('names the diagram type past comments', async () => {
