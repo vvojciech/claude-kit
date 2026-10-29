@@ -1116,6 +1116,16 @@ describe('grouped tool rows', () => {
     expect(labels).toEqual(['⧉ bash #1', '⧉ bash #2', '⧉ a.md', 'copied (pbcopy)'])
     expect(Number(await rowWidthOf(ui))).toBeLessThanOrEqual(40)
   })
+
+  test('a copy confirmation keeps the list as wide as before, so the rows do not shift under the pointer', async ($, on) => {
+    fakeHost(on, { messages: [] })
+    const long: GroupCall = { ...READ, input: { file_path: '/w/THIRD_PARTY_NOTICES.md' } }
+    const ui = await mountGroup($, [BASH, long], {}, { requestId: 'gwide' })
+    const before = await rowWidthOf(ui)
+    await ui.press({ key: 'copy-THIRD_PARTY_NOTICES.md' })
+    expect(await rowWidthOf(ui)).toBe(before)
+  })
+
   test('on a narrow group the list keeps off the label row, drawn on the rows past it with no ground slab', async ($, on) => {
     fakeHost(on, { messages: [] }, { label: 'Ran 2 commands' })
     const ui = await mountGroup($, [BASH, { ...BASH, output: { stdout: 'two', stderr: '' } }], {}, { columns: 40, requestId: 'glabel' })

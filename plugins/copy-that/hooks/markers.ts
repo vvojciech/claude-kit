@@ -81,8 +81,10 @@ function withFlash(targets: Target[], shown: Flash | undefined): Target[] {
 function placed(menu: Menu): Placed {
   const { partial, note, above, viewport } = menu
   const extras = (partial ? 1 : 0) + (note === undefined ? 0 : 1)
-  const row = fitMenu(withFlash(menu.targets, session.flashes.get(menu.scope)), menuCap(above, viewport?.rows ?? 0), extras)
-  const width = menuWidth([...menuLabels({ row, partial, note }), LONGEST_FLASH], (viewport?.columns ?? 0) - PANE_EDGE)
+  const plain = fitMenu(menu.targets, menuCap(above, viewport?.rows ?? 0), extras)
+  const shown = session.flashes.get(menu.scope)
+  const row = { shown: withFlash(plain.shown, shown), hidden: withFlash(plain.hidden, shown) }
+  const width = menuWidth([...menuLabels({ row: plain, partial, note }), LONGEST_FLASH], (viewport?.columns ?? 0) - PANE_EDGE)
   return { row, opening: opening(menuRows(row, extras), above), width }
 }
 
