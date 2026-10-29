@@ -191,7 +191,7 @@ function unreported(call: ToolCall): string | undefined {
 }
 
 async function handedBack(call: ToolCall, agentId: string, lookup: ReportLookup): Promise<ToolCall> {
-  const report = await lookup(agentId)
+  const report = await lookup(agentId).catch(() => undefined)
   return report === undefined ? call : { ...call, output: { report } }
 }
 

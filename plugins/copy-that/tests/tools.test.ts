@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { backgroundReports, callName, groupTargets, handbackReport, handbackStub, stripAnsi, toolTarget } from '../hooks/tools'
+import { backgroundReports, callName, groupTargets, handbackReport, handbackStub, reportedCalls, stripAnsi, toolTarget, toolTargets } from '../hooks/tools'
 import { confirmation, lineCount } from '../hooks/notices'
 
 const copied = (tool: string, input: unknown, output?: unknown) => toolTarget({ tool, input, output })
@@ -63,6 +63,18 @@ describe('handbackReport', () => {
     expect(handbackReport([handback('first'), handback('final')])).toBe('final')
     expect(handbackReport([handback('  ')])).toBeUndefined()
     expect(handbackReport([{ role: 'assistant', text: 'no handback', toolUses: [] }])).toBeUndefined()
+  })
+})
+
+describe('agent report lookup', () => {
+  test('a rejected transcript fetch counts as a missing report, not a failure', async () => {
+    const use = (tool_use_id: string, tool: string, input: unknown, result: unknown) => ({ tool_use_id, tool, input, result })
+    const agent = use('g', 'Agent', {}, { status: 'async_launched', agentId: 'x' })
+    const read = use('r', 'Read', { file_path: '/a.md' }, { type: 'text', file: { filePath: '/a.md', content: 'body' } })
+    const failing = () => Promise.reject(new Error('gone'))
+    const messages = [{ role: 'assistant' as const, text: '', toolUses: [agent, read] as never }]
+    expect((await toolTargets(messages, 'file', failing)).map(t => t.text)).toEqual(['body'])
+    expect(await reportedCalls([{ tool: 'Agent', input: {}, output: agent.result }], async () => [], failing)).toHaveLength(1)
   })
 })
 
