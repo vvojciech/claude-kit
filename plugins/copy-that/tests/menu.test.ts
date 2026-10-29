@@ -88,6 +88,13 @@ describe('rows above the marker', () => {
     expect(rowsBefore([], holdsCall([undefined]), 80)).toBe(0)
   })
 
+  test('measures the same transcript again when the pane width changes', async () => {
+    const messages = [message('user', 'x'.repeat(25)), message('assistant', 'done')]
+    expect(rowsBefore(messages, holdsText('done'), 10)).toBe(3 + 1)
+    expect(rowsBefore(messages, holdsText('done'), 100)).toBe(1 + 1)
+    expect(rowsBefore(messages, holdsText('done'), 10)).toBe(3 + 1)
+  })
+
   test('never matches a reply on blank text', async () => {
     expect(holdsText('  ')(message('assistant', 'anything'))).toBe(false)
   })

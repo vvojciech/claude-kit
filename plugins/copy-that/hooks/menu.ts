@@ -1,5 +1,6 @@
 import type { SessionMessage } from 'claude-code'
 
+import { session } from './session'
 import type { Row, Target } from './targets'
 import { cellWidth } from './width'
 
@@ -43,8 +44,20 @@ export function wrappedRows(text: string, columns: number): number {
   return text.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(cellWidth(line) / width)), 0)
 }
 
+function measuredRows(text: string, columns: number): number {
+  if (session.wrappedColumns !== columns) {
+    session.wrapped.clear()
+    session.wrappedColumns = columns
+  }
+  const known = session.wrapped.get(text)
+  if (known !== undefined) return known
+  const rows = wrappedRows(text, columns)
+  session.wrapped.set(text, rows)
+  return rows
+}
+
 function messageRows(message: SessionMessage, columns: number): number {
-  const text = message.text.trim() === '' ? 0 : wrappedRows(message.text, columns) + MARGIN
+  const text = message.text.trim() === '' ? 0 : measuredRows(message.text, columns) + MARGIN
   return text + message.toolUses.length * (1 + MARGIN)
 }
 

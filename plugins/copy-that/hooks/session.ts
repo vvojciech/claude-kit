@@ -22,6 +22,8 @@ export class Session {
   readonly groupCalls = new Map<string, Target>()
   // interrupted replies drawn but never stored, with where each goes among the transcript's replies
   readonly unstored: Array<{ reply: Reply; storedStart: boolean; place?: { index: number; replaces: boolean } }> = []
+  readonly wrapped = new Map<string, number>()
+  wrappedColumns = 0
 
   rememberGroup(targets: Target[]): void {
     for (const call of targets) {
