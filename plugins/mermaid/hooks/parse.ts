@@ -50,7 +50,7 @@ const WRAP = /^\s*(?:no)?wrap:/i
 const SPACES = /\s+/
 const BOX = /^box\b/i
 const HASH_COMMENT = /#.*$/
-const ENTITY = /#(\d+|[a-z][a-z0-9]*);/gi
+const ENTITY = /&?#(\d+|[a-z][a-z0-9]*);|&([a-z][a-z0-9]*);/gi
 const ENTITY_MARK = '\ue000'
 const MAX_EXAMPLE = 30
 const BRANCH_OF: Record<string, string> = { else: 'alt', and: 'par', option: 'critical' }
@@ -148,6 +148,12 @@ const cleanLines = (text: string) =>
 
 const unquote = (text: string) => text.trim().replace(/^"(.*)"$/, '$1')
 
+// `#35;`, `&#35;` and a known `&quot;` are kept whole so their `;` ends no statement
+const markEntity = (whole: string, hashed?: string, named?: string) =>
+  hashed !== undefined || NAMED[named ?? ''] !== undefined || NAMED[(named ?? '').toLowerCase()] !== undefined
+    ? `${ENTITY_MARK}${hashed ?? named}${ENTITY_MARK}`
+    : whole
+
 const idOf = (text: string) => text.replace(/@\{.*\}$/, '').trim()
 
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`
@@ -186,7 +192,7 @@ function body(source: string): Body {
     if (close > at) {
       for (const { text } of lines.slice(at + 1, close)) {
         const found = /^title\s*:\s*(.+)$/.exec(text)
-        if (found) title = unquote(must(found[1], 'title'))
+        if (found) title = clean(unquote(must(found[1], 'title')).replace(ENTITY, markEntity))
       }
       at = close + 1
     }
@@ -194,7 +200,7 @@ function body(source: string): Body {
   const rest = lines.slice(Math.max(0, at))
   const start = rest.findIndex(line => line.text !== '' && !isComment(line.text))
   const first = rest[start]
-  const inline = first && /^sequenceDiagram\s+(\S.*)$/.exec(first.text)
+  const inline = first && /^sequenceDiagram(?:\s*;|\s)\s*(.*)$/.exec(first.text)
   if (first && inline) return { title, header: 'sequenceDiagram', lines: [{ text: must(inline[1], 'inline statement'), line: first.line }, ...rest.slice(start + 1)] }
 
   return { title, header: first?.text ?? '', lines: start >= 0 ? rest.slice(start + 1) : [] }
@@ -203,7 +209,7 @@ function body(source: string): Body {
 function statements(lines: Line[]): Line[] {
   return lines.flatMap(({ text, line }) => {
     if (isComment(text)) return []
-    const marked = text.replace(ENTITY, (_, code: string) => `${ENTITY_MARK}${code}${ENTITY_MARK}`)
+    const marked = text.replace(ENTITY, markEntity)
     const uncommented = BOX.test(marked) ? marked : marked.replace(HASH_COMMENT, '')
     return uncommented
       .split(';')

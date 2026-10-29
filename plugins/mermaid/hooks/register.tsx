@@ -155,7 +155,7 @@ function flowDrawing(source: string, width: number): Drawing {
   if (flow.nodes.length === 0 || flow.problems.length > 0) return { source: flow.problems.length > 0 ? flow.problems : ['mermaid: no nodes in this flowchart'] }
   if (isTangled(flow)) return { source: [`mermaid: this flowchart is too tangled to lay out, its links cross over ${MOST_WAYPOINTS} ranks`] }
   const drawn = drawFlow(flow, width)
-  if (!drawn) return { source: [`mermaid: this flowchart needs more than ${width} columns`] }
+  if (!drawn) return { source: [`mermaid: this flowchart does not fit in ${width} columns, or a subgraph frame would cover another box`] }
   return { picture: { ...drawn, title: flow.title, problems: [] } }
 }
 

@@ -12,6 +12,13 @@ describe('kindOf', () => {
     expect(isSequence('\n  sequenceDiagram\n')).toBe(true)
     expect(isSequence('flowchart TD')).toBe(false)
   })
+
+  test('reads a semicolon after the sequence header as a statement break', async () => {
+    expect(isSequence('sequenceDiagram;\nA->>B: hi')).toBe(true)
+    const seq = parseSequence('sequenceDiagram; A->>B: hello')
+    expect(seq.problems).toEqual([])
+    expect(seq.participants.map(p => p.id)).toEqual(['A', 'B'])
+  })
 })
 
 describe('parseSequence', () => {
@@ -273,6 +280,17 @@ describe('parseSequence', () => {
     expect(seq.steps.map(step => step.kind)).toEqual(['open', 'message', 'close', 'activate', 'activate'])
     expect(seq.steps[0]).toEqual({ kind: 'open', keyword: 'loop', text: 'every 5s' })
     expect(seq.problems).toEqual(['line 6: else outside alt (mermaid.live rejects)'])
+  })
+
+  test('decodes entities in a frontmatter title', async () => {
+    expect(parseSequence('---\ntitle: "Checkout #35;1"\n---\nsequenceDiagram\nA->>B: x').title).toBe('Checkout #1')
+  })
+
+  test('decodes HTML entity spellings without splitting the message', async () => {
+    const seq = parseSequence('sequenceDiagram\nA->>B: Ticket &#35;42\nA->>B: say &quot;hi&quot;')
+
+    expect(seq.steps.map(step => (step.kind === 'message' ? step.text : ''))).toEqual(['Ticket #42', 'say "hi"'])
+    expect(seq.problems).toEqual([])
   })
 
   test('ignores accessibility titles and descriptions, brace blocks included', async () => {

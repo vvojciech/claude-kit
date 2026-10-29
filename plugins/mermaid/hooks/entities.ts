@@ -35,6 +35,8 @@ function entityAt(text: string): { start: number; name: string } | undefined {
   const at = Math.max(text.lastIndexOf('#'), text.lastIndexOf('&'))
   const name = text.slice(at + 1)
   if (at < 0 || name === '' || ![...name].every(isWord)) return undefined
+  // `&C` past a node is a fan-out such as `B&C`, not an entity
+  if (text[at] === '&' && NAMED[name] === undefined && NAMED[name.toLowerCase()] === undefined) return undefined
   return { start: text[at] === '#' && text[at - 1] === '&' ? at - 1 : at, name }
 }
 

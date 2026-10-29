@@ -288,6 +288,13 @@ test('draws the front matter title above a flowchart', async ($, on) => {
   await ui.unmount()
 })
 
+test('names a frame that would cover another box when a flowchart cannot be laid out', async ($, on) => {
+  beneath(on)
+  const ui = await mount($, '```mermaid\nflowchart TD\nsubgraph S [Services]\nA\nend\nB\n```')
+  expect((await texts(ui)).at(-1)).toContain('or a subgraph frame would cover another box')
+  await ui.unmount()
+})
+
 test('shows a flowchart whose links pass through too many ranks as source, before laying it out', async ($, on) => {
   beneath(on)
   const chain = Array.from({ length: 249 }, (_, i) => `N${i + 1} --> N${i + 2}`)

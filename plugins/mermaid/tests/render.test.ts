@@ -823,11 +823,24 @@ describe('compact list semantics', () => {
     expect(lines.some(line => line.startsWith('Bazaar ⇠⇢ Gate'))).toBe(true)
   })
 
+  test('wraps a long frame condition within the width', async () => {
+    const { lines } = draw(`${NARROW}loop every thirty seconds until the payment provider confirms the charge\nC->>Ch: poll\nend`, 32)
+
+    expect(Math.max(...lines.map(cellWidth))).toBeLessThanOrEqual(32)
+    expect(lines.join(' ')).toContain('confirms')
+  })
+
+  test('lists participants that only have declarations', async () => {
+    const { lines } = draw('participant Alpha\nparticipant Bravo\nparticipant Charlie\nparticipant Delta\nparticipant Echo\nparticipant Foxtrot', 20)
+
+    expect(lines.join(' ')).toContain('Foxtrot')
+  })
+
   test('lists where a participant is created and destroyed', async () => {
     const { lines } = draw(`${NARROW}C->>Ch: submit answers\ncreate participant T as Temp\nCh->>T: rate REQ\ndestroy T\nT-->>R: price per scheme`, 32)
 
     expect(lines).toContain('Temp created')
     expect(lines).toContain('Temp destroyed')
-    expect(lines.findIndex(line => line === 'Temp created')).toBeLessThan(lines.findIndex(line => line.startsWith('Bazaar → Temp')))
+    expect(lines.indexOf('Temp created')).toBeLessThan(lines.findIndex(line => line.startsWith('Bazaar → Temp')))
   })
 })

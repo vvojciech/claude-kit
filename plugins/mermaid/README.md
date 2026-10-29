@@ -105,7 +105,11 @@ None. A diagram draws as soon as its `mermaid` fence closes.
 - These flowcharts show the source with a note instead of being drawn: a subgraph inside a subgraph, a subgraph `direction` other than the chart's, a link to a subgraph, `o` or `x` link ends, parallelogram and trapezoid nodes (`[/…/]`, `[\…\]`, `[/…\]`, `[\…/]`), more than 500 links, links that between them cross more than 1000 ranks, and, left to right, a line and an arrow into the tip of one decision.
 - `link`, `links`, `properties` and `details` lines are not drawn.
 - `autonumber` with a fractional step rounds each number to two decimals, so `autonumber 1 0.125` counts 1, 1.13, 1.25.
-- The list form of a sequence diagram drops activation bars.
+- The list form of a sequence diagram drops activation bars, and draws cross, async, open and half arrows as plain `→`.
+- A double circle `(((…)))` is drawn as a circle.
+- A word wider than the terminal in a sequence title or the list form's name legend is cut with `…`, with no footnote.
+- A frontmatter `title:` is read as one line: a `|` or `>` block shows as that mark, and single quotes stay.
+- Named entities outside a common set, such as `#eacute;`, show as written.
 - Box and `rect` colours are dropped. `rect` uses one fixed shade.
 - With `MERMAID_STYLE=plain`, the note tint picks light only when the theme name contains "light".
 - A diagram inside a list splits it: the list restarts after the diagram.

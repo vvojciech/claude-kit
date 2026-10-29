@@ -204,15 +204,19 @@ function againstFlow(flow: Flow, out: Map<string, FlowEdge[]>, named: Map<string
   return back
 }
 
+// walks edges as ranked, turned ones included: a turned edge can close a cycle of its own when
+// cycles overlap, and flipping whichever edge closes one leaves ranks pointing one way
 function closeCycles(flow: Flow, out: Map<string, FlowEdge[]>, back: Set<FlowEdge>) {
+  const ranked = new Map<string, FlowEdge[]>(flow.nodes.map(n => [n.id, []]))
+  for (const edges of out.values()) for (const edge of edges) ranked.get(back.has(edge) ? edge.to : edge.from)?.push(edge)
   const state = new Map<string, 1 | 2>()
   const visit = (id: string) => {
     state.set(id, 1)
-    for (const edge of out.get(id) ?? []) {
-      if (back.has(edge)) continue
-      const seen = state.get(edge.to)
-      if (seen === 1) back.add(edge)
-      else if (seen === undefined) visit(edge.to)
+    for (const edge of ranked.get(id) ?? []) {
+      const head = back.has(edge) ? edge.from : edge.to
+      const seen = state.get(head)
+      if (seen === 1) back.has(edge) ? back.delete(edge) : back.add(edge)
+      else if (seen === undefined) visit(head)
     }
     state.set(id, 2)
   }
@@ -690,7 +694,7 @@ function drawAt(flow: Flow, width: number, cap: number): FlowDrawn | undefined {
   const slots = loopSlots(loops)
   for (const loop of loops) drawLoop(s, loop, laneAt(loop), slots)
   for (const group of flow.groups) if (!drawFrame(s, group, width)) return undefined
-  const notes = [...placeLabels(s, width), ...flow.edges.filter(edge => edge.from === edge.to).map(selfLoopNote)]
+  const notes = [...placeLabels(s, width), ...flow.edges.filter(edge => edge.from === edge.to).map(edge => selfLoopNote(edge, flow))]
   return { rows: trimmed(s.grid.runs(width)), notes }
 }
 
@@ -708,9 +712,10 @@ function nearShift(loops: Loop[], across: boolean, labelOf: Sheet['labelOf']): n
   return 0
 }
 
-function selfLoopNote(loop: FlowEdge): string {
-  if (!loop.label) return `↺ ${loop.from} loops to itself`
-  return `↺ ${loop.from} loops to itself: ${loop.label}`
+function selfLoopNote(loop: FlowEdge, flow: Flow): string {
+  const name = (flow.nodes.find(node => node.id === loop.from)?.label || loop.from).replaceAll('\n', ' ')
+  if (!loop.label) return `↺ ${name} loops to itself`
+  return `↺ ${name} loops to itself: ${loop.label}`
 }
 
 // a one-word label (an event or field name) stays whole rather than splitting mid-identifier
@@ -1199,7 +1204,7 @@ function drawFrame(s: Sheet, group: Group, width: number): boolean {
   // top-down, the frame is at least wide enough for its title
   const far = Math.max(...members.map(v => v.at + v.cross)) + 1 + (across ? 0 : Math.max(0, near + cellWidth(title) + 5 - Math.max(...members.map(v => v.at + v.cross)) - 1))
   const inside = (v: Vertex) => v.node && v.node.group !== group.id && bandOf(s, v) + v.main > lo && bandOf(s, v) < hi && v.at + v.cross > near && v.at < far
-  if (vertices.some(inside) || near < 0 || lo < 0) return true
+  if (vertices.some(inside) || near < 0 || lo < 0) return false
   const [x0, y0] = s.xy(lo, near)
   const [x1, y1] = s.xy(hi, far)
   const [left, top, bottom] = [Math.min(x0, x1), Math.min(y0, y1), Math.max(y0, y1)]

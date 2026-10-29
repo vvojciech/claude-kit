@@ -191,12 +191,24 @@ describe('drawFlow labels and cycles', () => {
 })
 
 describe('drawFlow cycles', () => {
+  test('names a node that links to itself by its label', async () => {
+    expect(draw('flowchart TD\nA[Account] -->|retry| A').notes).toEqual(['↺ Account loops to itself: retry'])
+  })
+
   test('turns round the edge written against the flow, so a node keeps the rank its first parent gives it', async () => {
     const source = 'flowchart TD\nA --> B{Pick}\nB --> C[Short path]\nB --> D[Long path]\nC --> E[Merge]\nD --> F[Full]\nF --> E\nE --> G{Accept?}\nG --> H[Change]\nH --> F'
     const { lines } = draw(source)
 
     expect(rowOf(lines, 'Full')).toBeLessThan(rowOf(lines, 'Merge'))
     expect(rowOf(lines, 'Full')).toBeGreaterThan(rowOf(lines, 'Long path'))
+  })
+
+  test('draws overlapping cycles whose turned edges would close a cycle of their own', async () => {
+    const { lines } = draw('flowchart TD; A-->B; A-->C; A-->D; B-->A; C-->B; D-->B; D-->C')
+
+    expect(rowOf(lines, 'A')).toBeLessThan(rowOf(lines, 'B'))
+    expect(rowOf(lines, 'B')).toBeLessThan(rowOf(lines, 'D'))
+    expect(rowOf(lines, 'D')).toBeLessThan(rowOf(lines, 'C'))
   })
 })
 
@@ -470,6 +482,10 @@ describe('drawFlow wide and combining characters', () => {
 })
 
 describe('drawFlow subgraph frames that cannot fit', () => {
+  test('draws nothing rather than a frame dropped for a box it would cover', async () => {
+    expect(draw('flowchart TD\nsubgraph S [Services]\nA\nend\nB').drawn).toBeUndefined()
+  })
+
   test('draws nothing rather than a subgraph without its frame', async () => {
     expect(draw('flowchart TD\nsubgraph S [A subgraph title far too long for this terminal]\nA\nend', 30).drawn).toBeUndefined()
   })

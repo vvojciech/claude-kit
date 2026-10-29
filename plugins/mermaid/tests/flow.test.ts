@@ -77,6 +77,13 @@ describe('parseFlow', () => {
     expect(flow.problems).toEqual([])
   })
 
+  test('ends a statement at ; after a fan-out with no spaces', async () => {
+    const flow = parseFlow('flowchart TD; A-->B&C; C-->D')
+
+    expect(flow.edges.map(e => `${e.from}>${e.to}`)).toEqual(['A>B', 'A>C', 'C>D'])
+    expect(flow.problems).toEqual([])
+  })
+
   test('fans out over &', async () => {
     expect(edges('flowchart TD\nA & B --> C & D')).toEqual(['A>C', 'A>D', 'B>C', 'B>D'])
   })

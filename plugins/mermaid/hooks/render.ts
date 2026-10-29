@@ -2266,7 +2266,7 @@ function compact(sequence: Sequence, width: number): { rows: Run[][]; notes: str
     const members = sequence.participants.filter(one => one.box === b).map(one => nameOf(one.id))
     return members.length === 0 ? [] : [`${box.label || 'group'}: ${members.join(', ')}`]
   })
-  for (const line of [...packed(legend, width), ...packed(groups, width)]) for (const part of wrap(line, width).lines) rows.push([{ text: part, ink: 'frame' }])
+  for (const line of [...packed(legend, width), ...packed(groups, width), ...packed(unlisted(sequence).map(nameOf), width)]) for (const part of wrap(line, width).lines) rows.push([{ text: part, ink: 'frame' }])
   const pairOf = (step: Step): Run[] => {
     if (step.kind !== 'message') return []
     if (step.from === step.to) return [{ text: nameOf(step.from), ink: 'name' }, { text: ' ↺', ink: 'line' }]
@@ -2330,7 +2330,9 @@ function compact(sequence: Sequence, width: number): { rows: Run[][]; notes: str
   const frame = (step: Step) => {
     if (step.kind === 'open' || step.kind === 'branch') {
       if (step.kind === 'branch') depth = Math.max(0, depth - 1)
-      rows.push([...pad(2 * depth), { text: `${step.kind === 'open' ? '┌' : '├'} ${frameText(step)}`.trimEnd(), ink: 'block' }])
+      const lines = linesOf(frameText(step), Math.max(1, width - 2 * depth - 2))
+      const shown = lines.length > 0 ? lines : ['']
+      rows.push(...shown.map((line, i): Run[] => [...pad(2 * depth), { text: `${i > 0 ? ' ' : step.kind === 'open' ? '┌' : '├'} ${line}`.trimEnd(), ink: 'block' }]))
       depth++
     } else if (step.kind === 'close') {
       depth = Math.max(0, depth - 1)
@@ -2344,6 +2346,12 @@ function compact(sequence: Sequence, width: number): { rows: Run[][]; notes: str
     else frame(step)
   }
   return { rows, notes }
+}
+
+// participants nothing in the list names, so a diagram of declarations alone still lists them
+function unlisted(sequence: Sequence): string[] {
+  const named = new Set(sequence.steps.flatMap(step => (step.kind === 'message' ? [step.from, step.to] : step.kind === 'note' ? step.over : step.kind === 'create' || step.kind === 'destroy' ? [step.id] : [])))
+  return sequence.participants.filter(p => !named.has(p.id) && p.box === undefined).map(p => p.id)
 }
 
 function packed(entries: string[], width: number): string[] {
