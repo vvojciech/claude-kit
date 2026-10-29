@@ -447,6 +447,17 @@ describe('which reply a marker copies', () => {
     expect(await labels($, REPLY, { requestId: 'streaming' })).toEqual([])
   })
 
+  test('keeps the marker on a resumed reply drawn before a new turn while that turn is written', async ($, on) => {
+    fakeHost(on, { messages: [prompt('a'), said(REPLY), prompt('b')] })
+    const old = await mount($, REPLY, { requestId: 'resumed' })
+    expect((await chipsOf(old)).map(b => b.props.label)).toEqual(CHIPS)
+    await $.turn.start({ text: 'b', turnId: 't' } as never)
+    await write($, 'streaming', 'Writing now.')
+    expect((await chipsOf(old)).map(b => b.props.label)).toEqual(CHIPS)
+    expect(await labels($, 'Writing now.', { requestId: 'streaming' })).toEqual([])
+    await finishTurn($)
+  })
+
   test('ignores what a subagent writes', async ($, on) => {
     fakeHost(on, { messages: [] })
     await write($, 'agent-row', REPLY, 'agent-1')

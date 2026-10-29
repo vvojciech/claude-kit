@@ -87,7 +87,7 @@ async function history($: EngineInterface): Promise<Reply[]> {
 }
 
 async function stillWriting($: EngineInterface, requestId: string): Promise<boolean> {
-  return session.writing(requestId) || session.liveRows.has(requestId) || (await read($, live))
+  return session.writing(requestId) || session.liveRows.has(requestId) || ((await read($, live)) && !session.shownBeforeTurn.has(requestId))
 }
 
 function sharedBy(all: Reply[], matches: number[], text: string): Owned {
