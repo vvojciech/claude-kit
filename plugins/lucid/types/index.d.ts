@@ -55,6 +55,7 @@ declare module 'claude-code' {
       refusedCalls: StateFamily<true>
       launchedTasks: StateFamily<true>
       endedTasks: StateFamily<string>
+      turnEnders: StateFamily<true>
     }
   }
 }

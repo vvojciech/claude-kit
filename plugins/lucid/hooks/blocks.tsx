@@ -1,5 +1,6 @@
 import type { RenderElement, RenderNode } from 'claude-code'
 
+import { asksOf } from './asks'
 import { code, codeLines } from './code'
 import { heading } from './headings'
 import type { AlertKind, Block, ListItem, Span } from './markdown'
@@ -495,6 +496,28 @@ function plainRest(draw: Draw, blocks: Block[]): RenderNode {
 
 const PICTURE_NODES = 8
 
+const ASK_BAR = 1
+
+const ASK_INDENT = ASK_BAR + 1
+
+const ASK_NODES = 2
+
+function askRow(draw: Draw, node: RenderNode): RenderNode {
+  const { Box } = draw.kit
+  return (
+    <Box flexDirection="row">
+      <Box width={ASK_BAR} flexShrink={0} backgroundColor={draw.palette.accent} />
+      <Box flexDirection="column" flexGrow={1} paddingLeft={ASK_INDENT - ASK_BAR}>
+        {node}
+      </Box>
+    </Box>
+  )
+}
+
+function isBlock(b: Block | Placed): b is Block {
+  return b.kind !== 'picture'
+}
+
 const NO_PICTURES: Pictures = { found: new Map(), node: () => '' }
 
 function pictureKey(used: Set<string>, key: string): string {
@@ -509,8 +532,9 @@ function gapBefore(previous: Block | Placed | undefined, current: Block | Placed
   return previous.kind === 'picture' || current.kind === 'picture' ? 1 : blockGap(previous, current)
 }
 
-export function renderMarkdown(draw: Draw, text: string, columns: number, streaming = false, pictures: Pictures = NO_PICTURES): RenderElement {
+export function renderMarkdown(draw: Draw, text: string, columns: number, streaming = false, pictures: Pictures = NO_PICTURES, endsTurn = false): RenderElement {
   const blocks = laidOut(parseBlocks(text, { streaming }), pictures.found)
+  const asks = asksOf(blocks.filter(isBlock), endsTurn)
   const flowWidth = Math.max(1, columns)
   const rows: RenderNode[] = []
   const used = new Set<string>()
@@ -523,14 +547,15 @@ export function renderMarkdown(draw: Draw, text: string, columns: number, stream
       continue
     }
     const wide = b.kind === 'list' ? holdsWide(b) : WIDE_BLOCKS.has(b.kind)
-    const drawn = drawnBlock(draw, b, flowWidth)
+    const asking = asks.has(b)
+    const drawn = drawnBlock(draw, b, asking ? Math.max(1, flowWidth - ASK_INDENT) : flowWidth)
     if (spent + drawn.size.nodes + ROW_NODES > NODE_BUDGET) {
       rows.push(blockRow(draw, plainRest(draw, blocks.slice(i).filter((rest): rest is Block => rest.kind !== 'picture')), gap, undefined))
       break
     }
     const node = drawn.size.depth <= DEPTH_BUDGET ? drawn.node : plainRest(draw, [b])
-    spent += (node === drawn.node ? drawn.size.nodes : 2) + ROW_NODES
-    rows.push(blockRow(draw, node, gap, wide ? undefined : flowWidth))
+    spent += (node === drawn.node ? drawn.size.nodes : 2) + ROW_NODES + (asking ? ASK_NODES : 0)
+    rows.push(blockRow(draw, asking ? askRow(draw, node) : node, gap, wide ? undefined : flowWidth))
   }
   return (
     <draw.kit.Box flexDirection="column" marginTop={1}>

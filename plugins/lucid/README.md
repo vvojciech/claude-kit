@@ -67,6 +67,13 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - Past the engine's size and nesting limits, the rest of a reply draws as plain text.
 - Widths are measured in terminal cells, so emoji and wide characters count as two.
 
+### Asks
+
+- A paragraph that needs something from you gets an orange bar on its left, so it doesn't read as narration.
+- Anywhere in a turn, that means phrases aimed at you: `you'll need to`, `can you`, `let me know`, `waiting on you`, `once you've`, `requires sign-in`, `needs your approval` and similar. Phrases inside quotes, code or an `if`/`when` clause don't count.
+- In the reply that ends the turn, the closing question does too, and so does a closing list made only of questions. A question earlier in that reply, or in text before a tool call, stays plain.
+- Only top-level paragraphs and lists get the bar. A selection over one pastes with two leading spaces.
+
 ### Images
 
 - With peek loaded, a local `![alt](path)` image in a reply draws as a thumbnail where it sits, with the file name, pixel size and a `⤢ open` button beside it.

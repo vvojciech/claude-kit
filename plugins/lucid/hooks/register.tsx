@@ -21,6 +21,23 @@ const replies = new ReplyStream()
 
 const ledger = new CallLedger()
 
+let lastReply: string | undefined
+
+type Block = { type: string }
+
+function replyAfter(previous: string | undefined, uuid: string, content: ReadonlyArray<Block>): string | undefined {
+  if (content.some(block => block.type === 'tool_use')) return undefined
+  return content.some(block => block.type === 'text') ? uuid : previous
+}
+
+async function endsTurn($: Tracker, id: string): Promise<boolean> {
+  return (await $.state.get({ plugin: 'lucid', key: 'turnEnders', id })).value === true
+}
+
+async function markTurnEnder($: Tracker, id: string | undefined): Promise<void> {
+  if (id !== undefined) await $.state.set({ plugin: 'lucid', key: 'turnEnders', id }, true)
+}
+
 function markSummary({ kit, palette }: Draw, message: RenderElement): RenderElement {
   const { Box, Text } = kit
   return (
@@ -117,7 +134,10 @@ export const register: Register = on => {
   })
 
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) replies.turnStarted()
+    if (e.agentId === undefined) {
+      replies.turnStarted()
+      lastReply = undefined
+    }
     return next(e)
   })
 
@@ -125,6 +145,7 @@ export const register: Register = on => {
     const stored = await next(e)
     if (e.agentId === undefined) {
       replies.stored(e.uuid)
+      lastReply = replyAfter(lastReply, e.uuid, e.message.content)
       $.ui.invalidate('ui.render')
     }
     return stored
@@ -139,7 +160,8 @@ export const register: Register = on => {
     const sources = imageSources(parseBlocks(e.props.text, { streaming }))
     const found = sources.length === 0 ? new Map() : await picturesOf($, sources, { requestId: e.requestId, columns, isFullscreen: e.viewport?.isFullscreen })
     const pictures: Pictures = { found, node: (picture, key) => thumbnail(kit, draw.palette, picture, key, () => void opened($, picture.path)) }
-    const message = renderMarkdown(draw, e.props.text, columns, streaming, pictures)
+    const asking = !streaming && !e.props.isSummary && (await endsTurn($, e.requestId).catch(() => false))
+    const message = renderMarkdown(draw, e.props.text, columns, streaming, pictures, asking)
     return e.props.isSummary ? markSummary(draw, message) : message
   }).catch(($, e, next) => next(e))
 
@@ -214,7 +236,11 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId === undefined) replies.turnEnded()
+    if (e.agentId === undefined) {
+      replies.turnEnded()
+      if (e.reason === 'answer') await observing(() => markTurnEnder($, lastReply))
+      lastReply = undefined
+    }
     $.ui.invalidate('ui.render')
     return result
   })
