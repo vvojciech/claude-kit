@@ -23,7 +23,7 @@ const TUNED = [
 ] as const
 
 
-const NON_TEXT_ROLES: (keyof Palette)[] = ['faint', 'accent', 'panel', 'chip']
+const NON_TEXT_ROLES: (keyof Palette)[] = ['faint', 'accent', 'prompt', 'panel', 'chip']
 
 const PANEL_ROLES: (keyof Palette)[] = ['text', 'strong', 'muted']
 
@@ -97,6 +97,18 @@ function luminance(hex: string): number {
 function contrast(a: string, b: string): number {
   const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x)
   return ((high ?? 0) + 0.05) / ((low ?? 0) + 0.05)
+}
+
+function lab(hex: string): number[] {
+  const [r = 0, g = 0, b = 0] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+  const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116)
+  const [x, y, z] = [(0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047, 0.2126 * r + 0.7152 * g + 0.0722 * b, (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883].map(f) as [number, number, number]
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)]
+}
+
+function colourDistance(a: string, b: string): number {
+  const [p, q] = [lab(a), lab(b)]
+  return Math.hypot(...p.map((v, i) => v - (q[i] ?? 0)))
 }
 
 function findText(tree: unknown, predicate: (text: string, element: Drawn) => boolean): { element: Drawn; ancestors: Drawn[] } | undefined {
@@ -817,13 +829,14 @@ const KIT = {
 } as never
 
 describe('UserMessage', () => {
-  test('marks the turn with the accent bar on a panel as wide as the terminal', async ($, on) => {
+  test('marks the turn with the purple bar on a panel as wide as the terminal', async ($, on) => {
     useTheme(on, () => 'dark')
     const tree = await (await prompt($, 'ship it', 200)).drawn()
     const row = tree as Drawn
     expect(row.props?.width).toBe(200)
     expect(pairs(tree).some(p => p.bg === dark.panel)).toBe(true)
-    expect(paints(tree)).toContain(dark.accent)
+    expect(paints(tree)).toContain(dark.prompt)
+    expect(paints(tree)).not.toContain(dark.accent)
   })
 
   test('keeps the first line of a paste-only prompt so the request stays readable', async $ => {
@@ -877,7 +890,7 @@ describe('theme', () => {
       const message = paints(await (await draw($, SAMPLE)).drawn())
       const typed = paints(await (await prompt($, 'hi')).drawn())
       expect(message).toContain(palette.removed)
-      expect(typed).toContain(palette.accent)
+      expect(typed).toContain(palette.prompt)
       expect([...message, ...typed].filter(c => !c.startsWith('#'))).toEqual([])
     })
   }
@@ -921,10 +934,11 @@ describe('palette', () => {
         const backgrounds = PANEL_ROLES.includes(role) ? [...theme.backgrounds, theme.palette.panel, theme.palette.chip] : theme.backgrounds
         for (const background of backgrounds) expect({ role, background, ratio: contrast(theme.palette[role], background) >= 4.5 }).toEqual({ role, background, ratio: true })
       }
-      for (const role of ['faint', 'accent'] as const) {
+      for (const role of ['faint', 'accent', 'prompt'] as const) {
         for (const background of theme.backgrounds) expect({ role, background, ratio: contrast(theme.palette[role], background) >= 3 }).toEqual({ role, background, ratio: true })
       }
       expect(contrast(theme.palette.accent, theme.palette.panel)).toBeGreaterThanOrEqual(3)
+      expect(contrast(theme.palette.prompt, theme.palette.panel)).toBeGreaterThanOrEqual(3)
     })
   }
 
@@ -944,6 +958,12 @@ describe('palette', () => {
       expect({ theme, same: palette.accent === palette.error || palette.accent === palette.removed }).toEqual({ theme, same: false })
     }
   })
+
+  for (const theme of TUNED) {
+    test(`keeps the ${theme.name} prompt bar apart from the ask bar and the running blue`, () => {
+      for (const role of ['accent', 'progress'] as const) expect({ role, far: colourDistance(theme.palette.prompt, theme.palette[role]) >= 20 }).toEqual({ role, far: true })
+    })
+  }
 
   test('keeps daltonized done apart from the running blue', () => {
     for (const palette of [darkDaltonized, lightDaltonized]) expect(palette.done).not.toBe(palette.progress)

@@ -6,7 +6,8 @@ import { asksOf } from '../hooks/asks'
 import { renderMarkdown } from '../hooks/blocks'
 import type { Block } from '../hooks/markdown'
 import { parseBlocks } from '../hooks/message'
-import { dark } from '../hooks/palette'
+import { dark, darkDaltonized, light, lightDaltonized } from '../hooks/palette'
+import { renderPrompt } from '../hooks/prompt'
 import { spansText } from '../hooks/runs'
 
 type Drawn = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
@@ -131,6 +132,19 @@ describe('ask bar', () => {
     expect(barredTexts(tree)).toEqual([DOCKER])
     const [bar] = askBars(tree)
     expect(bar?.props).toMatchObject({ width: 1, flexShrink: 0 })
+  })
+
+  test('draws the ask bar in a different colour from the bar on your prompt, so the two never look alike', () => {
+    for (const palette of [dark, light, darkDaltonized, lightDaltonized]) {
+      const bars = (node: unknown): string[] => {
+        const element = node as Drawn
+        const own = element?.type === 'Box' && element.props?.width === 1 && typeof element.props.backgroundColor === 'string' ? [element.props.backgroundColor] : []
+        return [...own, ...childrenOf(node).flatMap(bars)]
+      }
+      const [ask] = bars(renderMarkdown({ kit: KIT, palette }, DOCKER, 80))
+      const [prompt] = bars(renderPrompt({ kit: KIT, palette }, 'ship it', 80))
+      expect([ask, prompt]).toEqual([palette.accent, palette.prompt])
+    }
   })
 
   test('draws no bar on a reply with no ask', () => {

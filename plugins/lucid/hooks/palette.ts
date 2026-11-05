@@ -4,6 +4,7 @@ export type Palette = {
   muted: string
   faint: string
   accent: string
+  prompt: string
   progress: string
   done: string
   error: string
@@ -21,6 +22,7 @@ export const dark: Palette = {
   muted: '#a39e94',
   faint: '#858076',
   accent: '#d4734f',
+  prompt: '#c48ac0',
   progress: '#7aa2ff',
   done: '#5dc58b',
   error: '#f37a70',
@@ -36,6 +38,7 @@ export const light: Palette = {
   muted: '#625e56',
   faint: '#8a857b',
   accent: '#c96442',
+  prompt: '#94508f',
   progress: '#2f5fc4',
   done: '#1f6e44',
   error: '#a8322b',
@@ -45,9 +48,9 @@ export const light: Palette = {
   chip: '#e3e0d8',
 }
 
-export const darkDaltonized: Palette = { ...dark, done: dark.strong, added: dark.progress }
+export const darkDaltonized: Palette = { ...dark, done: dark.strong, added: dark.progress, prompt: dark.strong }
 
-export const lightDaltonized: Palette = { ...light, done: light.strong, added: light.progress }
+export const lightDaltonized: Palette = { ...light, done: light.strong, added: light.progress, prompt: light.strong }
 
 const LIGHT_NAME = /(?:^|[-_ ])light(?:$|[-_ ])/i
 

@@ -2,7 +2,7 @@
 
 A busy turn in Claude Code is mostly tool rows. A folded group says only `Read 2 files`, not which files, and every other call takes two or three rows of `Tool(args)` and output, so the answer you asked for scrolls away.
 
-lucid names the targets under each folded group and gives every call one row that says what happened, such as `Couldn't run npm test login`. It also redraws replies and your prompts in warm greys with one orange accent. A mouse selection pastes as plain text, and code pastes exactly as written.
+lucid names the targets under each folded group and gives every call one row that says what happened, such as `Couldn't run npm test login`. It also redraws replies and your prompts in warm greys. Questions Claude asks get an orange bar and your prompts get a purple one (grey in daltonized themes), so the two never look alike. A mouse selection pastes as plain text, and code pastes exactly as written.
 
 ![lucid drawing a prompt, a folded tool group, a failed test run, a background dev server, then a reply with a heading, a task list, a code block and a table](../../docs/screens/lucid.png)
 
@@ -46,7 +46,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - Follows `/theme` and redraws when you change it.
 - A theme name containing "light" or "dark" picks the background, ANSI themes included. Any other theme reads the terminal background from `COLORFGBG`, and falls back to dark.
 - Every colour is a fixed hex value, so ANSI themes get the same palette as the rest.
-- Warm grey text in four strengths, one orange accent, and separate colours for running, done, failed, added and removed.
+- Warm grey text in four strengths, one orange accent, a purple bar for your prompts, and separate colours for running, done, failed, added and removed.
 - Text colours meet 4.5:1 on the background and on the prompt panel. Rules, bars and the accent meet 3:1.
 - Daltonized themes draw added lines in blue and done marks in grey-white, so neither relies on green.
 
@@ -82,7 +82,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 
 ### Prompt panel
 
-- Your prompt sits on a full-width panel with an accent bar on the left.
+- Your prompt sits on a full-width panel with a purple bar on the left. Daltonized themes draw that bar in the strongest text grey instead, because purple and the running blue sit close together for protanopes.
 - Pasted blocks collapse to `[pasted N lines]`. A prompt that is only a paste also shows its first line.
 
 ### Mouse selection
