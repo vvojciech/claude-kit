@@ -104,14 +104,22 @@ export const RUNNING_FRAMES = ['◐', '◓', '◑', '◒']
 
 const RUNNING_FRAME_MS = 150
 
-function stateGlyph({ kit, palette }: Draw, state: ToolState, key = 'running'): RenderNode {
+export const SETTLE_FLASH_MS = 250
+
+const SETTLE_FLASH: Partial<Record<ToolState, string>> = { done: '◉', failed: '◉' }
+
+export type RowMotion = { settling?: boolean }
+
+function stateGlyph({ kit, palette }: Draw, state: ToolState, key = 'running', motion: RowMotion = {}): RenderNode {
   const look = STATE_LOOK[state]
   const color = palette[look.role]
+  const flash = SETTLE_FLASH[state]
+  if (motion.settling && flash !== undefined && kit.Client) return <kit.Client key="settle" module="./settle.tsx" width={1} props={{ flash, flashColor: palette.strong, glyph: look.glyph, color, ms: SETTLE_FLASH_MS }} />
   if (state === 'running' && kit.Client) return <kit.Client key={key} module="./spinner.tsx" width={1} props={{ frames: RUNNING_FRAMES, color, ms: RUNNING_FRAME_MS }} />
   return <kit.Text color={color}>{look.glyph}</kit.Text>
 }
 
-export function renderToolRow(draw: Draw, row: ToolRow, state: ToolState, columns: number): RenderElement {
+export function renderToolRow(draw: Draw, row: ToolRow, state: ToolState, columns: number, motion: RowMotion = {}): RenderElement {
   const { kit, palette } = draw
   const { Box, Text } = kit
   const look = STATE_LOOK[state]
@@ -124,7 +132,7 @@ export function renderToolRow(draw: Draw, row: ToolRow, state: ToolState, column
     <Box flexDirection="column" marginTop={1}>
       <Box flexDirection="row">
         <Box width={GUTTER} flexShrink={0}>
-          {stateGlyph(draw, state)}
+          {stateGlyph(draw, state, 'running', motion)}
         </Box>
         {kindSlot(draw, 'done', row.tool, 'kind')}
         {toolText(draw, name, row.detail, row.note, detailRoom(columns, GUTTER + (row.tool !== undefined ? KIND_SLOT : 0), row.name, row.note), QUIET_STATES.has(state))}

@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { AgentInfo, Elements, On } from 'claude-code'
 import type { Engine, MockClock } from 'claude-code/testing'
 import { dark } from '../hooks/palette'
+import { SETTLE_FLASH_MS } from '../hooks/tool-rows'
 
 const STOCK = 'stock row'
 
@@ -71,6 +72,37 @@ async function toolUse($: Engine, props: Record<string, unknown>) {
 async function toolGroup($: Engine, props: Record<string, unknown>) {
   return $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolGroup', props: { calls: [listing, reading], isActive: false, isExpanded: false, isCallsOnly: true, ...props } })
 }
+
+describe('settle flash', () => {
+  test('flashes a call it saw running once as it finishes, then settles to the plain glyph', async ($, on) => {
+    const clock = stockBeneath(on)
+    await toolUse($, { isRunning: true, output: undefined })
+    await clock.settle()
+    const ui = await toolUse($, {})
+    expect(await ui.find({ type: 'Client' })).toBeDefined()
+    await clock.advance(SETTLE_FLASH_MS * 2)
+    expect(await ui.find({ type: 'Client' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: '●' })).toBeDefined()
+  })
+
+  test('flashes a group it saw at work once it goes quiet, as a lone call is drawn in one', async ($, on) => {
+    const clock = stockBeneath(on)
+    const group = { calls: [{ tool_use_id: 'g1', ...listing }], isCallsOnly: true }
+    const active = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolGroup', requestId: 'grp', props: { ...group, isActive: true, isExpanded: false } } as never)
+    await clock.settle()
+    await active.unmount()
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolGroup', requestId: 'grp', props: { ...group, isActive: false, isExpanded: false } } as never)
+    expect(await ui.find({ type: 'Client' })).toBeDefined()
+    await clock.advance(SETTLE_FLASH_MS * 2)
+    expect(await ui.find({ type: 'Client' })).toBeUndefined()
+  })
+
+  test('never flashes a call it never saw running, such as one in a resumed transcript', async ($, on) => {
+    stockBeneath(on)
+    const ui = await toolUse($, {})
+    expect(await ui.find({ type: 'Client' })).toBeUndefined()
+  })
+})
 
 describe('lap line', () => {
   test('ends a turn it saw finish with the lap time and the clock time it ended, kept through later redraws', async ($, on) => {

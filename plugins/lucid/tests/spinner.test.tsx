@@ -3,7 +3,8 @@ import { describe, expect, test } from 'claude-code/testing'
 import { dark } from '../hooks/palette'
 import { frameAt, paceOf, spinnerOn } from '../hooks/spinner'
 import type { SpinnerProps } from '../hooks/spinner'
-import { RUNNING_FRAMES, renderToolRow } from '../hooks/tool-rows'
+import { RUNNING_FRAMES, SETTLE_FLASH_MS, renderToolRow } from '../hooks/tool-rows'
+import Settle from '../hooks/settle'
 import type { ToolState } from '../hooks/tools'
 import { cellWidth } from '../hooks/width'
 
@@ -150,5 +151,30 @@ describe('group rows', () => {
     const drawn = nodes(renderToolRow({ kit: KIT, palette: dark }, { name: 'Ran 2 commands', detail: [], lines: [done, failed] }, 'failed', 80))
     const slots = drawn.filter(n => n.type === 'Text' && ['$', '✗'].includes(textOf(n))).map(n => [textOf(n), n.props?.color])
     expect(slots).toEqual([['✗', dark.error], ['$', dark.muted], ['✗', dark.error]])
+  })
+})
+
+describe('settle flash module', () => {
+  test('shows one bright frame, then the settled glyph, from a single timer', () => {
+    const timers: { ms: number; fn: () => void }[] = []
+    const surface = {
+      elements: { Text: element('Text') },
+      state: undefined as true | undefined,
+      setState(next: true) {
+        surface.state = next
+      },
+      every(ms: number, fn: () => void) {
+        timers.push({ ms, fn })
+        return () => {
+          timers.length = 0
+        }
+      },
+    }
+    const props = { flash: '◉', flashColor: dark.strong, glyph: '●', color: dark.done, ms: SETTLE_FLASH_MS }
+    const first = Settle(props, surface as never) as unknown as Drawn
+    expect([textOf(first), first.props?.color, timers.map(t => t.ms)]).toEqual(['◉', dark.strong, [SETTLE_FLASH_MS]])
+    timers[0]?.fn()
+    const settled = Settle(props, surface as never) as unknown as Drawn
+    expect([textOf(settled), settled.props?.color, timers.length]).toEqual(['●', dark.done, 0])
   })
 })

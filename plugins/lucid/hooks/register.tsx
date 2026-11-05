@@ -4,7 +4,7 @@ import { renderMarkdown } from './blocks'
 import { renderPrompt } from './prompt'
 import type { Draw } from './runs'
 import { renderLap } from './laps'
-import { renderFailure, renderToolRow, renderWrittenFile } from './tool-rows'
+import { SETTLE_FLASH_MS, renderFailure, renderToolRow, renderWrittenFile } from './tool-rows'
 import { ReplyStream } from './live'
 import { CallLedger } from './permits'
 import { blocksOf, parseBlocks } from './message'
@@ -92,9 +92,32 @@ async function wasRefused($: Tracker, id: string | undefined): Promise<boolean> 
   return id !== undefined && (await $.state.get({ plugin: 'lucid', key: 'refusedCalls', id })).value === true
 }
 
+const SETTLING_STATES = new Set(['done', 'failed'])
+
 const LAP_STAMP_WINDOW_MS = 5000
 
 const LAP_MATCH_MS = 1500
+
+const settleScheduled = new Set<string>()
+
+async function markLive($: Tracker, id: string | undefined): Promise<void> {
+  if (id === undefined || (await $.state.get({ plugin: 'lucid', key: 'liveCalls', id })).value === true) return
+  $.clock.after(0, () => quietly($.state.set({ plugin: 'lucid', key: 'liveCalls', id }, true)))
+}
+
+async function isSettling($: Tracker, id: string | undefined, state: string): Promise<boolean> {
+  if (id === undefined || !SETTLING_STATES.has(state)) return false
+  if ((await $.state.get({ plugin: 'lucid', key: 'liveCalls', id })).value !== true) return false
+  if ((await $.state.get({ plugin: 'lucid', key: 'settledCalls', id })).value === true) return false
+  if (!settleScheduled.has(id)) {
+    settleScheduled.add(id)
+    $.clock.after(SETTLE_FLASH_MS * 2, () => {
+      settleScheduled.delete(id)
+      quietly($.state.set({ plugin: 'lucid', key: 'settledCalls', id }, true))
+    })
+  }
+  return true
+}
 
 async function fateOf($: Tracker, call: { tool_use_id?: string }): Promise<{ hasRun: boolean; refused: boolean }> {
   return { hasRun: await hasRun($, call.tool_use_id), refused: await wasRefused($, call.tool_use_id) }
@@ -210,13 +233,16 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
-    const fate = await fateOf($, e.props)
+    if (e.props.isRunning) await observing(() => markLive($, e.props.tool_use_id))
     if (e.surface !== 'terminal' || e.props.isExpanded || e.props.isRunning) return next(e)
+    const fate = await fateOf($, e.props)
     const call = { ...e.props, ...fate }
     if (stateOf(call) === 'done') await recordEnd($, stoppedTaskId(call), STOPPED)
     const taskStatus = await taskStatusOf($, call)
     const row = describeCall(call, await rootsOf($), taskStatus)
-    return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, stateOf(call, taskStatus), e.viewport?.columns ?? DEFAULT_COLUMNS)
+    const state = stateOf(call, taskStatus)
+    const settling = await isSettling($, e.props.tool_use_id, state)
+    return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, state, e.viewport?.columns ?? DEFAULT_COLUMNS, { settling })
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
@@ -230,12 +256,14 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     const { calls, isActive, isCallsOnly, isExpanded } = e.props
-    const fates = await Promise.all(calls.map(call => fateOf($, call)))
+    if (isActive) await observing(() => markLive($, e.requestId))
     if (e.surface !== 'terminal' || isExpanded || isActive || calls.length === 0) return next(e)
+    const fates = await Promise.all(calls.map(call => fateOf($, call)))
     const tracked = await Promise.all(calls.map(async (call, index) => ({ ...call, ...fates[index], taskStatus: await taskStatusOf($, call) })))
     if (isCallsOnly !== true && unsuccessfulState(tracked) === undefined) return next(e)
     const { row, state } = summariseGroup(tracked, await rootsOf($))
-    return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, state, e.viewport?.columns ?? DEFAULT_COLUMNS)
+    const settling = await isSettling($, e.requestId, state)
+    return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, state, e.viewport?.columns ?? DEFAULT_COLUMNS, { settling })
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {

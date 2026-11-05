@@ -34,6 +34,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - States: pending `◌`, running `◐` (it turns, `◐◓◑◒`, every row in step, where the surface can animate it), started `○`, done `●`, failed `✗`, and `⊘` for stopped, not allowed or cancelled.
 - A mark after the state glyph says what kind of tool ran: `$` shell, `≡` read, `✎` edit or write, `⌕` search, `↗` web, `◈` agent, `✦` skill, `☐` tasks, `⬡` MCP, `·` anything else. A folded group shows it on each line, and its header keeps only the state glyph.
 - A running call inside a folded group turns in that slot too, so you can see it working even when the header already reads `✗`. A failed line puts a red `✗` there instead, so it reads as failed without colour. A header with a failure keeps its `✗` while a call inside still runs, so motion never hides a failure.
+- A call or group you watched at work lands with one bright `◉` frame as it goes quiet, then settles to `●` or `✗`. Rows from a resumed session don't flash.
 - Stopped means you interrupted a call that had started. Not allowed means the permission check refused it. Cancelled means it never started, or you pressed Esc at its permission dialog.
 - Paths show relative to the session directory, home as `~`, link to the file, and cut in the middle so the file name stays.
 - A settled group gets a headline in kinds and counts, like `Read 2 files, ran 1 command`. Under it is one line per kind, with the targets joined by ` · `. Bash gets one line per command. Failed or refused calls are named in their own state.
@@ -113,7 +114,7 @@ None. lucid starts drawing as soon as it loads, and follows `/theme` from then o
 ## Known limits
 
 - A single call still running in the foreground (the engine's live row), and rows you expand with ctrl+o, keep Claude Code's default look. Background tasks and running groups are lucid's, spinner included.
-- lucid keeps a few small per-turn markers in session state (when each turn ended). The mod API has no way to drop them, so they last for the session.
+- lucid keeps a few small per-call and per-turn markers in session state (which calls it saw live, which have settled, when each turn ended). The mod API has no way to drop them, so they last for the session.
 - The `N background agents launched` row is Claude Code's own. A mod can't reach it.
 - A bare URL long enough to wrap is clickable on its first row only.
 - If a light terminal draws dark, pick a theme with "light" in its name in `/theme`, or start Claude Code with `COLORFGBG='0;15'` set (a background of 7 or 15 reads as light).
