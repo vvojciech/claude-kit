@@ -72,6 +72,68 @@ async function toolGroup($: Engine, props: Record<string, unknown>) {
   return $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolGroup', props: { calls: [listing, reading], isActive: false, isExpanded: false, isCallsOnly: true, ...props } })
 }
 
+describe('lap line', () => {
+  test('ends a turn it saw finish with the lap time and the clock time it ended, kept through later redraws', async ($, on) => {
+    const clock = stockBeneath(on)
+    on('ui.render', { component: 'TurnDuration' }, async ($, e) => stock($.ui.resolve(e)))
+    on('turn.complete', async () => ({ text: 'done' }))
+    await $.turn.complete({ answer: 'done', durationMs: 64_000, isAborted: false, turnId: 't', reason: 'answer' } as never)
+    const lap = { plugin: 'lucid', surface: 'terminal', component: 'TurnDuration', requestId: 'lap1', props: { word: 'Cooked', durationMs: 64_000 } } as const
+    const ui = await $.ui.mount(lap as never)
+    expect(await ui.find({ type: 'Text', text: '1m 4s' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeUndefined()
+    const stamped = (await ui.find({ type: 'Text', text: /^ · \d\d:\d\d$/ }))?.text
+    expect(stamped).toBeDefined()
+    await clock.settle()
+    await ui.unmount()
+    await clock.advance(120_000)
+    const later = await $.ui.mount(lap as never)
+    expect((await later.find({ type: 'Text', text: /^ · \d\d:\d\d$/ }))?.text).toBe(stamped)
+  })
+
+  test('leaves the clock off a lap it did not see end, such as one in a resumed transcript', async ($, on) => {
+    stockBeneath(on)
+    on('ui.render', { component: 'TurnDuration' }, async ($, e) => stock($.ui.resolve(e)))
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'TurnDuration', requestId: 'lap2', props: { word: 'Cooked', durationMs: 3_000 } } as never)
+    expect(await ui.find({ type: 'Text', text: '3s' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /·/ })).toBeUndefined()
+  })
+
+  test('stamps a lap drawn before its turn reports the end, once the end arrives', async ($, on) => {
+    const clock = stockBeneath(on)
+    on('ui.render', { component: 'TurnDuration' }, async ($, e) => stock($.ui.resolve(e)))
+    on('turn.complete', async () => ({ text: 'done' }))
+    await clock.advance(1_000_000)
+    const lap = { plugin: 'lucid', surface: 'terminal', component: 'TurnDuration', requestId: 'lap3', props: { word: 'Baked', durationMs: 7_000 } } as const
+    const early = await $.ui.mount(lap as never)
+    expect(await early.find({ type: 'Text', text: /·/ })).toBeUndefined()
+    await early.unmount()
+    await $.turn.complete({ answer: 'done', durationMs: 7_000, isAborted: false, turnId: 't3', reason: 'answer' } as never)
+    const late = await $.ui.mount(lap as never)
+    expect(await late.find({ type: 'Text', text: /^ · \d\d:\d\d$/ })).toBeDefined()
+  })
+
+  test('never gives a lap the clock of a different turn that ended just before it', async ($, on) => {
+    const clock = stockBeneath(on)
+    on('ui.render', { component: 'TurnDuration' }, async ($, e) => stock($.ui.resolve(e)))
+    on('turn.complete', async () => ({ text: 'done' }))
+    await clock.advance(2_000_000)
+    await $.turn.complete({ answer: 'done', durationMs: 40_000, isAborted: false, turnId: 'a', reason: 'answer' } as never)
+    await clock.advance(2_000)
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'TurnDuration', requestId: 'lap4', props: { word: 'Baked', durationMs: 2_000 } } as never)
+    expect(await ui.find({ type: 'Text', text: /·/ })).toBeUndefined()
+  })
+
+  test('leaves the expanded view and the waiting line to the engine', async ($, on) => {
+    stockBeneath(on)
+    on('ui.render', { component: 'TurnDuration' }, async ($, e) => stock($.ui.resolve(e)))
+    const expanded = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'TurnDuration', props: { word: 'Cooked', durationMs: 1000, isExpanded: true } })
+    expect(await expanded.find({ type: 'Text', text: STOCK })).toBeDefined()
+    const waiting = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'TurnDuration', props: { word: 'Cooked', durationMs: 1000, waitingFor: { agents: [], workflows: 1 } } })
+    expect(await waiting.find({ type: 'Text', text: STOCK })).toBeDefined()
+  })
+})
+
 describe('ToolUse', () => {
   test('draws a compact row of its own', async ($, on) => {
     stockBeneath(on)

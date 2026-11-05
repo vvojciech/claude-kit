@@ -56,6 +56,7 @@ declare module 'claude-code' {
       launchedTasks: StateFamily<true>
       endedTasks: StateFamily<string>
       turnEnders: StateFamily<true>
+      lapEnds: StateFamily<number>
     }
   }
 }

@@ -3,6 +3,7 @@ import type { EngineInterface, Register, RenderElement } from 'claude-code'
 import { renderMarkdown } from './blocks'
 import { renderPrompt } from './prompt'
 import type { Draw } from './runs'
+import { renderLap } from './laps'
 import { renderFailure, renderToolRow, renderWrittenFile } from './tool-rows'
 import { ReplyStream } from './live'
 import { CallLedger } from './permits'
@@ -22,6 +23,14 @@ const replies = new ReplyStream()
 const ledger = new CallLedger()
 
 let lastReply: string | undefined
+
+let lastTurn: { at: number; durationMs: number } | undefined
+
+async function lapStamp($: Pick<EngineInterface, 'clock'>, durationMs: number): Promise<number | undefined> {
+  const now = await $.clock.now()
+  if (lastTurn === undefined || now - lastTurn.at > LAP_STAMP_WINDOW_MS) return undefined
+  return Math.abs(lastTurn.durationMs - durationMs) <= LAP_MATCH_MS ? lastTurn.at : undefined
+}
 
 type Block = { type: string }
 
@@ -82,6 +91,10 @@ async function hasRun($: Tracker, id: string | undefined): Promise<boolean> {
 async function wasRefused($: Tracker, id: string | undefined): Promise<boolean> {
   return id !== undefined && (await $.state.get({ plugin: 'lucid', key: 'refusedCalls', id })).value === true
 }
+
+const LAP_STAMP_WINDOW_MS = 5000
+
+const LAP_MATCH_MS = 1500
 
 async function fateOf($: Tracker, call: { tool_use_id?: string }): Promise<{ hasRun: boolean; refused: boolean }> {
   return { hasRun: await hasRun($, call.tool_use_id), refused: await wasRefused($, call.tool_use_id) }
@@ -225,6 +238,14 @@ export const register: Register = on => {
     return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, state, e.viewport?.columns ?? DEFAULT_COLUMNS)
   }).catch(($, e, next) => next(e))
 
+  on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.isExpanded || e.props.waitingFor !== undefined) return next(e)
+    const stored = (await $.state.get({ plugin: 'lucid', key: 'lapEnds', id: e.requestId })).value
+    const endedAt = stored ?? (await lapStamp($, e.props.durationMs))
+    if (stored === undefined && endedAt !== undefined) $.clock.after(0, () => quietly($.state.set({ plugin: 'lucid', key: 'lapEnds', id: e.requestId }, endedAt)))
+    return renderLap({ kit: $.ui.resolve(e), palette: await themePalette($) }, e.props.word, e.props.durationMs, endedAt, e.viewport?.columns ?? DEFAULT_COLUMNS)
+  }).catch(($, e, next) => next(e))
+
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     if (!isInterimNotice(e.props.text)) await recordEnd($, e.props.task?.id, e.props.task?.status)
     if (e.surface !== 'terminal') return next(e)
@@ -237,6 +258,8 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId === undefined) {
+      const at = await $.clock.now().catch(() => undefined)
+      if (at !== undefined) lastTurn = { at, durationMs: e.durationMs }
       replies.turnEnded()
       if (e.reason === 'answer') await observing(() => markTurnEnder($, lastReply))
       lastReply = undefined

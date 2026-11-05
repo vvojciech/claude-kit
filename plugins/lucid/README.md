@@ -52,6 +52,10 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - Text colours meet 4.5:1 on the background and on the prompt panel. Rules, bars and the accent meet 3:1.
 - Daltonized themes draw added lines in blue and done marks in grey-white, so neither relies on green.
 
+### Lap line
+
+- The line that ends a turn becomes a faint dotted `┈` track with the engine's word, the turn's time in bold and the clock time it ended: `┈┈┈ Cooked 1m 4s · 14:47 ┈┈┈┈`. The clock time shows only for turns that ended while lucid was loaded, and drops on a narrow pane. The expanded view and the "waiting for background agents" line stay Claude Code's own.
+
 ### Markdown
 
 - h1 is bold and gold, with a gold rule as wide as the title that runs on as a faint dashed track to the edge. h2 is bold and underlined, h3 bold and muted. h1 and h2 get a wider gap above them.
@@ -109,6 +113,7 @@ None. lucid starts drawing as soon as it loads, and follows `/theme` from then o
 ## Known limits
 
 - A single call still running in the foreground (the engine's live row), and rows you expand with ctrl+o, keep Claude Code's default look. Background tasks and running groups are lucid's, spinner included.
+- lucid keeps a few small per-turn markers in session state (when each turn ended). The mod API has no way to drop them, so they last for the session.
 - The `N background agents launched` row is Claude Code's own. A mod can't reach it.
 - A bare URL long enough to wrap is clickable on its first row only.
 - If a light terminal draws dark, pick a theme with "light" in its name in `/theme`, or start Claude Code with `COLORFGBG='0;15'` set (a background of 7 or 15 reads as light).
