@@ -46,13 +46,13 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - Follows `/theme` and redraws when you change it.
 - A theme name containing "light" or "dark" picks the background, ANSI themes included. Any other theme reads the terminal background from `COLORFGBG`, and falls back to dark.
 - Every colour is a fixed hex value, so ANSI themes get the same palette as the rest.
-- Warm grey text in four strengths, one orange accent, a purple bar for your prompts, and separate colours for running, done, failed, added and removed.
+- Warm grey text in four strengths, one orange accent, gold for h1 titles, a purple bar for your prompts, and separate colours for running, done, failed, added and removed.
 - Text colours meet 4.5:1 on the background and on the prompt panel. Rules, bars and the accent meet 3:1.
 - Daltonized themes draw added lines in blue and done marks in grey-white, so neither relies on green.
 
 ### Markdown
 
-- h1 is bold and underlined with a faint rule under it. h2 is bold and underlined, h3 bold and muted. h1 and h2 get a wider gap above them.
+- h1 is bold and gold, with a gold rule as wide as the title that runs on as a faint dashed track to the edge. h2 is bold and underlined, h3 bold and muted. h1 and h2 get a wider gap above them.
 - Lists keep their markdown markers. Ordered lists keep their numbers and delimiter. Tasks show `- [ ]` and `- [x]`, and done items are greyed.
 - Tables keep their grid when they fit. Numeric columns align right, and text columns shrink before numbers do. When the columns can't fit, each row stacks as `header: value` lines.
 - Code blocks show the language as a muted label with no fences. Keywords are bold, comments muted italic. Diffs colour added and removed lines, and shell blocks colour commands, flags and strings.
@@ -88,7 +88,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 ### Mouse selection
 
 - Prose sits flush left with no reply bullet, so it pastes as it would without lucid.
-- Headings carry no `#` marker and are followed by a blank line, so they paste as their own paragraph.
+- Headings carry no `#` marker and are followed by a blank line, so they paste as their own paragraph. An h1 also pastes its rule line, `━` under the title then `┄` to the edge.
 - List and task markers are the markdown they came from.
 - Code sits in the same column as prose with no bar or gutter in the way, and long lines are left whole for the terminal to wrap. A selection pastes the exact source.
 - The inline code chip is a background colour, so it never ends up in the paste.

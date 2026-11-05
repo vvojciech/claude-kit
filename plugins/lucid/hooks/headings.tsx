@@ -8,9 +8,11 @@ import { cellWidth } from './width'
 
 export const TITLE_RULE = '━'
 
+export const TRACK_RULE = '┄'
+
 function headingLook(level: number, palette: Palette): Look {
-  if (level === 1) return { color: palette.strong, bold: true, underline: true }
-  if (level === 2) return { color: palette.text, bold: true, underline: true }
+  if (level === 1) return { color: palette.title, bold: true }
+  if (level === 2) return { color: palette.strong, bold: true, underline: true }
   if (level === 3) return { color: palette.muted, bold: true }
   return { color: palette.muted }
 }
@@ -21,7 +23,14 @@ export function titleRuleCells(spans: Span[], width: number): number {
 }
 
 function titleRule(draw: Draw, spans: Span[], width: number): RenderNode {
-  return <draw.kit.Text color={draw.palette.faint}>{TITLE_RULE.repeat(titleRuleCells(spans, width))}</draw.kit.Text>
+  const { Box, Text } = draw.kit
+  const cells = titleRuleCells(spans, width)
+  return (
+    <Box flexDirection="row">
+      <Text color={draw.palette.title}>{TITLE_RULE.repeat(cells)}</Text>
+      {width > cells ? <Text color={draw.palette.faint}>{TRACK_RULE.repeat(width - cells)}</Text> : null}
+    </Box>
+  )
 }
 
 export function heading(draw: Draw, level: number, spans: Span[], width: number): RenderNode {

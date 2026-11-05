@@ -184,11 +184,10 @@ describe('AssistantMessage headings', () => {
     expect(findText(tree, text => text.startsWith('#'))).toBeUndefined()
   })
 
-  test('rules only an h1, faint and sized to its title, so h1 and h2 differ by shape and not just by ink', async ($, on) => {
+  test('rules only an h1, gold as wide as its title and a faint track on to the column edge, so h1 and h2 differ by shape and not just by ink', async ($, on) => {
     const tree = await drawDark($, on, `# One\n\n## Second\n\n### Three\n\n#### Four\n\n# ${'word '.repeat(30).trim()}`, 40)
     const rules = allTexts(tree, text => /[─┄╌━]/.test(text))
-    expect(rules.map(textOf)).toEqual(['━━━', '━'.repeat(40)])
-    for (const rule of rules) expect(rule.props?.color).toBe(dark.faint)
+    expect(rules.map(rule => [textOf(rule), rule.props?.color])).toEqual([['━━━', dark.title], ['┄'.repeat(37), dark.faint], ['━'.repeat(40), dark.title]])
   })
 
   test('rules an h1 that is the first block, inside a list, and one with no text', async ($, on) => {
@@ -199,10 +198,11 @@ describe('AssistantMessage headings', () => {
     }
   })
 
-  test('sets h1 as bold underlined ink with no fill, so it never reads as an inline code chip', async ($, on) => {
+  test('sets h1 as bold ink with no fill and no underline, so its rule is the one line under it and it never reads as a code chip', async ($, on) => {
     const tree = await drawDark($, on, '# One\n\n## Two')
     const props = (title: string) => findText(tree, text => text === title)?.element.props ?? {}
-    expect(props('One')).toMatchObject({ bold: true, underline: true, color: dark.strong })
+    expect(props('One')).toMatchObject({ bold: true })
+    expect(props('One').underline).toBeUndefined()
     expect(props('One').backgroundColor).toBeUndefined()
     expect(props('Two').backgroundColor).toBeUndefined()
   })
@@ -218,10 +218,10 @@ describe('AssistantMessage headings', () => {
     }
   })
 
-  test('keeps h1 in stronger ink than h2, so the two underlined levels stay apart', async ($, on) => {
+  test('draws h1 in the title gold and h2 in the strongest grey, so the two levels stay apart', async ($, on) => {
     const tree = await drawDark($, on, '# One\n\n## Two')
-    expect(findText(tree, t => t === 'One')?.element.props?.color).toBe(dark.strong)
-    expect(findText(tree, t => t === 'Two')?.element.props?.color).toBe(dark.text)
+    expect(findText(tree, t => t === 'One')?.element.props?.color).toBe(dark.title)
+    expect(findText(tree, t => t === 'Two')?.element.props?.color).toBe(dark.strong)
   })
 
   test('opens an h2 that follows prose with the section gap a bold paragraph never gets', async ($, on) => {
@@ -960,6 +960,10 @@ describe('palette', () => {
   })
 
   for (const theme of TUNED) {
+    test(`keeps the ${theme.name} h1 gold apart from the ask orange and the failure red`, () => {
+      for (const role of ['accent', 'error'] as const) expect({ role, far: colourDistance(theme.palette.title, theme.palette[role]) >= 20 }).toEqual({ role, far: true })
+    })
+
     test(`keeps the ${theme.name} prompt bar apart from the ask bar and the running blue`, () => {
       for (const role of ['accent', 'progress'] as const) expect({ role, far: colourDistance(theme.palette.prompt, theme.palette[role]) >= 20 }).toEqual({ role, far: true })
     })
