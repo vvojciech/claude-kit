@@ -4,7 +4,7 @@ import type { Span } from './markdown'
 import type { Palette } from './palette'
 import { cellWidth } from './width'
 
-type Kit = Pick<Elements['terminal'], 'Box' | 'Text' | 'Link'>
+type Kit = Pick<Elements['terminal'], 'Box' | 'Text' | 'Link'> & Partial<Pick<Elements['terminal'], 'Client'>>
 
 export type Draw = { kit: Kit; palette: Palette }
 

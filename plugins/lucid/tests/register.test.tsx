@@ -136,9 +136,11 @@ describe('ToolUse', () => {
     on('turn.complete', async () => ({ text: 'done' }))
     const ui = await toolUse($, backgroundAgent)
     expect(await ui.find({ type: 'Text', text: 'Delegating to Explore' })).toBeDefined()
+    expect(await ui.find({ type: 'Client' })).toBeDefined()
     status = 'completed'
     await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 'x', agentId: 'a1', reason: 'answer' })
     expect(await ui.find({ type: 'Text', text: 'Delegated to Explore' })).toBeDefined()
+    expect(await ui.find({ type: 'Client' })).toBeUndefined()
   })
 
   test('draws a background agent the engine has dropped with no known end as started, not finished', async ($, on) => {

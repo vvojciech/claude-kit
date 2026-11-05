@@ -80,9 +80,15 @@ function branch(draw: Draw, first: boolean, line: ToolLine, columns: number): Re
   )
 }
 
+export const RUNNING_FRAMES = ['◐', '◓', '◑', '◒']
+
+const RUNNING_FRAME_MS = 150
+
 function stateGlyph({ kit, palette }: Draw, state: ToolState): RenderNode {
   const look = STATE_LOOK[state]
-  return <kit.Text color={palette[look.role]}>{look.glyph}</kit.Text>
+  const color = palette[look.role]
+  if (state === 'running' && kit.Client) return <kit.Client key="running" module="./spinner.tsx" width={1} props={{ frames: RUNNING_FRAMES, color, ms: RUNNING_FRAME_MS }} />
+  return <kit.Text color={color}>{look.glyph}</kit.Text>
 }
 
 export function renderToolRow(draw: Draw, row: ToolRow, state: ToolState, columns: number): RenderElement {

@@ -31,7 +31,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 
 - One row per call: a state glyph, a verb and the target, such as `Ran`, `Read`, `Edited`, `Wrote`, `Searched`, `Fetched`, `Watched` or `Loaded skill`.
 - Verbs are past tense once a call is done. A call waiting at the permission dialog reads `Wants to run`, `Wants to write` and so on. A failed call reads `Couldn't run`, `Couldn't read` and so on.
-- States: pending `◌`, running `◐`, started `○`, done `●`, failed `✗`, and `⊘` for stopped, not allowed or cancelled.
+- States: pending `◌`, running `◐` (it turns, `◐◓◑◒`, every row in step, where the surface can animate it), started `○`, done `●`, failed `✗`, and `⊘` for stopped, not allowed or cancelled.
 - Stopped means you interrupted a call that had started. Not allowed means the permission check refused it. Cancelled means it never started, or you pressed Esc at its permission dialog.
 - Paths show relative to the session directory, home as `~`, link to the file, and cut in the middle so the file name stays.
 - A settled group gets a headline in kinds and counts, like `Read 2 files, ran 1 command`. Under it is one line per kind, with the targets joined by ` · `. Bash gets one line per command. Failed or refused calls are named in their own state.
@@ -106,7 +106,7 @@ None. lucid starts drawing as soon as it loads, and follows `/theme` from then o
 
 ## Known limits
 
-- Running rows, and rows you expand with ctrl+o, keep Claude Code's default look.
+- A single call still running in the foreground (the engine's live row), and rows you expand with ctrl+o, keep Claude Code's default look. Background tasks and running groups are lucid's, spinner included.
 - The `N background agents launched` row is Claude Code's own. A mod can't reach it.
 - A bare URL long enough to wrap is clickable on its first row only.
 - If a light terminal draws dark, pick a theme with "light" in its name in `/theme`, or start Claude Code with `COLORFGBG='0;15'` set (a background of 7 or 15 reads as light).
