@@ -4,11 +4,14 @@ import type { Span } from './markdown'
 import type { Palette } from './palette'
 import { drawRuns, spanRuns } from './runs'
 import type { Draw, Run } from './runs'
+import { toolGlyph } from './glyphs'
 import { cellWidth } from './width'
 import { fitMiddle } from './tools'
 import type { ToolLine, ToolRow, ToolState } from './tools'
 
 const GUTTER = 2
+
+const KIND_SLOT = 2
 
 const STATE_LOOK: Record<ToolState, { glyph: string; role: keyof Palette; name: keyof Palette; label: keyof Palette }> = {
   pending: { glyph: '◌', role: 'muted', name: 'strong', label: 'strong' },
@@ -66,16 +69,33 @@ function toolText(draw: Draw, label: RenderNode, detail: Span[], note: string | 
   )
 }
 
-function branch(draw: Draw, first: boolean, line: ToolLine, columns: number): RenderNode {
+function kindSlot(draw: Draw, tool: string | undefined): RenderNode | null {
+  const glyph = toolGlyph(tool)
+  if (glyph === undefined) return null
+  const { Box, Text } = draw.kit
+  return (
+    <Box width={KIND_SLOT} flexShrink={0}>
+      <Text color={draw.palette.muted}>{glyph}</Text>
+    </Box>
+  )
+}
+
+function slotWidth(tool: string | undefined): number {
+  return toolGlyph(tool) === undefined ? 0 : KIND_SLOT
+}
+
+function branch(draw: Draw, index: number, line: ToolLine, columns: number): RenderNode {
   const { Box, Text } = draw.kit
   const state = line.state ?? 'done'
   const label = <Text color={draw.palette[STATE_LOOK[state].label]}>{line.label}</Text>
+  const indent = BRANCH.length + slotWidth(line.tool)
   return (
     <Box flexDirection="row">
       <Box width={BRANCH.length} flexShrink={0}>
-        <Text color={draw.palette.muted}>{first ? BRANCH : ' '.repeat(BRANCH.length)}</Text>
+        <Text color={draw.palette.muted}>{index === 0 ? BRANCH : ' '.repeat(BRANCH.length)}</Text>
       </Box>
-      {toolText(draw, label, line.detail, line.note, detailRoom(columns, BRANCH.length, line.label, line.note), QUIET_STATES.has(state))}
+      {kindSlot(draw, line.tool)}
+      {toolText(draw, label, line.detail, line.note, detailRoom(columns, indent, line.label, line.note), QUIET_STATES.has(state))}
     </Box>
   )
 }
@@ -106,9 +126,10 @@ export function renderToolRow(draw: Draw, row: ToolRow, state: ToolState, column
         <Box width={GUTTER} flexShrink={0}>
           {stateGlyph(draw, state)}
         </Box>
-        {toolText(draw, name, row.detail, row.note, detailRoom(columns, GUTTER, row.name, row.note), QUIET_STATES.has(state))}
+        {kindSlot(draw, row.tool)}
+        {toolText(draw, name, row.detail, row.note, detailRoom(columns, GUTTER + (row.tool !== undefined ? KIND_SLOT : 0), row.name, row.note), QUIET_STATES.has(state))}
       </Box>
-      {(row.lines ?? []).map((line, i) => branch(draw, i === 0, line, columns))}
+      {(row.lines ?? []).map((line, i) => branch(draw, i, line, columns))}
     </Box>
   )
 }

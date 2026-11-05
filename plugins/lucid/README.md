@@ -32,6 +32,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - One row per call: a state glyph, a verb and the target, such as `Ran`, `Read`, `Edited`, `Wrote`, `Searched`, `Fetched`, `Watched` or `Loaded skill`.
 - Verbs are past tense once a call is done. A call waiting at the permission dialog reads `Wants to run`, `Wants to write` and so on. A failed call reads `Couldn't run`, `Couldn't read` and so on.
 - States: pending `◌`, running `◐` (it turns, `◐◓◑◒`, every row in step, where the surface can animate it), started `○`, done `●`, failed `✗`, and `⊘` for stopped, not allowed or cancelled.
+- A mark after the state glyph says what kind of tool ran: `$` shell, `≡` read, `✎` edit or write, `⌕` search, `↗` web, `◈` agent, `✦` skill, `☐` tasks, `⬡` MCP, `·` anything else. A folded group shows it on each line, and its header keeps only the state glyph.
 - Stopped means you interrupted a call that had started. Not allowed means the permission check refused it. Cancelled means it never started, or you pressed Esc at its permission dialog.
 - Paths show relative to the session directory, home as `~`, link to the file, and cut in the middle so the file name stays.
 - A settled group gets a headline in kinds and counts, like `Read 2 files, ran 1 command`. Under it is one line per kind, with the targets joined by ` · `. Bash gets one line per command. Failed or refused calls are named in their own state.

@@ -4,9 +4,9 @@ import { ELLIPSIS, cellWidth, clipCells, firstLine, sliceCells } from './width'
 
 export type ToolState = 'pending' | 'running' | 'started' | 'done' | 'failed' | 'rejected' | 'interrupted' | 'cancelled'
 
-export type ToolLine = { label: string; detail: Span[]; note?: string; state?: ToolState }
+export type ToolLine = { label: string; detail: Span[]; note?: string; state?: ToolState; tool?: string }
 
-export type ToolRow = { name: string; detail: Span[]; note?: string; lines?: ToolLine[] }
+export type ToolRow = { name: string; detail: Span[]; note?: string; lines?: ToolLine[]; tool?: string }
 
 export type ToolCall = { tool: string; input: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean; output?: unknown; hasRun?: boolean; refused?: boolean }
 
@@ -456,7 +456,7 @@ export function unsuccessfulLines(calls: ReadonlyArray<TrackedCall>, roots: Root
     .filter(call => UNSUCCESSFUL.includes(trackedState(call)))
     .map(call => {
       const row = describeCall(call, roots, call.taskStatus)
-      return { label: row.name, detail: row.detail, note: row.note, state: trackedState(call) }
+      return { label: row.name, detail: row.detail, note: row.note, state: trackedState(call), tool: call.tool }
     })
 }
 
@@ -560,7 +560,7 @@ function backgroundNote(call: ToolCall, state: ToolState): string | undefined {
 export function describeCall(call: ToolCall, roots: Roots, taskStatus?: string): ToolRow {
   const row = summarise(call.tool, call.input, roots, call.output)
   const state = stateOf(call, taskStatus)
-  return { ...row, name: verbFor(call.tool, state, call.input, call.output), note: joinNotes(row.note, backgroundNote(call, state)) }
+  return { ...row, name: verbFor(call.tool, state, call.input, call.output), note: joinNotes(row.note, backgroundNote(call, state)), tool: call.tool }
 }
 
 function spansKey(spans: ReadonlyArray<Span>): string {
@@ -596,6 +596,7 @@ function commandLines(calls: ReadonlyArray<TrackedCall>, roots: Roots): ToolLine
     detail: [...row.detail, ...repeats(count, row.detail)],
     note: joinNotes(row.note, backgroundNote(call, trackedState(call))),
     state: trackedState(call),
+    tool: 'Bash',
   }))
 }
 
@@ -609,7 +610,7 @@ function targetLine(tool: string, calls: ReadonlyArray<TrackedCall>, roots: Root
   const [first] = calls
   const state = first ? trackedState(first) : 'done'
   const sample = calls.length === 1 || tool !== 'ToolSearch' ? first : undefined
-  return { label: verbFor(tool, state, sample?.input, sample?.output), detail, note: first ? backgroundNote(first, state) : undefined, state }
+  return { label: verbFor(tool, state, sample?.input, sample?.output), detail, note: first ? backgroundNote(first, state) : undefined, state, tool }
 }
 
 function byKey<T>(items: ReadonlyArray<T>, key: (item: T) => string): Map<string, T[]> {
