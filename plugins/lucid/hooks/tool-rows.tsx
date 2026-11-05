@@ -69,32 +69,32 @@ function toolText(draw: Draw, label: RenderNode, detail: Span[], note: string | 
   )
 }
 
-function kindSlot(draw: Draw, tool: string | undefined): RenderNode | null {
+function kindSlot(draw: Draw, state: ToolState, tool: string | undefined, key: string): RenderNode | null {
   const glyph = toolGlyph(tool)
-  if (glyph === undefined) return null
+  if (glyph === undefined && state !== 'running') return null
   const { Box, Text } = draw.kit
   return (
     <Box width={KIND_SLOT} flexShrink={0}>
-      <Text color={draw.palette.muted}>{glyph}</Text>
+      {state === 'running' ? stateGlyph(draw, state, key) : state === 'failed' ? <Text color={draw.palette.error}>{STATE_LOOK.failed.glyph}</Text> : <Text color={draw.palette.muted}>{glyph}</Text>}
     </Box>
   )
 }
 
-function slotWidth(tool: string | undefined): number {
-  return toolGlyph(tool) === undefined ? 0 : KIND_SLOT
+function slotWidth(state: ToolState, tool: string | undefined): number {
+  return toolGlyph(tool) === undefined && state !== 'running' ? 0 : KIND_SLOT
 }
 
 function branch(draw: Draw, index: number, line: ToolLine, columns: number): RenderNode {
   const { Box, Text } = draw.kit
   const state = line.state ?? 'done'
   const label = <Text color={draw.palette[STATE_LOOK[state].label]}>{line.label}</Text>
-  const indent = BRANCH.length + slotWidth(line.tool)
+  const indent = BRANCH.length + slotWidth(state, line.tool)
   return (
     <Box flexDirection="row">
       <Box width={BRANCH.length} flexShrink={0}>
         <Text color={draw.palette.muted}>{index === 0 ? BRANCH : ' '.repeat(BRANCH.length)}</Text>
       </Box>
-      {kindSlot(draw, line.tool)}
+      {kindSlot(draw, state, line.tool, `running-${index}`)}
       {toolText(draw, label, line.detail, line.note, detailRoom(columns, indent, line.label, line.note), QUIET_STATES.has(state))}
     </Box>
   )
@@ -104,10 +104,10 @@ export const RUNNING_FRAMES = ['◐', '◓', '◑', '◒']
 
 const RUNNING_FRAME_MS = 150
 
-function stateGlyph({ kit, palette }: Draw, state: ToolState): RenderNode {
+function stateGlyph({ kit, palette }: Draw, state: ToolState, key = 'running'): RenderNode {
   const look = STATE_LOOK[state]
   const color = palette[look.role]
-  if (state === 'running' && kit.Client) return <kit.Client key="running" module="./spinner.tsx" width={1} props={{ frames: RUNNING_FRAMES, color, ms: RUNNING_FRAME_MS }} />
+  if (state === 'running' && kit.Client) return <kit.Client key={key} module="./spinner.tsx" width={1} props={{ frames: RUNNING_FRAMES, color, ms: RUNNING_FRAME_MS }} />
   return <kit.Text color={color}>{look.glyph}</kit.Text>
 }
 
@@ -126,7 +126,7 @@ export function renderToolRow(draw: Draw, row: ToolRow, state: ToolState, column
         <Box width={GUTTER} flexShrink={0}>
           {stateGlyph(draw, state)}
         </Box>
-        {kindSlot(draw, row.tool)}
+        {kindSlot(draw, 'done', row.tool, 'kind')}
         {toolText(draw, name, row.detail, row.note, detailRoom(columns, GUTTER + (row.tool !== undefined ? KIND_SLOT : 0), row.name, row.note), QUIET_STATES.has(state))}
       </Box>
       {(row.lines ?? []).map((line, i) => branch(draw, i, line, columns))}

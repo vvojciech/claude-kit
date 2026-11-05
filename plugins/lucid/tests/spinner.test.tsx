@@ -128,3 +128,27 @@ describe('spinner surface module', () => {
     expect(shown).toEqual([1, 2, 3])
   })
 })
+
+describe('group rows', () => {
+  const running = { label: 'Running', detail: [], state: 'running' as const, tool: 'Bash' }
+  const failed = { label: "Couldn't run", detail: [], state: 'failed' as const, tool: 'Bash' }
+  const done = { label: 'Ran', detail: [], state: 'done' as const, tool: 'Bash' }
+
+  test('gives every turning glyph in one group its own key, so none of them restarts another', () => {
+    const drawn = nodes(renderToolRow({ kit: TERMINAL_KIT, palette: dark }, { name: 'Ran 2 commands', detail: [], lines: [running, running] }, 'running', 80))
+    const keys = drawn.filter(n => n.type === 'Client').map(n => n.props?.key)
+    expect(keys).toEqual(['running', 'running-0', 'running-1'])
+  })
+
+  test('keeps a failed group header still while a call inside it turns, so a failure is never hidden behind motion', () => {
+    const drawn = nodes(renderToolRow({ kit: TERMINAL_KIT, palette: dark }, { name: 'Ran 1 of 3 commands', detail: [], lines: [done, failed, running] }, 'failed', 80))
+    expect(drawn.filter(n => n.type === 'Client').map(n => n.props?.key)).toEqual(['running-2'])
+    expect(drawn.some(n => n.type === 'Text' && textOf(n) === '✗' && n.props?.color === dark.error)).toBe(true)
+  })
+
+  test('marks a failed line with a red cross in the kind slot, so it reads as failed without colour too', () => {
+    const drawn = nodes(renderToolRow({ kit: KIT, palette: dark }, { name: 'Ran 2 commands', detail: [], lines: [done, failed] }, 'failed', 80))
+    const slots = drawn.filter(n => n.type === 'Text' && ['$', '✗'].includes(textOf(n))).map(n => [textOf(n), n.props?.color])
+    expect(slots).toEqual([['✗', dark.error], ['$', dark.muted], ['✗', dark.error]])
+  })
+})
