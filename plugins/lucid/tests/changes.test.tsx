@@ -3,7 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { changeOf, changeText, sumChanges } from '../hooks/changes'
 import { dark } from '../hooks/palette'
 import { renderToolRow } from '../hooks/tool-rows'
-import { describeCall, summariseGroup } from '../hooks/tools'
+import { describeCall, failureCause, summariseGroup } from '../hooks/tools'
 
 type Drawn = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
 
@@ -56,5 +56,34 @@ describe('change counts', () => {
     const edit = (path: string, lines: string[]) => ({ tool: 'Edit', input: { file_path: path }, output: { structuredPatch: patch(lines) }, ...settled })
     const { row } = summariseGroup([edit('/repo/a.ts', ['+a']), edit('/repo/b.ts', ['+b', '-c'])], ROOTS)
     expect(row.lines?.map(line => line.change)).toEqual([{ added: 2, removed: 1 }])
+  })
+})
+
+describe('failure causes', () => {
+  test('says how a shell command failed: its exit code and last line', () => {
+    expect(failureCause('Exit code 1\nls: tests: No such file or directory')).toBe('exit 1 · ls: tests: No such file or directory')
+    expect(failureCause('Error: Exit code 1\nls: nope: No such file or directory')).toBe('exit 1 · ls: nope: No such file or directory')
+  })
+
+  test('gives a tool error its message', () => {
+    expect(failureCause('<tool_use_error>File does not exist.</tool_use_error>')).toBe('File does not exist.')
+  })
+
+  test('picks the line that says what went wrong over a trailing summary', () => {
+    expect(failureCause('Exit code 1\na.ts: error TS2304\nFound 1 error.')).toBe('exit 1 · a.ts: error TS2304')
+  })
+
+  test('clips a long cause so the line stays one row', () => {
+    expect(failureCause(`Exit code 2\n${'x'.repeat(80)}`)?.endsWith('…')).toBe(true)
+  })
+
+  test('says nothing for output that is not an error message', () => {
+    expect([failureCause('ok'), failureCause(undefined)]).toEqual([undefined, undefined])
+  })
+
+  test('puts the cause on a failed line inside a folded group', () => {
+    const shell = (command: string, output: string, isErrored: boolean) => ({ tool: 'Bash', input: { command }, output, ...settled, isErrored })
+    const { row } = summariseGroup([shell('ls hooks', 'a', false), shell('ls tests', 'Exit code 1\nls: tests: No such file or directory', true)], ROOTS)
+    expect(row.lines?.find(line => line.state === 'failed')?.note).toBe('exit 1 · ls: tests: No such file or directory')
   })
 })

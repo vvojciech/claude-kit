@@ -591,12 +591,12 @@ function trackedState(call: TrackedCall): ToolState {
 function commandLines(calls: ReadonlyArray<TrackedCall>, roots: Roots): ToolLine[] {
   const rows = distinct(
     calls.map(call => ({ call, row: summarise(call.tool, call.input, roots, call.output) })),
-    ({ call, row }) => trackedState(call) + (call.taskStatus ?? '') + spansKey(row.detail) + (row.note ?? ''),
+    ({ call, row }) => trackedState(call) + (call.taskStatus ?? '') + spansKey(row.detail) + (row.note ?? '') + (causeOf(call) ?? ''),
   )
   return rows.map(({ item: { call, row }, count }) => ({
     label: verbFor('Bash', trackedState(call)),
     detail: [...row.detail, ...repeats(count, row.detail)],
-    note: joinNotes(row.note, backgroundNote(call, trackedState(call))),
+    note: joinNotes(row.note, backgroundNote(call, trackedState(call)), causeOf(call)),
     state: trackedState(call),
     tool: 'Bash',
   }))
@@ -613,7 +613,7 @@ function targetLine(tool: string, calls: ReadonlyArray<TrackedCall>, roots: Root
   const state = first ? trackedState(first) : 'done'
   const sample = calls.length === 1 || tool !== 'ToolSearch' ? first : undefined
   const change = state === 'done' ? sumChanges(calls.map(call => changeOf(call.tool, call.output))) : undefined
-  return { label: verbFor(tool, state, sample?.input, sample?.output), detail, note: first ? backgroundNote(first, state) : undefined, state, tool, change }
+  return { label: verbFor(tool, state, sample?.input, sample?.output), detail, note: first ? joinNotes(backgroundNote(first, state), causeOf(first)) : undefined, state, tool, change }
 }
 
 function byKey<T>(items: ReadonlyArray<T>, key: (item: T) => string): Map<string, T[]> {
@@ -812,6 +812,29 @@ function groupOutcomes(calls: ReadonlyArray<TrackedCall>, roots: Roots): ToolSta
 function settledState(calls: ReadonlyArray<TrackedCall>): ToolState {
   if (calls.some(isAtWork)) return 'running'
   return calls.some(isUntracked) ? 'started' : 'done'
+}
+
+const CAUSE_CELLS = 48
+
+const EXIT_CODE = /^Exit code (\d+)$/
+
+const TELLING_LINE = /error|no such|not found|cannot|denied|failed/i
+
+const EXIT_LINE = /^(?:Error:\s*)?Exit code \d+$/m
+
+export function failureCause(output: unknown): string | undefined {
+  if (typeof output !== 'string' || !(EXIT_LINE.test(output) || output.includes('<tool_use_error>'))) return undefined
+  const reason = failureOf(output)
+  if (reason === undefined) return undefined
+  const [first = '', ...rest] = reason
+  const exit = EXIT_CODE.exec(first.trim())
+  const detail = exit ? (rest.find(line => TELLING_LINE.test(line)) ?? rest.at(-1))?.trim() : first.trim()
+  const cause = [exit ? `exit ${exit[1]}` : undefined, detail].filter(Boolean).join(SEPARATOR)
+  return cause === '' ? undefined : clipCells(cause, CAUSE_CELLS)
+}
+
+function causeOf(call: TrackedCall): string | undefined {
+  return trackedState(call) === 'failed' ? failureCause(call.output) : undefined
 }
 
 export function failureOf(output: unknown): string[] | undefined {
