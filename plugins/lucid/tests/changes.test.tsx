@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { changeOf, changeText, sumChanges } from '../hooks/changes'
+import { fetchNote, progressCells, progressCount, readNote } from '../hooks/metrics'
 import { dark } from '../hooks/palette'
 import { renderToolRow } from '../hooks/tool-rows'
 import { describeCall, failureCause, summariseGroup } from '../hooks/tools'
@@ -85,5 +86,33 @@ describe('failure causes', () => {
     const shell = (command: string, output: string, isErrored: boolean) => ({ tool: 'Bash', input: { command }, output, ...settled, isErrored })
     const { row } = summariseGroup([shell('ls hooks', 'a', false), shell('ls tests', 'Exit code 1\nls: tests: No such file or directory', true)], ROOTS)
     expect(row.lines?.find(line => line.state === 'failed')?.note).toBe('exit 1 · ls: tests: No such file or directory')
+  })
+})
+
+describe('row metrics', () => {
+  test('says how many lines a read returned, and of how many when it was partial', () => {
+    expect([readNote({ file: { numLines: 120, totalLines: 120 } }), readNote({ file: { numLines: 40, totalLines: 300 } }), readNote({ file: { numLines: 1, totalLines: 1 } })]).toEqual(['120 lines', '40 of 300 lines', '1 line'])
+  })
+
+  test('gives a fetch its size, and its status only when it went wrong', () => {
+    expect([fetchNote({ code: 200, bytes: 14_336 }), fetchNote({ code: 404, bytes: 3_000 })]).toEqual(['14 KB', '404 · 3 KB'])
+  })
+
+  test('fills a task list bar in proportion, ten cells at most', () => {
+    expect(progressCells({ done: 3, active: 0, total: 5 })).toEqual({ filled: 3, active: 0, empty: 2 })
+    expect(progressCells({ done: 10, active: 0, total: 40 })).toEqual({ filled: 3, active: 0, empty: 7 })
+    expect(progressCells({ done: 5, active: 1, total: 12 })).toEqual({ filled: 4, active: 1, empty: 5 })
+  })
+
+  test('adds the exact count when the list is longer than the bar', () => {
+    expect([progressCount({ done: 5, active: 1, total: 12 }), progressCount({ done: 1, active: 0, total: 3 })]).toEqual(['5/12', undefined])
+  })
+
+  test('draws a task list row with its bar, done cells green, the one in hand blue and the rest faint, and says the count once', () => {
+    const call = { tool: 'TodoWrite', input: { todos: [{ status: 'completed' }, { status: 'in_progress' }, { status: 'pending' }] }, output: {}, ...settled }
+    const drawn = nodes(renderToolRow({ kit: KIT, palette: dark }, describeCall(call, ROOTS), 'done', 80))
+    const bar = drawn.filter(n => /^[▰▱]+$/.test(textOf(n))).map(n => [textOf(n), n.props?.color])
+    expect(bar).toEqual([['▰', dark.done], ['▰', dark.progress], ['▱', dark.faint]])
+    expect(drawn.some(n => / done$/.test(textOf(n)))).toBe(false)
   })
 })

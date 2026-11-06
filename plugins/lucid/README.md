@@ -36,6 +36,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - A running call inside a folded group turns in that slot too, so you can see it working even when the header already reads `✗`. A failed line puts a red `✗` there instead, so it reads as failed without colour. A header with a failure keeps its `✗` while a call inside still runs, so motion never hides a failure.
 - Edits and writes end with their line counts, `+12 −3` in the added and removed colours, summed across a folded group of edits.
 - A failed line in a folded group says why: `exit 1 · ls: tests: No such file or directory`, or the tool's own error message.
+- Reads say how many lines came back (`40 of 300 lines`), fetches their size, with the status only when it went wrong (`404 · 3 KB`), and a task list update draws a bar: green for done, blue for the one in hand, faint for the rest (`▰▰▰▱▱`), with `5/12` when the list is longer than the bar.
 - A call or group you watched at work lands with one bright `◉` frame as it goes quiet, then settles to `●` or `✗`. Rows from a resumed session don't flash.
 - Stopped means you interrupted a call that had started. Not allowed means the permission check refused it. Cancelled means it never started, or you pressed Esc at its permission dialog.
 - Paths show relative to the session directory, home as `~`, link to the file, and cut in the middle so the file name stays.

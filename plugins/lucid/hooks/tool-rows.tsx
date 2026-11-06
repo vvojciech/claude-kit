@@ -7,6 +7,8 @@ import type { Draw, Run } from './runs'
 import { changeText } from './changes'
 import type { Change } from './changes'
 import { toolGlyph } from './glyphs'
+import { EMPTY, FILLED, progressCells, progressCount } from './metrics'
+import type { Progress } from './metrics'
 import { cellWidth } from './width'
 import { fitMiddle } from './tools'
 import type { ToolLine, ToolRow, ToolState } from './tools'
@@ -44,6 +46,29 @@ function detailRoom(columns: number, indent: number, label: string, note: string
   return Math.max(0, columns - indent - cellWidth(label) - 1 - noteWidth(note, change))
 }
 
+function progressWidth(progress: Progress | undefined): number {
+  if (progress === undefined) return 0
+  const { filled, active, empty } = progressCells(progress)
+  const count = progressCount(progress)
+  return 1 + filled + active + empty + (count ? cellWidth(` ${count}`) : 0)
+}
+
+function progressBar(draw: Draw, progress: Progress | undefined): RenderNode | null {
+  if (progress === undefined) return null
+  const { filled, active, empty } = progressCells(progress)
+  const count = progressCount(progress)
+  const { Text } = draw.kit
+  return (
+    <Text>
+      {' '}
+      <Text color={draw.palette.done}>{FILLED.repeat(filled)}</Text>
+      <Text color={draw.palette.progress}>{FILLED.repeat(active)}</Text>
+      <Text color={draw.palette.faint}>{EMPTY.repeat(empty)}</Text>
+      {count ? <Text color={draw.palette.muted}> {count}</Text> : null}
+    </Text>
+  )
+}
+
 function changeCounts(draw: Draw, change: Change | undefined): RenderNode | null {
   const { added, removed } = changeText(change)
   if (added === undefined && removed === undefined) return null
@@ -73,12 +98,13 @@ function toolDetail(draw: Draw, spans: Span[], room: number, quiet: boolean): Re
   return drawRuns(draw, quiet ? quietRuns(runs, draw.palette.muted) : runs)
 }
 
-function toolText(draw: Draw, label: RenderNode, detail: Span[], note: string | undefined, room: number, quiet = false, change?: Change): RenderNode {
+function toolText(draw: Draw, label: RenderNode, detail: Span[], note: string | undefined, room: number, quiet = false, change?: Change, progress?: Progress): RenderNode {
   const { Text } = draw.kit
   return (
     <Text wrap="truncate-end">
       {label}
       {detail.length > 0 ? ' ' : ''}
+      {progressBar(draw, progress)}
       {toolDetail(draw, detail, room, quiet)}
       {changeCounts(draw, change)}
       {note ? <Text color={draw.palette.muted}>{NOTE_GAP + note}</Text> : null}
@@ -152,7 +178,7 @@ export function renderToolRow(draw: Draw, row: ToolRow, state: ToolState, column
           {stateGlyph(draw, state, 'running', motion)}
         </Box>
         {kindSlot(draw, 'done', row.tool, 'kind')}
-        {toolText(draw, name, row.detail, row.note, detailRoom(columns, GUTTER + (row.tool !== undefined ? KIND_SLOT : 0), row.name, row.note, row.change), QUIET_STATES.has(state), row.change)}
+        {toolText(draw, name, row.detail, row.note, detailRoom(columns, GUTTER + (row.tool !== undefined ? KIND_SLOT : 0) + progressWidth(row.progress), row.name, row.note, row.change), QUIET_STATES.has(state), row.change, row.progress)}
       </Box>
       {(row.lines ?? []).map((line, i) => branch(draw, i, line, columns))}
     </Box>

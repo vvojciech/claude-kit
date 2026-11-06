@@ -2,13 +2,15 @@ import { inlineSpans, shellSpans, spansWidth } from './markdown'
 import type { Span } from './markdown'
 import { ELLIPSIS, cellWidth, clipCells, firstLine, sliceCells } from './width'
 import { changeOf, sumChanges } from './changes'
+import { fetchNote, readNote, todoProgress } from './metrics'
+import type { Progress } from './metrics'
 import type { Change } from './changes'
 
 export type ToolState = 'pending' | 'running' | 'started' | 'done' | 'failed' | 'rejected' | 'interrupted' | 'cancelled'
 
 export type ToolLine = { label: string; detail: Span[]; note?: string; state?: ToolState; tool?: string; change?: Change }
 
-export type ToolRow = { name: string; detail: Span[]; note?: string; lines?: ToolLine[]; tool?: string; change?: Change }
+export type ToolRow = { name: string; detail: Span[]; note?: string; lines?: ToolLine[]; tool?: string; change?: Change; progress?: Progress }
 
 export type ToolCall = { tool: string; input: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean; output?: unknown; hasRun?: boolean; refused?: boolean }
 
@@ -562,7 +564,18 @@ function backgroundNote(call: ToolCall, state: ToolState): string | undefined {
 export function describeCall(call: ToolCall, roots: Roots, taskStatus?: string): ToolRow {
   const row = summarise(call.tool, call.input, roots, call.output)
   const state = stateOf(call, taskStatus)
-  return { ...row, name: verbFor(call.tool, state, call.input, call.output), note: joinNotes(row.note, backgroundNote(call, state)), tool: call.tool, change: state === 'done' ? changeOf(call.tool, call.output) : undefined }
+  const done = state === 'done'
+  const progress = call.tool === 'TodoWrite' ? todoProgress(call.input) : undefined
+  const metric = done && call.tool === 'Read' ? readNote(call.output) : done && call.tool === 'WebFetch' ? fetchNote(call.output) : undefined
+  return {
+    ...row,
+    detail: progress === undefined ? row.detail : row.detail.slice(0, 1),
+    name: verbFor(call.tool, state, call.input, call.output),
+    note: joinNotes(row.note, metric, backgroundNote(call, state)),
+    tool: call.tool,
+    change: done ? changeOf(call.tool, call.output) : undefined,
+    progress,
+  }
 }
 
 function spansKey(spans: ReadonlyArray<Span>): string {
@@ -613,7 +626,8 @@ function targetLine(tool: string, calls: ReadonlyArray<TrackedCall>, roots: Root
   const state = first ? trackedState(first) : 'done'
   const sample = calls.length === 1 || tool !== 'ToolSearch' ? first : undefined
   const change = state === 'done' ? sumChanges(calls.map(call => changeOf(call.tool, call.output))) : undefined
-  return { label: verbFor(tool, state, sample?.input, sample?.output), detail, note: first ? joinNotes(backgroundNote(first, state), causeOf(first)) : undefined, state, tool, change }
+  const metric = state === 'done' && calls.length === 1 && first ? (tool === 'Read' ? readNote(first.output) : tool === 'WebFetch' ? fetchNote(first.output) : undefined) : undefined
+  return { label: verbFor(tool, state, sample?.input, sample?.output), detail, note: first ? joinNotes(metric, backgroundNote(first, state), causeOf(first)) : undefined, state, tool, change }
 }
 
 function byKey<T>(items: ReadonlyArray<T>, key: (item: T) => string): Map<string, T[]> {
