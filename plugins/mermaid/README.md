@@ -117,4 +117,4 @@ None. A diagram draws as soon as its `mermaid` fence closes.
 
 ## Load order
 
-Running several mods? Load them in this order: copy-that, peek, mermaid, then any mod that draws replies itself (lucid, for example). `/plugin install` can't set the order, so clone this repo and list the mod folders in that order in `CLAUDE_CODE_PLUGIN_DIRS`, in the `env` block of `~/.claude/settings.json`. Restart Claude Code afterwards.
+Running several mods? Load them in this order: copy-that, mermaid, then any mod that draws replies itself (lucid, for example). `/plugin install` can't set the order, so clone this repo and list the mod folders in that order in `CLAUDE_CODE_PLUGIN_DIRS`, in the `env` block of `~/.claude/settings.json`. Restart Claude Code afterwards.
