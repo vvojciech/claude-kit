@@ -3,6 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { changeOf, changeText, sumChanges } from '../hooks/changes'
 import { tallyChips } from '../hooks/laps'
 import { fetchNote, progressCells, progressCount, readNote } from '../hooks/metrics'
+import { lastLine } from '../hooks/tails'
 import { dark } from '../hooks/palette'
 import { renderToolRow } from '../hooks/tool-rows'
 import { describeCall, failureCause, summariseGroup } from '../hooks/tools'
@@ -126,5 +127,15 @@ describe('lap tally', () => {
 
   test('shows nothing for a turn that only talked', () => {
     expect(tallyChips({ files: 0, added: 0, removed: 0, commands: 0, reads: 0, failed: 0 })).toEqual([])
+  })
+})
+
+describe('live tail text', () => {
+  test('takes the last line that says something, without colour codes', () => {
+    expect(lastLine('compiled 1\n\x1b[32mcompiled 2\x1b[0m\n\n')).toBe('compiled 2')
+  })
+
+  test('reads only the end of a long output', () => {
+    expect(lastLine(`${'x'.repeat(100_000)}\nlast`)).toBe('last')
   })
 })

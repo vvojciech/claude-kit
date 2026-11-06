@@ -59,6 +59,7 @@ declare module 'claude-code' {
       liveCalls: StateFamily<true>
       settledCalls: StateFamily<true>
       lapEnds: StateFamily<number>
+      taskTails: StateFamily<string>
       lapTallies: StateFamily<string>
     }
   }

@@ -166,6 +166,120 @@ describe('lap line', () => {
   })
 })
 
+describe('live tail', () => {
+  function taskFolder(on: On, output: () => string, session: () => string = () => 'sess', onStat: () => void = () => {}) {
+    const dir = '/private/tmp/claude-1/-repo/sess/tasks'
+    let reads = 0
+    on('session.id', async () => ({ value: session() }))
+    on('fs.stat', async (_$, e) => (onStat(), { value: e.path === '/private/tmp' ? { kind: 'dir', size: 0, mtimeMs: 0, isLink: false, realPath: '/private/tmp' } : { kind: 'file', size: output().length, mtimeMs: output().length, isLink: false } }) as never)
+    on('fs.exists', async (_$, e) => ({ value: e.path === '/private/tmp' || e.path === dir }) as never)
+    on('fs.list', async (_$, e) => ({ value: e.path === '/private/tmp' ? [{ name: 'claude-1', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] : [{ name: '-repo', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] }) as never)
+    on('fs.read', async () => {
+      reads += 1
+      return { value: output() } as never
+    })
+    return () => reads
+  }
+
+  test('shows the latest line of a running background command and stops reading once it ends', async ($, on) => {
+    const clock = stockBeneath(on)
+    let output = 'compiled 1\n'
+    const reads = taskFolder(on, () => output)
+    await launched($, on, backgroundShell('t9'))
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolUse', props: { tool_use_id: 'b9', ...backgroundShell('t9'), ...settled, output: backgroundShell('t9').output } })
+    await clock.advance(1000)
+    expect(await ui.find({ type: 'Text', text: /compiled 1/ })).toBeDefined()
+    output = 'compiled 1\ncompiled 2\n'
+    await clock.advance(1000)
+    expect(await ui.find({ type: 'Text', text: /compiled 2/ })).toBeDefined()
+    await taskNotification($, 't9', 'completed')
+    await clock.advance(1000)
+    const after = reads()
+    await clock.advance(5000)
+    expect(reads()).toBe(after)
+  })
+
+  test('reads the output again only when it changed', async ($, on) => {
+    const clock = stockBeneath(on)
+    const reads = taskFolder(on, () => 'steady\n')
+    await launched($, on, backgroundShell('t10'))
+    await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolUse', props: { tool_use_id: 'b10', ...backgroundShell('t10'), ...settled, output: backgroundShell('t10').output } })
+    await clock.advance(5000)
+    expect(reads()).toBe(1)
+  })
+
+  test('drops the tail of output too large to read every second', async ($, on) => {
+    const clock = stockBeneath(on)
+    let output = 'small\n'
+    taskFolder(on, () => output)
+    await launched($, on, backgroundShell('t11'))
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolUse', props: { tool_use_id: 'b11', ...backgroundShell('t11'), ...settled, output: backgroundShell('t11').output } })
+    await clock.advance(1000)
+    expect(await ui.find({ type: 'Text', text: /small/ })).toBeDefined()
+    output = `${'x'.repeat(600 * 1024)}\nhuge\n`
+    await clock.advance(1000)
+    expect(await ui.find({ type: 'Text', text: /↳/ })).toBeUndefined()
+  })
+
+  test('tails a background command inside a folded group on its own line', async ($, on) => {
+    const clock = stockBeneath(on)
+    taskFolder(on, () => 'compiled 3\n')
+    await launched($, on, backgroundShell('t12'))
+    const ui = await toolGroup($, { calls: [{ tool_use_id: 'b12', ...backgroundShell('t12'), ...settled, output: backgroundShell('t12').output }, listing] })
+    await clock.advance(1000)
+    expect(await ui.find({ type: 'Text', text: /compiled 3/ })).toBeDefined()
+  })
+
+  test('looks for a missing task folder once every thirty seconds, not every tick', async ($, on) => {
+    const clock = stockBeneath(on)
+    let lists = 0
+    on('session.id', async () => ({ value: 'nofolder' }))
+    on('fs.stat', async () => ({ value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false, realPath: '/private/tmp' } }) as never)
+    on('fs.exists', async (_$, e) => ({ value: e.path === '/private/tmp' }) as never)
+    on('fs.list', async () => {
+      lists += 1
+      return { value: [] } as never
+    })
+    await launched($, on, backgroundShell('t14'))
+    await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolUse', props: { tool_use_id: 'b14', ...backgroundShell('t14'), ...settled, output: backgroundShell('t14').output } })
+    await clock.advance(5000)
+    const firstScan = lists
+    expect(firstScan).toBeGreaterThan(0)
+    await clock.advance(20_000)
+    expect(lists).toBe(firstScan)
+    await clock.advance(11_000)
+    expect(lists).toBeGreaterThan(firstScan)
+  })
+
+  test('stops watching output that has been quiet for ten minutes', async ($, on) => {
+    const clock = stockBeneath(on)
+    let stats = 0
+    const reads = taskFolder(on, () => 'idle\n', undefined, () => {
+      stats += 1
+    })
+    await launched($, on, backgroundShell('t15'))
+    await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolUse', props: { tool_use_id: 'b15', ...backgroundShell('t15'), ...settled, output: backgroundShell('t15').output } })
+    await clock.advance(11 * 60_000)
+    const after = stats
+    await clock.advance(10_000)
+    expect([stats, reads()]).toEqual([after, 1])
+  })
+
+  test('stops tailing when the session changes under it', async ($, on) => {
+    const clock = stockBeneath(on)
+    let session = 'sess'
+    const reads = taskFolder(on, () => `${session}\n`, () => session)
+    await launched($, on, backgroundShell('t13'))
+    await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'ToolUse', props: { tool_use_id: 'b13', ...backgroundShell('t13'), ...settled, output: backgroundShell('t13').output } })
+    await clock.advance(1000)
+    session = 'other'
+    await clock.advance(1000)
+    const after = reads()
+    await clock.advance(5000)
+    expect(reads()).toBe(after)
+  })
+})
+
 describe('lap tally', () => {
   test('counts a file edited twice once and a new file by its lines', async ($, on) => {
     const clock = stockBeneath(on)

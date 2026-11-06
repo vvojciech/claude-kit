@@ -132,7 +132,7 @@ function branch(draw: Draw, index: number, line: ToolLine, columns: number): Ren
   const state = line.state ?? 'done'
   const label = <Text color={draw.palette[STATE_LOOK[state].label]}>{line.label}</Text>
   const indent = BRANCH.length + slotWidth(state, line.tool)
-  return (
+  const row = (
     <Box flexDirection="row">
       <Box width={BRANCH.length} flexShrink={0}>
         <Text color={draw.palette.muted}>{index === 0 ? BRANCH : ' '.repeat(BRANCH.length)}</Text>
@@ -140,6 +140,14 @@ function branch(draw: Draw, index: number, line: ToolLine, columns: number): Ren
       {kindSlot(draw, state, line.tool, `running-${index}`)}
       {toolText(draw, label, line.detail, line.note, detailRoom(columns, indent, line.label, line.note, line.change), QUIET_STATES.has(state), line.change)}
     </Box>
+  )
+  return line.tail ? (
+    <Box flexDirection="column">
+      {row}
+      {tailLine(draw, line.tail, BRANCH.length + KIND_SLOT)}
+    </Box>
+  ) : (
+    row
   )
 }
 
@@ -162,6 +170,19 @@ function stateGlyph({ kit, palette }: Draw, state: ToolState, key = 'running', m
   return <kit.Text color={color}>{look.glyph}</kit.Text>
 }
 
+export const TAIL_MARK = '↳'
+
+function tailLine(draw: Draw, tail: string, indent = GUTTER + KIND_SLOT): RenderNode {
+  const { Box, Text } = draw.kit
+  return (
+    <Box paddingLeft={indent}>
+      <Text wrap="truncate-end" color={draw.palette.faint}>
+        {TAIL_MARK} {tail}
+      </Text>
+    </Box>
+  )
+}
+
 export function renderToolRow(draw: Draw, row: ToolRow, state: ToolState, columns: number, motion: RowMotion = {}): RenderElement {
   const { kit, palette } = draw
   const { Box, Text } = kit
@@ -181,6 +202,7 @@ export function renderToolRow(draw: Draw, row: ToolRow, state: ToolState, column
         {toolText(draw, name, row.detail, row.note, detailRoom(columns, GUTTER + (row.tool !== undefined ? KIND_SLOT : 0) + progressWidth(row.progress), row.name, row.note, row.change), QUIET_STATES.has(state), row.change, row.progress)}
       </Box>
       {(row.lines ?? []).map((line, i) => branch(draw, i, line, columns))}
+      {row.tail ? tailLine(draw, row.tail) : null}
     </Box>
   )
 }

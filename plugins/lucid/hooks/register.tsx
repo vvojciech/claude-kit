@@ -6,6 +6,7 @@ import type { Draw } from './runs'
 import { emptyTally, renderLap } from './laps'
 import type { LapTally } from './laps'
 import { changeOf } from './changes'
+import { forgetTail, tailOf } from './tails'
 import { SETTLE_FLASH_MS, renderFailure, renderToolRow, renderWrittenFile } from './tool-rows'
 import { ReplyStream } from './live'
 import { CallLedger } from './permits'
@@ -119,6 +120,77 @@ const LAP_STAMP_WINDOW_MS = 5000
 const LAP_MATCH_MS = 1500
 
 const settleScheduled = new Set<string>()
+
+const TAIL_POLL_MS = 1000
+
+const TAIL_IDLE_MS = 10 * 60_000
+
+const tailChanged = new Map<string, number>()
+
+const tailing = new Set<string>()
+
+let tailTimer: { cancel: () => void } | undefined
+
+let tailSession: string | undefined
+
+let polling = false
+
+function stopTailing(id: string): void {
+  tailing.delete(id)
+  tailChanged.delete(id)
+  forgetTail(id)
+  if (tailing.size > 0) return
+  tailTimer?.cancel()
+  tailTimer = undefined
+}
+
+async function pollTails($: Tracker & Pick<EngineInterface, 'fs' | 'session'>): Promise<void> {
+  if (polling) return
+  polling = true
+  try {
+    await pollOnce($)
+  } finally {
+    polling = false
+  }
+}
+
+async function pollOnce($: Tracker & Pick<EngineInterface, 'fs' | 'session'>): Promise<void> {
+  const session = await $.session.id().catch(() => undefined)
+  if (tailSession !== undefined && session !== tailSession) {
+    for (const id of [...tailing]) stopTailing(id)
+    return
+  }
+  for (const id of [...tailing]) {
+    if ((await endOf($, id)) !== undefined) {
+      stopTailing(id)
+      continue
+    }
+    const tail = (await tailOf($, id)) ?? ''
+    const now = await $.clock.now()
+    if (((await $.state.get({ plugin: 'lucid', key: 'taskTails', id })).value ?? '') !== tail) {
+      tailChanged.set(id, now)
+      await $.state.set({ plugin: 'lucid', key: 'taskTails', id }, tail)
+    } else if (now - (tailChanged.get(id) ?? now) > TAIL_IDLE_MS) stopTailing(id)
+    if (!tailChanged.has(id)) tailChanged.set(id, now)
+  }
+}
+
+async function taskTail($: Tracker & Pick<EngineInterface, 'fs' | 'session'>, id: string | undefined, state: string | undefined): Promise<string | undefined> {
+  if (id === undefined) return undefined
+  if (state !== 'running') {
+    if (tailing.has(id)) stopTailing(id)
+    return undefined
+  }
+  if (tailing.size === 0) tailSession = await $.session.id().catch(() => undefined)
+  if (!tailing.has(id)) tailChanged.delete(id)
+  tailing.add(id)
+  tailTimer ??= $.clock.every(TAIL_POLL_MS, () => void pollTails($).catch(() => undefined))
+  return (await $.state.get({ plugin: 'lucid', key: 'taskTails', id })).value || undefined
+}
+
+async function tailed($: Tracker & Pick<EngineInterface, 'fs' | 'session'>, call: Pick<ToolCall, 'tool' | 'output'>, state: string): Promise<string | undefined> {
+  return taskTail($, call.tool === 'Bash' ? backgroundTaskId(call.tool, call.output) : undefined, state)
+}
 
 function parsedTally(text: string | undefined): LapTally | undefined {
   if (text === undefined) return undefined
@@ -275,8 +347,8 @@ export const register: Register = on => {
     const call = { ...e.props, ...fate }
     if (stateOf(call) === 'done') await recordEnd($, stoppedTaskId(call), STOPPED)
     const taskStatus = await taskStatusOf($, call)
-    const row = describeCall(call, await rootsOf($), taskStatus)
     const state = stateOf(call, taskStatus)
+    const row = { ...describeCall(call, await rootsOf($), taskStatus), tail: await tailed($, call, state) }
     const settling = await isSettling($, e.props.tool_use_id, state)
     return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, state, e.viewport?.columns ?? DEFAULT_COLUMNS, { settling })
   }).catch(($, e, next) => next(e))
@@ -297,7 +369,11 @@ export const register: Register = on => {
     const fates = await Promise.all(calls.map(call => fateOf($, call)))
     const tracked = await Promise.all(calls.map(async (call, index) => ({ ...call, ...fates[index], taskStatus: await taskStatusOf($, call) })))
     if (isCallsOnly !== true && unsuccessfulState(tracked) === undefined) return next(e)
-    const { row, state } = summariseGroup(tracked, await rootsOf($))
+    const summary = summariseGroup(tracked, await rootsOf($))
+    const { state } = summary
+    const [only] = tracked
+    const lines = summary.row.lines === undefined ? undefined : await Promise.all(summary.row.lines.map(async line => ({ ...line, tail: await taskTail($, line.taskId, line.state) })))
+    const row = tracked.length === 1 && only ? { ...summary.row, tail: await tailed($, only, state) } : { ...summary.row, lines }
     const settling = await isSettling($, e.requestId, state)
     return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, state, e.viewport?.columns ?? DEFAULT_COLUMNS, { settling })
   }).catch(($, e, next) => next(e))

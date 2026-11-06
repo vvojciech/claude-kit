@@ -37,6 +37,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - Edits and writes end with their line counts, `+12 −3` in the added and removed colours, summed across a folded group of edits.
 - A failed line in a folded group says why: `exit 1 · ls: tests: No such file or directory`, or the tool's own error message.
 - Reads say how many lines came back (`40 of 300 lines`), fetches their size, with the status only when it went wrong (`404 · 3 KB`), and a task list update draws a bar: green for done, blue for the one in hand, faint for the rest (`▰▰▰▱▱`), with `5/12` when the list is longer than the bar.
+- A background command that is still running shows its latest output line under its row or its line in a folded group, `↳ compiled module 12`, refreshed every second and only when the output changed. It stops for output past 512 KB or after ten quiet minutes, and a finished command keeps its last line until Claude Code reports it ended. lucid finds that output in Claude Code's own task folder; if it can't, the line just doesn't show.
 - A call or group you watched at work lands with one bright `◉` frame as it goes quiet, then settles to `●` or `✗`. Rows from a resumed session don't flash.
 - Stopped means you interrupted a call that had started. Not allowed means the permission check refused it. Cancelled means it never started, or you pressed Esc at its permission dialog.
 - Paths show relative to the session directory, home as `~`, link to the file, and cut in the middle so the file name stays.

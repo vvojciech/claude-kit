@@ -8,9 +8,9 @@ import type { Change } from './changes'
 
 export type ToolState = 'pending' | 'running' | 'started' | 'done' | 'failed' | 'rejected' | 'interrupted' | 'cancelled'
 
-export type ToolLine = { label: string; detail: Span[]; note?: string; state?: ToolState; tool?: string; change?: Change }
+export type ToolLine = { label: string; detail: Span[]; note?: string; state?: ToolState; tool?: string; change?: Change; taskId?: string; tail?: string }
 
-export type ToolRow = { name: string; detail: Span[]; note?: string; lines?: ToolLine[]; tool?: string; change?: Change; progress?: Progress }
+export type ToolRow = { name: string; detail: Span[]; note?: string; lines?: ToolLine[]; tool?: string; change?: Change; tail?: string; progress?: Progress }
 
 export type ToolCall = { tool: string; input: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean; output?: unknown; hasRun?: boolean; refused?: boolean }
 
@@ -612,6 +612,7 @@ function commandLines(calls: ReadonlyArray<TrackedCall>, roots: Roots): ToolLine
     note: joinNotes(row.note, backgroundNote(call, trackedState(call)), causeOf(call)),
     state: trackedState(call),
     tool: 'Bash',
+    taskId: count === 1 ? backgroundTaskId(call.tool, call.output) : undefined,
   }))
 }
 
