@@ -58,7 +58,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 
 ### Lap line
 
-- The line that ends a turn becomes a faint dotted `┈` track with the engine's word, the turn's time in bold and the clock time it ended: `┈┈┈ Cooked 1m 4s · 14:47 ┈┈┈┈`. The clock time shows only for turns that ended while lucid was loaded, and drops on a narrow pane. The expanded view and the "waiting for background agents" line stay Claude Code's own.
+- The line that ends a turn becomes a faint dotted `┈` track with the engine's word, the turn's time in bold and the clock time it ended: `┈┈┈ Cooked 1m 4s · 14:47 ┈┈┈┈`. It opens with what the turn did: `✎ 2 +45 −12  $ 4  ≡ 5  ✗ 1` for files edited and their lines, commands run, files read and failures. It counts the main conversation only, not what subagents did. A narrow pane drops these first. The clock time shows only for turns that ended while lucid was loaded, and drops on a narrow pane. The expanded view and the "waiting for background agents" line stay Claude Code's own.
 
 ### Markdown
 

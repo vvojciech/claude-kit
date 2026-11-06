@@ -3,7 +3,9 @@ import type { EngineInterface, Register, RenderElement } from 'claude-code'
 import { renderMarkdown } from './blocks'
 import { renderPrompt } from './prompt'
 import type { Draw } from './runs'
-import { renderLap } from './laps'
+import { emptyTally, renderLap } from './laps'
+import type { LapTally } from './laps'
+import { changeOf } from './changes'
 import { SETTLE_FLASH_MS, renderFailure, renderToolRow, renderWrittenFile } from './tool-rows'
 import { ReplyStream } from './live'
 import { CallLedger } from './permits'
@@ -24,12 +26,30 @@ const ledger = new CallLedger()
 
 let lastReply: string | undefined
 
-let lastTurn: { at: number; durationMs: number } | undefined
+let lastTurn: { at: number; durationMs: number; tally: LapTally } | undefined
 
-async function lapStamp($: Pick<EngineInterface, 'clock'>, durationMs: number): Promise<number | undefined> {
+let turnTally: LapTally = emptyTally()
+
+const turnFiles = new Set<string>()
+
+const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
+
+function tallyCall(tool: string, input: Record<string, unknown>, answer: { result?: unknown; isError?: boolean }): void {
+  const failed = stateOf({ tool, output: answer.result, isErrored: answer.isError === true, isRunning: false, isInterrupted: false }) === 'failed'
+  if (failed) turnTally.failed += 1
+  if (tool === 'Bash') turnTally.commands += 1
+  if (tool === 'Read' && answer.isError !== true) turnTally.reads += 1
+  if (!EDIT_TOOLS.has(tool) || answer.isError === true) return
+  const path = typeof input.file_path === 'string' ? input.file_path : typeof input.notebook_path === 'string' ? input.notebook_path : undefined
+  if (path !== undefined) turnFiles.add(path)
+  const change = changeOf(tool, answer.result)
+  turnTally = { ...turnTally, files: turnFiles.size, added: turnTally.added + (change?.added ?? 0), removed: turnTally.removed + (change?.removed ?? 0) }
+}
+
+async function lapOf($: Pick<EngineInterface, 'clock'>, durationMs: number): Promise<{ at: number; tally: LapTally } | undefined> {
   const now = await $.clock.now()
   if (lastTurn === undefined || now - lastTurn.at > LAP_STAMP_WINDOW_MS) return undefined
-  return Math.abs(lastTurn.durationMs - durationMs) <= LAP_MATCH_MS ? lastTurn.at : undefined
+  return Math.abs(lastTurn.durationMs - durationMs) <= LAP_MATCH_MS ? lastTurn : undefined
 }
 
 type Block = { type: string }
@@ -99,6 +119,15 @@ const LAP_STAMP_WINDOW_MS = 5000
 const LAP_MATCH_MS = 1500
 
 const settleScheduled = new Set<string>()
+
+function parsedTally(text: string | undefined): LapTally | undefined {
+  if (text === undefined) return undefined
+  try {
+    return JSON.parse(text) as LapTally
+  } catch {
+    return undefined
+  }
+}
 
 async function markLive($: Tracker, id: string | undefined): Promise<void> {
   if (id === undefined || (await $.state.get({ plugin: 'lucid', key: 'liveCalls', id })).value === true) return
@@ -173,6 +202,8 @@ export const register: Register = on => {
     if (e.agentId === undefined) {
       replies.turnStarted()
       lastReply = undefined
+      turnTally = emptyTally()
+      turnFiles.clear()
     }
     return next(e)
   })
@@ -205,6 +236,11 @@ export const register: Register = on => {
     ledger.started(e.tool_use_id, e.agentId)
     try {
       const answer = await next(e)
+      if ('result' in answer && e.agentId === undefined) {
+        try {
+          tallyCall(e.tool, e as unknown as Record<string, unknown>, answer)
+        } catch {}
+      }
       if ('result' in answer) {
         await observing(() => recordLaunch($, e.tool, answer.result))
         await observing(() => recordEnding($, e.tool_use_id, callEnd(answer)))
@@ -269,9 +305,15 @@ export const register: Register = on => {
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.isExpanded || e.props.waitingFor !== undefined) return next(e)
     const stored = (await $.state.get({ plugin: 'lucid', key: 'lapEnds', id: e.requestId })).value
-    const endedAt = stored ?? (await lapStamp($, e.props.durationMs))
-    if (stored === undefined && endedAt !== undefined) $.clock.after(0, () => quietly($.state.set({ plugin: 'lucid', key: 'lapEnds', id: e.requestId }, endedAt)))
-    return renderLap({ kit: $.ui.resolve(e), palette: await themePalette($) }, e.props.word, e.props.durationMs, endedAt, e.viewport?.columns ?? DEFAULT_COLUMNS)
+    const storedTally = (await $.state.get({ plugin: 'lucid', key: 'lapTallies', id: e.requestId })).value
+    const lap = stored === undefined ? await lapOf($, e.props.durationMs) : undefined
+    if (lap !== undefined) {
+      $.clock.after(0, () => quietly($.state.set({ plugin: 'lucid', key: 'lapEnds', id: e.requestId }, lap.at)))
+      $.clock.after(0, () => quietly($.state.set({ plugin: 'lucid', key: 'lapTallies', id: e.requestId }, JSON.stringify(lap.tally))))
+    }
+    const endedAt = stored ?? lap?.at
+    const tally = lap?.tally ?? parsedTally(storedTally)
+    return renderLap({ kit: $.ui.resolve(e), palette: await themePalette($) }, e.props.word, e.props.durationMs, endedAt, e.viewport?.columns ?? DEFAULT_COLUMNS, tally)
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
@@ -287,7 +329,7 @@ export const register: Register = on => {
     const result = await next(e)
     if (e.agentId === undefined) {
       const at = await $.clock.now().catch(() => undefined)
-      if (at !== undefined) lastTurn = { at, durationMs: e.durationMs }
+      if (at !== undefined) lastTurn = { at, durationMs: e.durationMs, tally: { ...turnTally } }
       replies.turnEnded()
       if (e.reason === 'answer') await observing(() => markTurnEnder($, lastReply))
       lastReply = undefined

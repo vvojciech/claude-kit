@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { changeOf, changeText, sumChanges } from '../hooks/changes'
+import { tallyChips } from '../hooks/laps'
 import { fetchNote, progressCells, progressCount, readNote } from '../hooks/metrics'
 import { dark } from '../hooks/palette'
 import { renderToolRow } from '../hooks/tool-rows'
@@ -114,5 +115,16 @@ describe('row metrics', () => {
     const bar = drawn.filter(n => /^[▰▱]+$/.test(textOf(n))).map(n => [textOf(n), n.props?.color])
     expect(bar).toEqual([['▰', dark.done], ['▰', dark.progress], ['▱', dark.faint]])
     expect(drawn.some(n => / done$/.test(textOf(n)))).toBe(false)
+  })
+})
+
+describe('lap tally', () => {
+  test('sums a turn into chips: files edited with their lines, commands, reads and failures', () => {
+    const chips = tallyChips({ files: 2, added: 45, removed: 12, commands: 4, reads: 5, failed: 1 }).map(group => group.map(chip => `${chip.glyph}${chip.value}`).join(' '))
+    expect(chips).toEqual(['✎2 +45 −12', '$4', '≡5', '✗1'])
+  })
+
+  test('shows nothing for a turn that only talked', () => {
+    expect(tallyChips({ files: 0, added: 0, removed: 0, commands: 0, reads: 0, failed: 0 })).toEqual([])
   })
 })

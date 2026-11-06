@@ -166,6 +166,43 @@ describe('lap line', () => {
   })
 })
 
+describe('lap tally', () => {
+  test('counts a file edited twice once and a new file by its lines', async ($, on) => {
+    const clock = stockBeneath(on)
+    on('ui.render', { component: 'TurnDuration' }, async ($, e) => stock($.ui.resolve(e)))
+    on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+    on('turn.complete', async () => ({ text: 'done' }))
+    on('tool.call', async (_$, e) => (e.tool === 'Write' ? { result: { type: 'create', content: 'a\nb\nc\n', structuredPatch: [] } } : { result: { structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-a', '+b'] }] } }) as never)
+    await clock.advance(4_000_000)
+    await $.turn.start({ turnId: 'dedupe', prompt: 'go' } as never)
+    await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'a', new_string: 'b' } as never)
+    await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'b', new_string: 'c' } as never)
+    await $.tool.call({ tool: 'Write', file_path: '/repo/new.ts', content: 'a\nb\nc\n' } as never)
+    await $.turn.complete({ answer: 'done', durationMs: 8_000, isAborted: false, turnId: 'dedupe', reason: 'answer' } as never)
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'TurnDuration', requestId: 'lap-dedupe', props: { word: 'Baked', durationMs: 8_000 } } as never)
+    expect((await ui.findAll({ type: 'Text' })).map(node => node.text)).toEqual(expect.arrayContaining(['✎ 2', ' +5', ' −2']))
+  })
+
+  test('counts what the main conversation did in a turn and nothing a subagent did', async ($, on) => {
+    const clock = stockBeneath(on)
+    on('ui.render', { component: 'TurnDuration' }, async ($, e) => stock($.ui.resolve(e)))
+    on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+    on('turn.complete', async () => ({ text: 'done' }))
+    on('tool.call', async (_$, e) => (e.tool === 'Edit' ? { result: { structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: ['-a', '+b', '+c'] }] } } : e.tool === 'Read' ? { result: 'File does not exist.', isError: true } : { result: { stdout: '', stderr: '' } }) as never)
+    await clock.advance(3_000_000)
+    await $.turn.start({ turnId: 'tally', prompt: 'go' } as never)
+    await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'a', new_string: 'b\nc' } as never)
+    await $.tool.call({ tool: 'Bash', command: 'ls' } as never)
+    await $.tool.call({ tool: 'Bash', command: 'ls', agentId: 'sub' } as never)
+    await $.tool.call({ tool: 'Read', file_path: '/repo/missing.ts' } as never)
+    await $.turn.complete({ answer: 'done', durationMs: 9_000, isAborted: false, turnId: 'tally', reason: 'answer' } as never)
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'TurnDuration', requestId: 'lap-tally', props: { word: 'Baked', durationMs: 9_000 } } as never)
+    const texts = (await ui.findAll({ type: 'Text' })).map(node => node.text)
+    expect(texts).toEqual(expect.arrayContaining(['✎ 1', ' +2', ' −1', '$ 1', '✗ 1']))
+    expect(texts.some(text => text === '≡ 1')).toBe(false)
+  })
+})
+
 describe('ToolUse', () => {
   test('draws a compact row of its own', async ($, on) => {
     stockBeneath(on)
