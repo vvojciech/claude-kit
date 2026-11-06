@@ -4,6 +4,8 @@ import type { Span } from './markdown'
 import type { Palette } from './palette'
 import { drawRuns, spanRuns } from './runs'
 import type { Draw, Run } from './runs'
+import { changeText } from './changes'
+import type { Change } from './changes'
 import { toolGlyph } from './glyphs'
 import { cellWidth } from './width'
 import { fitMiddle } from './tools'
@@ -32,12 +34,26 @@ const QUIET_STATES = new Set<ToolState>(['rejected', 'interrupted', 'cancelled']
 
 const PREVIEW_LINES = 10
 
-function noteWidth(note: string | undefined): number {
-  return note ? cellWidth(NOTE_GAP + note) : 0
+function noteWidth(note: string | undefined, change?: Change): number {
+  const { added, removed } = changeText(change)
+  const counts = [added, removed].filter(Boolean).map(text => cellWidth(` ${text}`)).reduce((sum, cells) => sum + cells, 0)
+  return (note ? cellWidth(NOTE_GAP + note) : 0) + counts
 }
 
-function detailRoom(columns: number, indent: number, label: string, note: string | undefined): number {
-  return Math.max(0, columns - indent - cellWidth(label) - 1 - noteWidth(note))
+function detailRoom(columns: number, indent: number, label: string, note: string | undefined, change?: Change): number {
+  return Math.max(0, columns - indent - cellWidth(label) - 1 - noteWidth(note, change))
+}
+
+function changeCounts(draw: Draw, change: Change | undefined): RenderNode | null {
+  const { added, removed } = changeText(change)
+  if (added === undefined && removed === undefined) return null
+  const { Text } = draw.kit
+  return (
+    <Text>
+      {added ? <Text color={draw.palette.added}> {added}</Text> : null}
+      {removed ? <Text color={draw.palette.removed}> {removed}</Text> : null}
+    </Text>
+  )
 }
 
 function plainLinks(runs: Run[]): Run[] {
@@ -57,13 +73,14 @@ function toolDetail(draw: Draw, spans: Span[], room: number, quiet: boolean): Re
   return drawRuns(draw, quiet ? quietRuns(runs, draw.palette.muted) : runs)
 }
 
-function toolText(draw: Draw, label: RenderNode, detail: Span[], note: string | undefined, room: number, quiet = false): RenderNode {
+function toolText(draw: Draw, label: RenderNode, detail: Span[], note: string | undefined, room: number, quiet = false, change?: Change): RenderNode {
   const { Text } = draw.kit
   return (
     <Text wrap="truncate-end">
       {label}
       {detail.length > 0 ? ' ' : ''}
       {toolDetail(draw, detail, room, quiet)}
+      {changeCounts(draw, change)}
       {note ? <Text color={draw.palette.muted}>{NOTE_GAP + note}</Text> : null}
     </Text>
   )
@@ -95,7 +112,7 @@ function branch(draw: Draw, index: number, line: ToolLine, columns: number): Ren
         <Text color={draw.palette.muted}>{index === 0 ? BRANCH : ' '.repeat(BRANCH.length)}</Text>
       </Box>
       {kindSlot(draw, state, line.tool, `running-${index}`)}
-      {toolText(draw, label, line.detail, line.note, detailRoom(columns, indent, line.label, line.note), QUIET_STATES.has(state))}
+      {toolText(draw, label, line.detail, line.note, detailRoom(columns, indent, line.label, line.note, line.change), QUIET_STATES.has(state), line.change)}
     </Box>
   )
 }
@@ -135,7 +152,7 @@ export function renderToolRow(draw: Draw, row: ToolRow, state: ToolState, column
           {stateGlyph(draw, state, 'running', motion)}
         </Box>
         {kindSlot(draw, 'done', row.tool, 'kind')}
-        {toolText(draw, name, row.detail, row.note, detailRoom(columns, GUTTER + (row.tool !== undefined ? KIND_SLOT : 0), row.name, row.note), QUIET_STATES.has(state))}
+        {toolText(draw, name, row.detail, row.note, detailRoom(columns, GUTTER + (row.tool !== undefined ? KIND_SLOT : 0), row.name, row.note, row.change), QUIET_STATES.has(state), row.change)}
       </Box>
       {(row.lines ?? []).map((line, i) => branch(draw, i, line, columns))}
     </Box>

@@ -1,12 +1,14 @@
 import { inlineSpans, shellSpans, spansWidth } from './markdown'
 import type { Span } from './markdown'
 import { ELLIPSIS, cellWidth, clipCells, firstLine, sliceCells } from './width'
+import { changeOf, sumChanges } from './changes'
+import type { Change } from './changes'
 
 export type ToolState = 'pending' | 'running' | 'started' | 'done' | 'failed' | 'rejected' | 'interrupted' | 'cancelled'
 
-export type ToolLine = { label: string; detail: Span[]; note?: string; state?: ToolState; tool?: string }
+export type ToolLine = { label: string; detail: Span[]; note?: string; state?: ToolState; tool?: string; change?: Change }
 
-export type ToolRow = { name: string; detail: Span[]; note?: string; lines?: ToolLine[]; tool?: string }
+export type ToolRow = { name: string; detail: Span[]; note?: string; lines?: ToolLine[]; tool?: string; change?: Change }
 
 export type ToolCall = { tool: string; input: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean; output?: unknown; hasRun?: boolean; refused?: boolean }
 
@@ -560,7 +562,7 @@ function backgroundNote(call: ToolCall, state: ToolState): string | undefined {
 export function describeCall(call: ToolCall, roots: Roots, taskStatus?: string): ToolRow {
   const row = summarise(call.tool, call.input, roots, call.output)
   const state = stateOf(call, taskStatus)
-  return { ...row, name: verbFor(call.tool, state, call.input, call.output), note: joinNotes(row.note, backgroundNote(call, state)), tool: call.tool }
+  return { ...row, name: verbFor(call.tool, state, call.input, call.output), note: joinNotes(row.note, backgroundNote(call, state)), tool: call.tool, change: state === 'done' ? changeOf(call.tool, call.output) : undefined }
 }
 
 function spansKey(spans: ReadonlyArray<Span>): string {
@@ -610,7 +612,8 @@ function targetLine(tool: string, calls: ReadonlyArray<TrackedCall>, roots: Root
   const [first] = calls
   const state = first ? trackedState(first) : 'done'
   const sample = calls.length === 1 || tool !== 'ToolSearch' ? first : undefined
-  return { label: verbFor(tool, state, sample?.input, sample?.output), detail, note: first ? backgroundNote(first, state) : undefined, state, tool }
+  const change = state === 'done' ? sumChanges(calls.map(call => changeOf(call.tool, call.output))) : undefined
+  return { label: verbFor(tool, state, sample?.input, sample?.output), detail, note: first ? backgroundNote(first, state) : undefined, state, tool, change }
 }
 
 function byKey<T>(items: ReadonlyArray<T>, key: (item: T) => string): Map<string, T[]> {
