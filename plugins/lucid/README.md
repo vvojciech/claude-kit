@@ -99,7 +99,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 
 ### Prompt panel
 
-- Your prompt sits on a full-width panel with a purple bar on the left. Daltonized themes draw that bar in the strongest text grey instead, because purple and the running blue sit close together for protanopes.
+- Your prompt sits on a full-width panel with a purple bar on the right edge, so your turns and Claude's read apart at a glance. Daltonized themes draw that bar in the strongest text grey instead, because purple and the running blue sit close together for protanopes.
 - Pasted blocks collapse to `[pasted N lines]`. A prompt that is only a paste also shows its first line.
 
 ### Mouse selection

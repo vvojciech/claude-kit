@@ -51,10 +51,10 @@ export function renderPrompt(draw: Draw, text: string, columns: number): RenderE
   const parts = collapsePastes(text)
   return (
     <Box flexDirection="row" marginTop={1} width={columns}>
-      <Box width={1} flexShrink={0} backgroundColor={palette.prompt} />
       <Box flexGrow={1} backgroundColor={palette.panel} paddingX={1}>
         <Text color={palette.strong}>{parts.map(part => promptPart(draw, part, parts.length === 1, columns))}</Text>
       </Box>
+      <Box width={1} flexShrink={0} backgroundColor={palette.prompt} />
     </Box>
   )
 }
