@@ -37,7 +37,7 @@ export function heading(draw: Draw, level: number, spans: Span[], width: number)
   const look = headingLook(level, draw.palette)
   const title = (
     <draw.kit.Text color={look.color} bold={look.bold} underline={look.underline}>
-      {inline(draw, spans)}
+      {inline(draw, spans, false)}
     </draw.kit.Text>
   )
   if (level !== 1) return title

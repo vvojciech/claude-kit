@@ -53,7 +53,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - Follows `/theme` and redraws when you change it.
 - A theme name containing "light" or "dark" picks the background, ANSI themes included. Any other theme reads the terminal background from `COLORFGBG`, and falls back to dark.
 - Every colour is a fixed hex value, so ANSI themes get the same palette as the rest.
-- Warm grey text in four strengths, one orange accent, sand for h1 titles, a purple bar for your prompts, and separate colours for running, done, failed, added and removed.
+- Warm grey text in four strengths, one orange accent with a related tint for bold text (peach on dark, amber on light), sand for h1 titles, a purple bar for your prompts, and separate colours for running, done, failed, added and removed.
 - Text colours meet 4.5:1 on the background and on the prompt panel. Rules, bars and the accent meet 3:1.
 - Daltonized themes draw added lines in blue and done marks in grey-white, so neither relies on green.
 
@@ -74,8 +74,9 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - Tables keep their grid when they fit. Numeric columns align right, and text columns shrink before numbers do. When the columns can't fit, each row stacks as `header: value` lines.
 - Code blocks show the language as a muted label with no fences. Keywords are bold, comments muted italic. Diffs colour added and removed lines, and shell blocks colour commands, flags and strings.
 - A code line wider than the terminal soft-wraps, with a faint `↪` beside each continuation row.
+- Bold text is drawn in a tint from the orange accent family (peach on dark, amber on light), so the words Claude stresses stand out and sit with the ask bar instead of fighting it. Headings keep their own colours.
 - Inline code sits on a chip. Inline shell commands are coloured, and file paths are picked out with their `:line` suffix.
-- Quotes get one bar per nesting level and quieter text. GitHub alerts (`[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) get a label.
+- Quotes get one bar per nesting level and quieter text. GitHub alerts (`[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) get a label, and the label takes the alert's colour: the bold tint for important and warning, red for caution, and the strongest grey for note and tip.
 - Footnote references read `[1]`, and footnote bodies hang past their label.
 - `http`, `https`, `mailto` and `file` links become terminal hyperlinks. Other schemes keep just the label, and relative links show the target as a path.
 - Leading YAML front matter shows as a `yaml` block. Thematic breaks draw as a short faint rule.

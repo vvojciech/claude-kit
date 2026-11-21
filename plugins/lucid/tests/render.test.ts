@@ -964,6 +964,10 @@ describe('palette', () => {
       for (const role of ['accent', 'error'] as const) expect({ role, far: colourDistance(theme.palette.title, theme.palette[role]) >= 20 }).toEqual({ role, far: true })
     })
 
+    test(`keeps the ${theme.name} bold stress apart from the failure red, the ask orange and the title`, () => {
+      for (const [role, least] of [['error', 20], ['accent', 20], ['title', 10]] as const) expect({ role, far: colourDistance(theme.palette.stress, theme.palette[role]) >= least }).toEqual({ role, far: true })
+    })
+
     test(`keeps the ${theme.name} prompt bar apart from the ask bar and the running blue`, () => {
       for (const role of ['accent', 'progress'] as const) expect({ role, far: colourDistance(theme.palette.prompt, theme.palette[role]) >= 20 }).toEqual({ role, far: true })
     })

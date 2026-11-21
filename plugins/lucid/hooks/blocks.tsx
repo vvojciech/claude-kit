@@ -47,6 +47,8 @@ const WIDE_BLOCKS = new Set<Block['kind']>(['code', 'table'])
 
 const ALERT_LABEL: Record<AlertKind, string> = { note: 'Note', tip: 'Tip', important: 'Important', warning: 'Warning', caution: 'Caution' }
 
+const ALERT_ROLE: Record<AlertKind, keyof Palette> = { note: 'strong', tip: 'strong', important: 'stress', warning: 'stress', caution: 'error' }
+
 function markerRuns(item: ListItem, palette: Palette): Run[] {
   if (item.marker === 'done') return [{ text: '- ', look: { color: palette.muted } }, { text: '[x]', look: { color: palette.done } }]
   if (item.marker === 'todo') return [{ text: '- [ ]', look: { color: palette.muted } }]
@@ -264,7 +266,7 @@ function quoteHoldingCode(draw: Draw, blocks: Block[], width: number, top: numbe
 }
 
 function alertLabel(draw: Draw, b: Extract<Block, { kind: 'quote' }>): RenderNode | null {
-  return b.alert ? <draw.kit.Text bold color={draw.palette.strong}>{ALERT_LABEL[b.alert]}</draw.kit.Text> : null
+  return b.alert ? <draw.kit.Text bold color={draw.palette[ALERT_ROLE[b.alert]]}>{ALERT_LABEL[b.alert]}</draw.kit.Text> : null
 }
 
 function quote(draw: Draw, b: Extract<Block, { kind: 'quote' }>, width: number, context: Context): RenderNode {

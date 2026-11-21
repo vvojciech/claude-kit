@@ -51,11 +51,12 @@ export function appendRun(runs: Run[], text: string, look: Look): void {
   else runs.push({ text, look: { ...look } })
 }
 
-export function spanLook(span: Span, palette: Palette, chip: boolean): Look {
+export function spanLook(span: Span, palette: Palette, chip: boolean, stress = true): Look {
   const role = SPAN_ROLE[span.kind]
   const bold = span.bold || span.kind === 'command'
   const look: Look = {}
   if (role) look.color = palette[role]
+  else if (span.bold && stress) look.color = palette.stress
   if (chip && CODE_KINDS.has(span.kind)) look.background = palette.chip
   if (bold) look.bold = true
   if (span.italic) look.italic = true
@@ -73,8 +74,8 @@ export function flagValues(spans: Span[]): Span[] {
   return spans.map((span, i) => (bindsValue(spans[i - 1]) && span.kind !== 'space' ? { ...span, kind: 'flag' } : span))
 }
 
-export function spanRuns(spans: Span[], palette: Palette, runs: Run[] = [], chip = false): Run[] {
-  for (const span of flagValues(spans)) appendRun(runs, span.text, span.kind === 'space' && !chip ? {} : spanLook(span, palette, chip))
+export function spanRuns(spans: Span[], palette: Palette, runs: Run[] = [], chip = false, stress = true): Run[] {
+  for (const span of flagValues(spans)) appendRun(runs, span.text, span.kind === 'space' && !chip ? {} : spanLook(span, palette, chip, stress))
   return runs
 }
 
@@ -90,8 +91,8 @@ export function drawRuns({ kit }: Draw, runs: Run[]): RenderNode[] {
   })
 }
 
-export function inline(draw: Draw, spans: Span[]): RenderNode[] {
-  return drawRuns(draw, spanRuns(spans, draw.palette, [], true))
+export function inline(draw: Draw, spans: Span[], stress = true): RenderNode[] {
+  return drawRuns(draw, spanRuns(spans, draw.palette, [], true, stress))
 }
 
 export function paragraph(draw: Draw, spans: Span[], color: string): RenderNode {

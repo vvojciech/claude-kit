@@ -5,6 +5,7 @@ export type Palette = {
   faint: string
   accent: string
   title: string
+  stress: string
   prompt: string
   progress: string
   done: string
@@ -24,6 +25,7 @@ export const dark: Palette = {
   faint: '#858076',
   accent: '#d4734f',
   title: '#dcae7e',
+  stress: '#e8b69a',
   prompt: '#c48ac0',
   progress: '#7aa2ff',
   done: '#5dc58b',
@@ -41,6 +43,7 @@ export const light: Palette = {
   faint: '#8a857b',
   accent: '#c96442',
   title: '#875a2e',
+  stress: '#985a1f',
   prompt: '#94508f',
   progress: '#2f5fc4',
   done: '#1f6e44',

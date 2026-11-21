@@ -30,7 +30,7 @@ function gridLine(draw: Draw, cells: Span[][], widths: number[], align: Align[],
   cells.forEach((cell, i) => {
     const [before, after] = padding((widths[i] ?? 0) - spansWidth(cell), align[i] ?? 'left')
     appendRun(runs, ' '.repeat(before), {})
-    spanRuns(cell, palette, runs, true)
+    spanRuns(cell, palette, runs, true, !header)
     if (i < cells.length - 1) appendRun(runs, ' '.repeat(after + COLUMN_GAP), {})
   })
   return (
@@ -47,7 +47,7 @@ function gridBoxes(draw: Draw, cells: Span[][], widths: number[], align: Align[]
       {cells.map((cell, i) => (
         <kit.Box width={widths[i]} marginRight={i < cells.length - 1 ? COLUMN_GAP : 0} justifyContent={JUSTIFY[align[i] ?? 'left']} flexShrink={0}>
           <kit.Text color={header ? palette.strong : palette.text} bold={header}>
-            {inline(draw, cell)}
+            {inline(draw, cell, !header)}
           </kit.Text>
         </kit.Box>
       ))}
