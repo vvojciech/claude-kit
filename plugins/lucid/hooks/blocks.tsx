@@ -6,6 +6,7 @@ import { heading } from './headings'
 import type { AlertKind, Block, ListItem, Span } from './markdown'
 import { parseBlocks } from './message'
 import type { Palette } from './palette'
+import { GUTTER, hasContent, leadHeader, leadHeaderOf } from './lead'
 import { laidOut } from './pictures'
 import type { Pictures, Placed } from './pictures'
 import { drawRuns, gapRows, paragraph, spansText, wrappedRows } from './runs'
@@ -500,7 +501,7 @@ const PICTURE_NODES = 8
 
 const ASK_BAR = 1
 
-const ASK_INDENT = ASK_BAR + 1
+const ASK_INDENT = GUTTER
 
 const ASK_NODES = 2
 
@@ -520,6 +521,11 @@ function isBlock(b: Block | Placed): b is Block {
   return b.kind !== 'picture'
 }
 
+function leadingBlocks(blocks: (Block | Placed)[]): Block[] {
+  const end = blocks.findIndex(b => !isBlock(b))
+  return (end === -1 ? blocks : blocks.slice(0, end)) as Block[]
+}
+
 const NO_PICTURES: Pictures = { found: new Map(), node: () => '' }
 
 function pictureKey(used: Set<string>, key: string): string {
@@ -536,7 +542,9 @@ function gapBefore(previous: Block | Placed | undefined, current: Block | Placed
 
 export function renderMarkdown(draw: Draw, text: string, columns: number, streaming = false, pictures: Pictures = NO_PICTURES, endsTurn = false): RenderElement {
   const blocks = laidOut(parseBlocks(text, { streaming }), pictures.found)
-  const asks = asksOf(blocks.filter(isBlock), endsTurn)
+  const header = leadHeaderOf(leadingBlocks(blocks), streaming)
+  const decides = endsTurn && hasContent(header?.decide)
+  const asks = decides ? new Set<Block>() : asksOf(blocks.filter(isBlock), endsTurn)
   const flowWidth = Math.max(1, columns)
   const rows: RenderNode[] = []
   const used = new Set<string>()
@@ -546,6 +554,15 @@ export function renderMarkdown(draw: Draw, text: string, columns: number, stream
     if (b.kind === 'picture') {
       rows.push(blockRow(draw, pictures.node(b.picture, pictureKey(used, b.picture.key)), gap, undefined))
       spent += PICTURE_NODES + ROW_NODES
+      continue
+    }
+    if (header !== undefined && i < header.size) {
+      if (i > 0) continue
+      const node = leadHeader(draw, header, decides, (child, palette) => drawnBlock({ ...draw, palette }, child, Math.max(1, flowWidth - GUTTER)).node)
+      const detail = header.rest === undefined ? undefined : drawnBlock(draw, header.rest, flowWidth).node
+      spent += treeSize(node).nodes + ROW_NODES + (detail === undefined ? 0 : treeSize(detail).nodes + ROW_NODES)
+      rows.push(blockRow(draw, node, gap, flowWidth))
+      if (detail !== undefined) rows.push(blockRow(draw, detail, 1, flowWidth))
       continue
     }
     const wide = b.kind === 'list' ? holdsWide(b) : WIDE_BLOCKS.has(b.kind)

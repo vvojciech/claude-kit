@@ -92,6 +92,15 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - In the reply that ends the turn, the closing question does too, and so does a closing list made only of questions. A question earlier in that reply, or in text before a tool call, stays plain.
 - Only top-level paragraphs and lists get the bar. A selection over one pastes with two leading spaces.
 
+### Lead header
+
+- A reply that opens with an answer line, then `**Decide:**` and/or `**Unsure:**` on the next lines, draws that opening as a header. Blank lines between them are fine, as long as the label paragraphs come straight after the answer. This is the shape the Lead output style asks for. Anywhere else, those labels are ordinary text, and a reply with only an answer line has no header.
+- A label on its own line takes the list under it. A numbered list that restarts at 1, or any number that doesn't follow on, after a blank line is detail, and keeps its numbers as written. Numbered or bulleted lines under a label, and inline `1. … 2. …` items, draw one item per row. A line that isn't a label joins the line above it, so a hard-wrapped answer or Decide stays whole, unless that line ended a sentence; then it starts the detail.
+- The answer is bold in the strongest grey, with a grey bar on every row and a blank row under it. Past 30 words it ends with a muted `· N words`.
+- The Decide label is bold in the strongest grey, and the line gets a bar: faint while the turn runs, the orange ask bar once the turn ends on you. Then it is the reply's only orange, so a closing question gets no second bar.
+- The Unsure line is muted, with `(inferred)` and `(not checked)` in italics.
+- While the reply streams, a label still arriving waits a moment, so the header doesn't drop back to plain text.
+
 ### Images
 
 - With peek loaded, a local `![alt](path)` image in a reply draws as a thumbnail where it sits, with the file name, pixel size and a `⤢ open` button beside it.
@@ -110,6 +119,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - List and task markers are the markdown they came from.
 - Code sits in the same column as prose with no bar or gutter in the way, and long lines are left whole for the terminal to wrap. A selection pastes the exact source.
 - The inline code chip is a background colour, so it never ends up in the paste.
+- A Lead header's bars are background colour too, but the ` · N words` marker after a long answer is text and pastes with it.
 
 For the markdown source, use copy-that.
 

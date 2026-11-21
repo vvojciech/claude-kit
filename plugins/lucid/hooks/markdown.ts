@@ -15,6 +15,8 @@ export type ListItem = {
   marker: 'bullet' | 'number' | 'todo' | 'done'
   number?: string
   blocks: Block[]
+  gapAfter?: boolean
+  written?: number
 }
 
 export type Block = (
@@ -198,6 +200,10 @@ function markerOf(list: Tokens.List, item: Tokens.ListItem): ListItem['marker'] 
 
 const ORDERED_MARKER = /^[ \t]*\d{1,9}([.)])/
 
+const BLANK_LINE_END = /\n[ \t]*\n\s*$/
+
+const WRITTEN_NUMBER = /^[ \t]*(\d{1,9})[.)]/
+
 function listOf(token: Tokens.List, trail: Trail): Block {
   const list: Extract<Block, { kind: 'list' }> = noted(trail, { kind: 'list', loose: token.loose, items: [] }, token.raw)
   const start = typeof token.start === 'number' ? token.start : 1
@@ -205,7 +211,11 @@ function listOf(token: Tokens.List, trail: Trail): Block {
   token.items.forEach((item, index) => {
     const marker = markerOf(token, item)
     const blocks = blocksOf(item.tokens, deeper(trail))
-    list.items.push(marker === 'number' ? { marker, number: `${start + index}${delimiter}`, blocks } : { marker, blocks })
+    const listItem: ListItem = marker === 'number' ? { marker, number: `${start + index}${delimiter}`, blocks } : { marker, blocks }
+    if (index < token.items.length - 1 && BLANK_LINE_END.test(item.raw)) listItem.gapAfter = true
+    const written = WRITTEN_NUMBER.exec(item.raw)?.[1]
+    if (marker === 'number' && written !== undefined) listItem.written = Number(written)
+    list.items.push(listItem)
   })
   return list
 }
