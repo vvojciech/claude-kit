@@ -61,6 +61,12 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 
 - The line that ends a turn becomes a faint dotted `┈` track with the engine's word, the turn's time in bold and the clock time it ended: `┈┈┈ Cooked 1m 4s · 14:47 ┈┈┈┈`. It opens with what the turn did: `✎ 2 +45 −12  $ 4  ≡ 5  ✗ 1` for files edited and their lines, commands run, files read and failures. It counts the main conversation only, not what subagents did. A narrow pane drops these first. The clock time shows only for turns that ended while lucid was loaded, and drops on a narrow pane. The expanded view and the "waiting for background agents" line stay Claude Code's own.
 
+### Race start
+
+- Five cells in front of the spinner show where the turn is. Each turn opens on start lights that fill red over two seconds (`●●●○○`) and go out together (`○○○○○`).
+- After that, a sand-headed comet runs while Claude writes (`·∙•✦`), a tyre spins in the pits while a tool runs (`◐ pit`), and a single star grows the longer Claude thinks, from `·` to a sand `✺` past 30 seconds.
+- The spinner's own star, word, time and token count are still Claude Code's, drawn after the cells. Terminal only.
+
 ### Markdown
 
 - h1 is bold and gold, with a gold rule as wide as the title that runs on as a faint dashed track to the edge. h2 is bold and underlined, h3 bold and muted. h1 and h2 get a wider gap above them.

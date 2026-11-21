@@ -9,6 +9,7 @@ import { changeOf } from './changes'
 import { forgetTail, tailOf } from './tails'
 import { SETTLE_FLASH_MS, renderFailure, renderToolRow, renderWrittenFile } from './tool-rows'
 import { ReplyStream } from './live'
+import { RACE_WIDTH, raceKindOf } from './race'
 import { CallLedger } from './permits'
 import { blocksOf, parseBlocks } from './message'
 import { imageSources, picturesOf, thumbnail } from './pictures'
@@ -30,6 +31,13 @@ let lastReply: string | undefined
 let lastTurn: { at: number; durationMs: number; tally: LapTally } | undefined
 
 let turnTally: LapTally = emptyTally()
+
+const RACE_START = { plugin: 'lucid', key: 'raceStart' } as const
+
+async function startRace($: Tracker): Promise<void> {
+  if (((await $.state.get(RACE_START)).value ?? 0) > 0) return
+  await $.state.set(RACE_START, await $.clock.now())
+}
 
 const turnFiles = new Set<string>()
 
@@ -273,10 +281,16 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       replies.turnStarted()
+      await observing(() => startRace($))
       lastReply = undefined
       turnTally = emptyTally()
       turnFiles.clear()
     }
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    await observing(() => startRace($))
     return next(e)
   })
 
@@ -378,6 +392,23 @@ export const register: Register = on => {
     return renderToolRow({ kit: $.ui.resolve(e), palette: await themePalette($) }, row, state, e.viewport?.columns ?? DEFAULT_COLUMNS, { settling })
   }).catch(($, e, next) => next(e))
 
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    const engine = await next(e)
+    if (e.surface !== 'terminal') return engine
+    const { Box, Client } = $.ui.resolve(e)
+    if (Client === undefined) return engine
+    const palette = await themePalette($)
+    const kind = raceKindOf(e.props.mode)
+    const { value: started = 0 } = await $.state.get(RACE_START)
+    const colors = { error: palette.error, faint: palette.faint, muted: palette.muted, strong: palette.strong, title: palette.title, prompt: palette.prompt, progress: palette.progress }
+    return (
+      <Box flexDirection="row" alignItems="flex-end">
+        <Client key={`race-${kind}`} module="./race.tsx" width={RACE_WIDTH} props={{ kind, startedAt: started > 0 ? started : null, colors }} />
+        {engine}
+      </Box>
+    )
+  }).catch(($, e, next) => next(e))
+
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.isExpanded || e.props.waitingFor !== undefined) return next(e)
     const stored = (await $.state.get({ plugin: 'lucid', key: 'lapEnds', id: e.requestId })).value
@@ -407,6 +438,7 @@ export const register: Register = on => {
       const at = await $.clock.now().catch(() => undefined)
       if (at !== undefined) lastTurn = { at, durationMs: e.durationMs, tally: { ...turnTally } }
       replies.turnEnded()
+      await observing(async () => void (await $.state.set(RACE_START, 0)))
       if (e.reason === 'answer') await observing(() => markTurnEnder($, lastReply))
       lastReply = undefined
     }

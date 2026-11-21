@@ -61,6 +61,7 @@ declare module 'claude-code' {
       lapEnds: StateFamily<number>
       taskTails: StateFamily<string>
       lapTallies: StateFamily<string>
+      raceStart: number
     }
   }
 }

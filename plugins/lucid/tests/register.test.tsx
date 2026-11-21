@@ -1067,3 +1067,75 @@ describe('AssistantMessage', () => {
     expect(await ui.find({ type: 'Text', text: /summary/ })).toBeUndefined()
   })
 })
+
+describe('race spinner', () => {
+  const spinner = (requestId: string, mode: string) => ({ plugin: 'lucid', surface: 'terminal', component: 'Spinner', requestId, props: { word: 'Sauteing', message: null, suffix: '…', mode } }) as never
+
+  test('puts the race cells in front of the stock line, keeping its time and tokens', async ($, on) => {
+    stockBeneath(on)
+    on('ui.render', { component: 'Spinner' }, async ($, e) => stock($.ui.resolve(e)))
+    const ui = await $.ui.mount(spinner('s1', 'requesting'))
+    const race = await ui.find({ type: 'Client' })
+    expect(race?.props.module).toMatch(/race\.tsx$/)
+    expect((race?.props.props as { kind: string }).kind).toBe('comet')
+    expect(await ui.find({ type: 'Text', text: STOCK })).toBeDefined()
+  })
+
+  async function raceProps($: Engine, requestId: string, mode: string) {
+    const ui = await $.ui.mount(spinner(requestId, mode))
+    const race = (await ui.find({ type: 'Client' }))?.props.props as { kind: string; startedAt: number | null }
+    await ui.unmount()
+    return race
+  }
+
+  function racing(on: On): MockClock {
+    const clock = stockBeneath(on)
+    on('ui.render', { component: 'Spinner' }, async ($, e) => stock($.ui.resolve(e)))
+    on('prompt.submit', async (_$, e) => ({ text: e.text }) as never)
+    on('turn.start', async (_$, e) => ({ turnId: e.turnId }) as never)
+    on('turn.complete', async () => ({ text: 'done' }))
+    return clock
+  }
+
+  test('opens the lights from when the prompt went in, in whatever mode the spinner draws, and drops the start once the turn ends', async ($, on) => {
+    const clock = racing(on)
+    expect(await raceProps($, 's2', 'responding')).toMatchObject({ kind: 'comet', startedAt: null })
+    await clock.advance(5_000)
+    await $.prompt.submit({ text: 'go' } as never)
+    const started = (await raceProps($, 's2', 'thinking')).startedAt
+    expect(started).toEqual(expect.any(Number))
+    await clock.advance(1_000)
+    await $.turn.start({ prompt: 'go', turnId: 't1' } as never)
+    expect(await raceProps($, 's2', 'tool-use')).toMatchObject({ kind: 'pit', startedAt: started })
+    await $.turn.complete({ answer: 'done', durationMs: 1_000, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+    expect((await raceProps($, 's2', 'responding')).startedAt).toBeNull()
+  })
+
+  test('keeps the turn start when a prompt or notification arrives in a running turn', async ($, on) => {
+    const clock = racing(on)
+    await clock.advance(5_000)
+    await $.prompt.submit({ text: 'go' } as never)
+    await $.turn.start({ prompt: 'go', turnId: 't3' } as never)
+    const started = (await raceProps($, 's6', 'responding')).startedAt
+    await clock.advance(10_000)
+    await $.prompt.submit({ text: 'queued' } as never)
+    await $.prompt.submit({ text: '<task-notification/>', isMeta: true } as never)
+    expect((await raceProps($, 's6', 'tool-use')).startedAt).toBe(started)
+  })
+
+  test('starts the lights at the turn start for a turn no prompt opened, but never for a subagent turn', async ($, on) => {
+    const clock = racing(on)
+    await clock.advance(5_000)
+    await $.turn.start({ prompt: 'sub', turnId: 'a1', agentId: 'agent-1' } as never)
+    expect((await raceProps($, 's5', 'responding')).startedAt).toBeNull()
+    await $.turn.start({ prompt: 'note', turnId: 't2' } as never)
+    expect((await raceProps($, 's5', 'responding')).startedAt).toEqual(expect.any(Number))
+  })
+
+  test('leaves the spinner to the engine off the terminal', async ($, on) => {
+    stockBeneath(on)
+    on('ui.render', { component: 'Spinner' }, async ($, e) => stock($.ui.resolve(e)))
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'desktop', component: 'Spinner', requestId: 's4', props: { word: 'Working', message: null, suffix: '…', mode: 'requesting' } } as never)
+    expect(await ui.find({ type: 'Client' })).toBeUndefined()
+  })
+})
