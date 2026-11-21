@@ -5,6 +5,8 @@ import { cellWidth } from './width'
 
 const TAIL = 4
 
+const CHEQUERED = '▚▞▚▞'
+
 export const LAP_RULE = '┈'
 
 const CLOCK_ROOM = 8
@@ -86,7 +88,7 @@ export function renderLap(draw: Draw, word: string, durationMs: number, endedAt:
           {time}
         </Text>
         {clock ? <Text color={draw.palette.muted}>{clock}</Text> : null}
-        <Text color={draw.palette.faint}> {LAP_RULE.repeat(TAIL)}</Text>
+        <Text color={draw.palette.strong}> {CHEQUERED}</Text>
       </Text>
     </Box>
   )

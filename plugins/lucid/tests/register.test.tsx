@@ -1139,3 +1139,12 @@ describe('race spinner', () => {
     expect(await ui.find({ type: 'Client' })).toBeUndefined()
   })
 })
+
+describe('chequered flag', () => {
+  test('ends the lap line with a chequered flag in place of the rule tail', async ($, on) => {
+    stockBeneath(on)
+    on('ui.render', { component: 'TurnDuration' }, async ($, e) => stock($.ui.resolve(e)))
+    const ui = await $.ui.mount({ plugin: 'lucid', surface: 'terminal', component: 'TurnDuration', requestId: 'lap9', props: { word: 'Cooked', durationMs: 3_000 } } as never)
+    expect(await ui.find({ type: 'Text', text: ' ▚▞▚▞' })).toBeDefined()
+  })
+})
