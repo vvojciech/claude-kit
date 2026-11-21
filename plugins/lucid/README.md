@@ -53,7 +53,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 - Follows `/theme` and redraws when you change it.
 - A theme name containing "light" or "dark" picks the background, ANSI themes included. Any other theme reads the terminal background from `COLORFGBG`, and falls back to dark.
 - Every colour is a fixed hex value, so ANSI themes get the same palette as the rest.
-- Warm grey text in four strengths, one orange accent, gold for h1 titles, a purple bar for your prompts, and separate colours for running, done, failed, added and removed.
+- Warm grey text in four strengths, one orange accent, sand for h1 titles, a purple bar for your prompts, and separate colours for running, done, failed, added and removed.
 - Text colours meet 4.5:1 on the background and on the prompt panel. Rules, bars and the accent meet 3:1.
 - Daltonized themes draw added lines in blue and done marks in grey-white, so neither relies on green.
 
@@ -69,7 +69,7 @@ Works with peek (images drawn where they sit in a reply), copy-that (copy the ma
 
 ### Markdown
 
-- h1 is bold and gold, with a gold rule as wide as the title that runs on as a faint dashed track to the edge. h2 is bold and underlined, h3 bold and muted. h1 and h2 get a wider gap above them.
+- h1 is bold and sand, with a sand rule as wide as the title that runs on as a faint dashed track to the edge. h2 is bold and underlined, h3 bold and muted. h1 and h2 get a wider gap above them.
 - Lists keep their markdown markers. Ordered lists keep their numbers and delimiter. Tasks show `- [ ]` and `- [x]`, and done items are greyed.
 - Tables keep their grid when they fit. Numeric columns align right, and text columns shrink before numbers do. When the columns can't fit, each row stacks as `header: value` lines.
 - Code blocks show the language as a muted label with no fences. Keywords are bold, comments muted italic. Diffs colour added and removed lines, and shell blocks colour commands, flags and strings.

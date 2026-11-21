@@ -184,7 +184,7 @@ describe('AssistantMessage headings', () => {
     expect(findText(tree, text => text.startsWith('#'))).toBeUndefined()
   })
 
-  test('rules only an h1, gold as wide as its title and a faint track on to the column edge, so h1 and h2 differ by shape and not just by ink', async ($, on) => {
+  test('rules only an h1, sand as wide as its title and a faint track on to the column edge, so h1 and h2 differ by shape and not just by ink', async ($, on) => {
     const tree = await drawDark($, on, `# One\n\n## Second\n\n### Three\n\n#### Four\n\n# ${'word '.repeat(30).trim()}`, 40)
     const rules = allTexts(tree, text => /[─┄╌━]/.test(text))
     expect(rules.map(rule => [textOf(rule), rule.props?.color])).toEqual([['━━━', dark.title], ['┄'.repeat(37), dark.faint], ['━'.repeat(40), dark.title]])
@@ -218,7 +218,7 @@ describe('AssistantMessage headings', () => {
     }
   })
 
-  test('draws h1 in the title gold and h2 in the strongest grey, so the two levels stay apart', async ($, on) => {
+  test('draws h1 in the title sand and h2 in the strongest grey, so the two levels stay apart', async ($, on) => {
     const tree = await drawDark($, on, '# One\n\n## Two')
     expect(findText(tree, t => t === 'One')?.element.props?.color).toBe(dark.title)
     expect(findText(tree, t => t === 'Two')?.element.props?.color).toBe(dark.strong)
@@ -960,7 +960,7 @@ describe('palette', () => {
   })
 
   for (const theme of TUNED) {
-    test(`keeps the ${theme.name} h1 gold apart from the ask orange and the failure red`, () => {
+    test(`keeps the ${theme.name} h1 sand apart from the ask orange and the failure red`, () => {
       for (const role of ['accent', 'error'] as const) expect({ role, far: colourDistance(theme.palette.title, theme.palette[role]) >= 20 }).toEqual({ role, far: true })
     })
 
